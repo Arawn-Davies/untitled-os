@@ -54,7 +54,7 @@ void Serial_WriteString(string a)
 //Initialises the serial connection
 void init_serial(int ComPort) 
 {
-	printf("Serial init start");
+	printf("Serial init start\n");
 	PORT = ComPort;
  	outb(PORT, 0x00);    // Disable all interrupts
  	outb(PORT, 0x80);    // Enable DLAB (set baud rate divisor)
@@ -63,5 +63,6 @@ void init_serial(int ComPort)
  	outb(PORT, 0x03);    // 8 bits, no parity, one stop bit
  	outb(PORT, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
 	outb(PORT, 0x0B);    // IRQs enabled, RTS/DSR set
+	printf("Serial init done!\n");
 	Serial_WriteString("Serial init done!\n");
 }
