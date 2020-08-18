@@ -5,13 +5,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef char* string;
+typedef char *string;
 
-typedef struct {
+typedef struct
+{
 	int32_t X, Y;
 } Point;
 
-typedef struct {
+typedef struct
+{
 	uint32_t X, Y;
 } UPoint;
 

@@ -3,29 +3,39 @@
 
 #include <stdint.h>
 
-inline void outb(uint16_t port, uint8_t val) {
-  asm volatile("outb %0, %1" : : "a"(val), "Nd"(port));
-  // There's an outb %al, $imm8  encoding, for compile-time constant port
-  // numbers that fit in 8b.  (N constraint).
-  // Wider immediate constants would be truncated at assemble-time (e.g. "i"
-  // constraint).
-  // The  outb  %al, %dx  encoding is the only option for all other cases.
-  // %1 expands to %dx because  port  is a uint16_t.  %w1 could be used if we
-  // had the port number a wider C type */
+inline void outb(uint16_t port, uint8_t val)
+{
+	asm volatile("outb %0, %1"
+				 :
+				 : "a"(val), "Nd"(port));
+	// There's an outb %al, $imm8  encoding, for compile-time constant port
+	// numbers that fit in 8b.  (N constraint).
+	// Wider immediate constants would be truncated at assemble-time (e.g. "i"
+	// constraint).
+	// The  outb  %al, %dx  encoding is the only option for all other cases.
+	// %1 expands to %dx because  port  is a uint16_t.  %w1 could be used if we
+	// had the port number a wider C type */
 }
 
-inline uint8_t inb(uint16_t port) {
-  uint8_t ret;
-  asm volatile("inb %1, %0" : "=a"(ret) : "Nd"(port));
-  return ret;
+inline uint8_t inb(uint16_t port)
+{
+	uint8_t ret;
+	asm volatile("inb %1, %0"
+				 : "=a"(ret)
+				 : "Nd"(port));
+	return ret;
 }
 
 inline void enable_interrupts(void) { asm volatile("sti"); }
 
 inline void disable_interrupts(void) { asm volatile("sti"); }
 
-inline void invlpg(void* m) {
-  asm volatile("invlpg (%0)" : : "b"(m) : "memory");
+inline void invlpg(void *m)
+{
+	asm volatile("invlpg (%0)"
+				 :
+				 : "b"(m)
+				 : "memory");
 }
 
 #endif

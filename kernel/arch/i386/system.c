@@ -11,5 +11,5 @@ inline void io_wait()
 //Halts the CPU, executes when there's an unrecoverable exception or some other error
 inline void halt()
 {
-    asm volatile ("hlt");
+	asm volatile ("hlt");
 }

@@ -8,4 +8,4 @@
 // Sets up the IDT, should be called on early initialization
 void idt_install();
 
-#endif  // _KERNEL_IDT_H_
+#endif // _KERNEL_IDT_H_
