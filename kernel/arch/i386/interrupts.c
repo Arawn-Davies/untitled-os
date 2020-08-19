@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include <kernel/asm.h>
-#include <kernel/isr.h>
+#include <kernel/interrupts.h>
 #include <kernel/tty.h>
 #include <kernel/types.h>
 #include <kernel/system.h>

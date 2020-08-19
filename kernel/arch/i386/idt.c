@@ -2,7 +2,7 @@
 #include <kernel/asm.h>
 #include <stdio.h>
 #include <string.h>
-#include <kernel/isr.h>
+#include <kernel/interrupts.h>
 
 #define SET_IDT_ENTRY(idx)                                 \
 	set_idt_entry(idx, (uint32_t)&interrupt_handler_##idx, \

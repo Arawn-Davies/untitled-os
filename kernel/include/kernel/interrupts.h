@@ -4,8 +4,9 @@
 //          Rewritten for JamesM's kernel development tutorials.
 //
 
-#ifndef _KERNEL_ISR_H
-#define _KERNEL_ISR_H
+#ifndef _KERNEL_INTERRUPTS_H
+#define _KERNEL_INTERRUPTS_H
+#include <kernel/types.h>
 
 #define TIMER_IDT_INDEX 32
 #define KEYBOARD_IDT_INDEX 33
