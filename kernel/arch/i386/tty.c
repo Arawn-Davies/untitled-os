@@ -111,3 +111,44 @@ void t_writestring(const char *data)
 {
 	t_write(data, strlen(data));
 }
+
+// Credit: lja83/OSDEV
+void monitor_write_base(uint32_t num, uint32_t base)
+{
+	uint32_t baseNum;
+
+	if(num > (base - 1))
+	{
+		monitor_write_base(num / base, base);
+		baseNum = num % base;
+	}
+	else
+	{
+		baseNum = num;
+	}
+
+	if(baseNum > 9)
+	{
+		// Capital letters start at 65 but we have to
+		// subtract 10 to get the offset
+		t_putchar(baseNum + 65 - 10);
+	}
+	else
+	{
+		// Numbers start at 0x30 in ASCII
+		t_putchar(baseNum + 0x30);
+	}
+}
+
+void t_hex(uint32_t num)
+{
+	monitor_write_base(num, 16);
+}
+
+void t_dec(uint32_t num)
+{
+	monitor_write_base(num, 10);
+}
+
+// End credit
+

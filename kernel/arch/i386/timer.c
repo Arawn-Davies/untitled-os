@@ -1,5 +1,4 @@
 #include <kernel/timer.h>
-#include <kernel/interrupts.h>
 #include <kernel/isr.h>
 #include <stdbool.h>
 #include <stddef.h>

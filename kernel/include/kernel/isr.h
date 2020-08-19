@@ -7,20 +7,20 @@
 #ifndef _KERNEL_ISR_H
 #define _KERNEL_ISR_H
 
-//#include "common.h"
+#define TIMER_IDT_INDEX 32
+#define KEYBOARD_IDT_INDEX 33
+#define SYSCALL_IDT_INDEX 128
 
-
-// A few defines to make life a little easier
-#define IRQ0 32
-#define IRQ1 33
-#define IRQ2 34
-#define IRQ3 35
-#define IRQ4 36
-#define IRQ5 37
-#define IRQ6 38
-#define IRQ7 39
-#define IRQ8 40
-#define IRQ9 41
+#define IRQ0  32
+#define IRQ1  33
+#define IRQ2  34
+#define IRQ3  35
+#define IRQ4  36
+#define IRQ5  37
+#define IRQ6  38
+#define IRQ7  39
+#define IRQ8  40
+#define IRQ9  41
 #define IRQ10 42
 #define IRQ11 43
 #define IRQ12 44
@@ -28,51 +28,73 @@
 #define IRQ14 46
 #define IRQ15 47
 
-extern void ISR0 ();
-extern void ISR1 ();
-extern void ISR2 ();
-extern void ISR3 ();
-extern void ISR4 ();
-extern void ISR5 ();
-extern void ISR6 ();
-extern void ISR7 ();
-extern void ISR8 ();
-extern void ISR9 ();
-extern void ISR10();
-extern void ISR11();
-extern void ISR12();
-extern void ISR13();
-extern void ISR14();
-extern void ISR15();
-extern void ISR16();
-extern void ISR17();
-extern void ISR18();
-extern void ISR19();
-extern void ISR20();
-extern void ISR21();
-extern void ISR22();
-extern void ISR23();
-extern void ISR24();
-extern void ISR25();
-extern void ISR26();
-extern void ISR27();
-extern void ISR28();
-extern void ISR29();
-extern void ISR30();
-extern void ISR31();
+extern void isr0 ();
+extern void isr1 ();
+extern void isr2 ();
+extern void isr3 ();
+extern void isr4 ();
+extern void isr5 ();
+extern void isr6 ();
+extern void isr7 ();
+extern void isr8 ();
+extern void isr9 ();
+extern void isr10();
+extern void isr11();
+extern void isr12();
+extern void isr13();
+extern void isr14();
+extern void isr15();
+extern void isr16();
+extern void isr17();
+extern void isr18();
+extern void isr19();
+extern void isr20();
+extern void isr21();
+extern void isr22();
+extern void isr23();
+extern void isr24();
+extern void isr25();
+extern void isr26();
+extern void isr27();
+extern void isr28();
+extern void isr29();
+extern void isr30();
+extern void isr31();
+
+extern void irq0();
+extern void irq1();
+extern void irq2();
+extern void irq3();
+extern void irq4();
+extern void irq5();
+extern void irq6();
+extern void irq7();
+extern void irq8();
+extern void irq9();
+extern void irq10();
+extern void irq11();
+extern void irq12();
+extern void irq13();
+extern void irq14();
+extern void irq15();
 
 typedef struct registers
 {
-    uint32_t ds;                  // Data segment selector
-    uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax; // Pushed by pusha.
-    uint32_t int_no, err_code;    // Interrupt number and error code (if applicable)
-    uint32_t eip, cs, eflags, useresp, ss; // Pushed by the processor automatically.
+	uint32_t ds;					// Data segment selector
+	uint32_t edi, esi, ebp, esp, ebx, edx, ecx, eax; 	// Pushed by pusha.
+	uint32_t int_no, err_code;			// Interrupt number and error code (if applicable)
+	uint32_t eip, cs, eflags, useresp, ss;		// Pushed by the processor automatically.
 } registers_t;
 
 // Enables registration of callbacks for interrupts or IRQs.
 // For IRQs, to ease confusion, use the #defines above as the
-// first parameter.
-//typedef void (*ISR_t)(registers_t);
-//void register_interrupt_handler(uint8_t n, ISR_t handler);
+// first parameter
+typedef void (*isr_t)(registers_t);
 
-#endif
+void register_interrupt_handler(uint8_t n, isr_t handler);
+
+void unregister_interrupt_handler(uint8_t n);
+int is_registered(uint8_t n);
+void init_isr_handlers();
+
+#endif // ISR_H

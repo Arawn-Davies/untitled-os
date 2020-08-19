@@ -1,77 +1,82 @@
 #include <kernel/idt.h>
-#include <kernel/interrupts.h>
 #include <kernel/asm.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdio.h>
 #include <string.h>
 
-static interrupt_handler_t interrupt_handlers[IDT_NUM_ENTRIES];
+#include <kernel/asm.h>
+#include <kernel/isr.h>
+#include <kernel/tty.h>
+#include <kernel/types.h>
+#include <kernel/system.h>
 
-bool register_interrupt_handler(
-	uint32_t idt_index, interrupt_handler_t handler)
+isr_t interrupt_handlers[256];
+
+void init_isr_handlers()
 {
-	if (idt_index >= IDT_NUM_ENTRIES)
-	{
-		return false;
-	}
-
-	if (interrupt_handlers[idt_index] != NULL)
-	{
-		return false;
-	}
-
-	interrupt_handlers[idt_index] = handler;
-	return true;
+	memset(&interrupt_handlers, 0, sizeof(isr_t)*256);
 }
 
-void fault_handler(struct regs *r)
+void register_interrupt_handler(uint8_t n, isr_t handler)
 {
-	printf("System Exception. System Halted!\n");
-	for (;;)
-		;
+	interrupt_handlers[n] = handler;
+	if (n >= IRQ0)
+	{
+		t_writestring("IRQ ");
+		t_dec(n - IRQ0);
+	}
+	else
+	{
+		t_writestring("Interrupt ");
+		t_dec(n);
+	}
+	t_writestring(" Registered...\n");
 }
 
-void irq_handler(struct regs *r)
-{
-	// Blank function pointer
-	void (*handler)(struct regs * r);
 
-	// If there's a custom handler to handle the IRQ, handle it
-	handler = interrupt_handlers[r->idt_index];
-	if (handler)
+void unregister_interrupt_handler(uint8_t n)
+{
+	t_writestring("Unregistering a handler...\n");
+	interrupt_handlers[n] = 0x0;
+}
+
+int is_registered(uint8_t n)
+{
+	return !(interrupt_handlers[n] == 0);
+}
+
+// This gets called from our ASM interrupt handler stub.
+void isr_handler(registers_t regs)
+{
+	if(interrupt_handlers[regs.int_no] != 0)
 	{
-		handler(r);
+		isr_t handler = interrupt_handlers[regs.int_no];
+		handler(regs);
+	}
+	else
+	{
+		t_writestring("Unhandled Interrupt: ");
+		t_dec(regs.int_no);
+		t_putchar('\n');
+		PANIC("Unhandled Interrupt");
+	}
+}
+
+// This gets called from our ASM interrupt handler stub.
+void irq_handler(registers_t regs)
+{
+	if(interrupt_handlers[regs.int_no] != 0)
+	{
+		isr_t handler = interrupt_handlers[regs.int_no];
+		handler(regs);
 	}
 
-	// If the IDT entry that was invoked was greater than 40, sends an EOI
-	// to the slave controller
-	if (r->idt_index >= 40)
+	// Send an EOI (end of interrupt) signal to the PICS.
+	// If this interrupt involved the slave
+	if (regs.int_no >= 40)
 	{
+		// Send reset signal to slave.
 		outb(0xA0, 0x20);
 	}
 
-	// Sends an EOI to the master interrupt controller
+	// Send reset signal to master. (As well as slave, if necessary).
 	outb(0x20, 0x20);
-}
-
-void run_interrupt_handler(struct regs *r)
-{
-	size_t idt_index = r->idt_index;
-	if (idt_index < 32)
-	{
-		fault_handler(r);
-		return;
-	}
-
-	if (interrupt_handlers[r->idt_index] != NULL)
-	{
-		interrupt_handlers[r->idt_index](r);
-	}
-
-	if (idt_index >= 32 && idt_index <= 47)
-	{
-		irq_handler(r);
-		return;
-	}
 }
