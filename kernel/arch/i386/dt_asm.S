@@ -1,3 +1,5 @@
+# Descriptor Table Assembler source
+
 # This will set up our new segment registers. We need to do
 # something special in order to set CS. We do what is called a
 # far jump. A jump that includes a segment as well as an offset.
@@ -16,3 +18,12 @@ gdt_flush:
     jmp $0x08, $.flush
 .flush:
     ret               # Returns back to the C code!
+
+
+# Loads the IDT defined in '_idtp' into the processor.
+# This is declared in C as 'extern void idt_load();'
+.global idt_load
+idt_load:
+    mov 4(%esp), %eax
+    lidt (%eax)
+    ret

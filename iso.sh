@@ -8,7 +8,7 @@ mkdir -p isodir/boot/grub
 
 cp sysroot/boot/untitled-os.kernel isodir/boot/untitled-os.kernel
 cat > isodir/boot/grub/grub.cfg << EOF
-menuentry "untitled-os" {
+menuentry "AOYU OS" {
 	multiboot /boot/untitled-os.kernel
 }
 EOF
