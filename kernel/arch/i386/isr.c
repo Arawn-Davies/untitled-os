@@ -47,6 +47,7 @@ int is_registered(uint8_t n)
 
 void isr_handler(registers_t regs)
 {
+	t_writestring("handled ISR");
 	if(interrupt_handlers[regs.int_no] != 0)
 	{
 		isr_t handler = interrupt_handlers[regs.int_no];
@@ -64,6 +65,7 @@ void isr_handler(registers_t regs)
 // This gets called from our ASM interrupt handler stub.
 void irq_handler(registers_t regs)
 {
+	t_writestring("handled IRQ");
 	if(interrupt_handlers[regs.int_no] != 0)
 	{
 		isr_t handler = interrupt_handlers[regs.int_no];
