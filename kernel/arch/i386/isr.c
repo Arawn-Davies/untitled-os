@@ -17,6 +17,9 @@ void init_isr_handlers()
 
 void register_interrupt_handler(uint8_t n, isr_t handler)
 {
+	t_writestring("Handler address at: ");
+	t_hex(&handler);
+	t_writestring("\n");
 	interrupt_handlers[n] = handler;
 	if (n >= IRQ0)
 	{
@@ -31,7 +34,6 @@ void register_interrupt_handler(uint8_t n, isr_t handler)
 	t_writestring(" Registered...\n");
 }
 
-
 void unregister_interrupt_handler(uint8_t n)
 {
 	t_writestring("Unregistering a handler...\n");
@@ -43,7 +45,6 @@ int is_registered(uint8_t n)
 	return !(interrupt_handlers[n] == 0);
 }
 
-// This gets called from our ASM interrupt handler stub.
 void isr_handler(registers_t regs)
 {
 	if(interrupt_handlers[regs.int_no] != 0)

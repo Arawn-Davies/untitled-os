@@ -97,5 +97,6 @@ void register_interrupt_handler(uint8_t n, isr_t handler);
 void unregister_interrupt_handler(uint8_t n);
 int is_registered(uint8_t n);
 void init_isr_handlers();
-
+void isr_handler(registers_t regs);
+void irq_handler(registers_t regs);
 #endif // ISR_H

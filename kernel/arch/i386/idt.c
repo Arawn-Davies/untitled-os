@@ -32,18 +32,19 @@ typedef struct idt_ptr idt_ptr_t;
 idt_entry_t idt[IDT_NUM_ENTRIES];
 idt_ptr_t idtp;
 
-// Function arch/i386/idt.S, loads IDT from a pointer to an idt_ptr
+// Function arch/i386/dt_asm.S, loads IDT from a pointer to an idt_ptr
 extern void idt_load(struct idt_ptr *idt_ptr_addr);
-
-
 
 void set_idt_entry(uint8_t num, uint64_t handler, uint16_t sel, uint8_t flags)
 {
 	idt[num].handler_lo = handler & 0xFFFF;
 	idt[num].handler_hi = (handler >> 16) & 0xFFFF;
-	idt[num].always0 = 0;
-	idt[num].flags = flags;
-	idt[num].sel = sel;
+
+	idt[num].sel		= sel;
+	idt[num].always0	= 0;
+	// We must uncomment the OR below when we get to using user-mode.
+	// It sets the interrupt gate's privilege level to 3.
+	idt[num].flags		= flags /* | 0x60 */;
 }
 
 // Installs the IDT
@@ -100,6 +101,7 @@ void idt_install()
 	set_idt_entry(29, (uint32_t)isr29, 0x08, 0x8E);
 	set_idt_entry(30, (uint32_t)isr30, 0x08, 0x8E);
 	set_idt_entry(31, (uint32_t)isr31, 0x08, 0x8E);
+
 	set_idt_entry(32, (uint32_t)irq0, 0x08, 0x8E);
 	set_idt_entry(33, (uint32_t)irq1, 0x08, 0x8E);
 	set_idt_entry(34, (uint32_t)irq2, 0x08, 0x8E);

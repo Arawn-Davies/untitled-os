@@ -5,6 +5,7 @@
 #include <kernel/idt.h>
 #include <kernel/serial.h>
 #include <kernel/timer.h>
+#include <kernel/system.h>
 
 void kernel_main(void)
 {
@@ -16,5 +17,4 @@ void kernel_main(void)
 	init_serial(COM2);
 	Serial_WriteString("Hello, kernel World\n");
 	init_timer(50);
-	Serial_WriteString("Is this called?\n");
 }
