@@ -1,33 +1,41 @@
-.extern isr_handler
-.extern irq_handler
+%macro ISR_NOERRCODE 1			; define a macro, taking one parameter
+  [GLOBAL isr%1]			; %1 accesses the first parameter.
+  isr%1:
+	cli				; Disable inerrupts
+	push byte 0			; Push a dummy error code
+	push byte %1			; Push the interrupt number
+	jmp isr_common_stub		; Go to our common handler.
+%endmacro
 
-.macro ISR_NOERRCODE num
-	.global isr\num
-	isr\num:
-		cli
-		pushl $0
-		pushl $\num
-		jmp isr_common_stub
-.endm
+%macro ISR_ERRCODE 1
+  [GLOBAL isr%1]
+  isr%1:
+	cli
+	push byte %1
+	jmp isr_common_stub
+%endmacro
 
-.macro ISR_ERRCODE num
-	.global isr\num
-	isr\num:
-		cli
-		pushl $\num
-		jmp isr_common_stub
-.endm
+; This macro creates a stub for an IRQ - the first parameter is
+; the IRQ number, the second is the ISR number it is remapped to
+%macro IRQ 2
+  [GLOBAL irq%1]
+  irq%1:
+	cli
+	push byte 0
+	push byte %2
+	jmp irq_common_stub
+%endmacro
 
-ISR_NOERRCODE 0
-ISR_NOERRCODE 1
-ISR_NOERRCODE 2
-ISR_NOERRCODE 3
-ISR_NOERRCODE 4
-ISR_NOERRCODE 5
-ISR_NOERRCODE 6
-ISR_NOERRCODE 7
-ISR_ERRCODE   8
-ISR_NOERRCODE 9
+ISR_NOERRCODE  0
+ISR_NOERRCODE  1
+ISR_NOERRCODE  2
+ISR_NOERRCODE  3
+ISR_NOERRCODE  4
+ISR_NOERRCODE  5
+ISR_NOERRCODE  6
+ISR_NOERRCODE  7
+ISR_ERRCODE    8
+ISR_NOERRCODE  9
 ISR_ERRCODE   10
 ISR_ERRCODE   11
 ISR_ERRCODE   12
@@ -51,171 +59,80 @@ ISR_NOERRCODE 29
 ISR_NOERRCODE 30
 ISR_NOERRCODE 31
 
-ISR_NOERRCODE	48
-ISR_NOERRCODE	49
-ISR_NOERRCODE	50
-ISR_NOERRCODE	51
-ISR_NOERRCODE	52
-ISR_NOERRCODE	53
-ISR_NOERRCODE	54
-ISR_NOERRCODE	55
-ISR_NOERRCODE	56
-ISR_NOERRCODE	57
-ISR_NOERRCODE	58
-ISR_NOERRCODE	59
-ISR_NOERRCODE	60
-ISR_NOERRCODE	61
-ISR_NOERRCODE	62
-ISR_NOERRCODE	63
-ISR_NOERRCODE	64
-ISR_NOERRCODE	65
-ISR_NOERRCODE	66
-ISR_NOERRCODE	67
-ISR_NOERRCODE	68
-ISR_NOERRCODE	69
-ISR_NOERRCODE	70
-ISR_NOERRCODE	71
-ISR_NOERRCODE	72
-ISR_NOERRCODE	73
-ISR_NOERRCODE	74
-ISR_NOERRCODE	75
-ISR_NOERRCODE	76
-ISR_NOERRCODE	77
-ISR_NOERRCODE	78
-ISR_NOERRCODE	79
-ISR_NOERRCODE	80
-ISR_NOERRCODE	81
-ISR_NOERRCODE	82
-ISR_NOERRCODE	83
-ISR_NOERRCODE	84
-ISR_NOERRCODE	85
-ISR_NOERRCODE	86
-ISR_NOERRCODE	87
-ISR_NOERRCODE	88
-ISR_NOERRCODE	89
-ISR_NOERRCODE	90
-ISR_NOERRCODE	91
-ISR_NOERRCODE	92
-ISR_NOERRCODE	93
-ISR_NOERRCODE	94
-ISR_NOERRCODE	95
-ISR_NOERRCODE	96
-ISR_NOERRCODE	97
-ISR_NOERRCODE	98
-ISR_NOERRCODE	99
-ISR_NOERRCODE	100
-ISR_NOERRCODE	101
-ISR_NOERRCODE	102
-ISR_NOERRCODE	103
-ISR_NOERRCODE	104
-ISR_NOERRCODE	105
-ISR_NOERRCODE	106
-ISR_NOERRCODE	107
-ISR_NOERRCODE	108
-ISR_NOERRCODE	109
-ISR_NOERRCODE	110
-ISR_NOERRCODE	111
-ISR_NOERRCODE	112
-ISR_NOERRCODE	113
-ISR_NOERRCODE	114
-ISR_NOERRCODE	115
-ISR_NOERRCODE	116
-ISR_NOERRCODE	117
-ISR_NOERRCODE	118
-ISR_NOERRCODE	119
-ISR_NOERRCODE	120
-ISR_NOERRCODE	121
-ISR_NOERRCODE	122
-ISR_NOERRCODE	123
-ISR_NOERRCODE	124
-ISR_NOERRCODE	125
-ISR_NOERRCODE	126
-ISR_NOERRCODE	127
-ISR_NOERRCODE 128
+IRQ  0,	32
+IRQ  1,	33
+IRQ  2,	34
+IRQ  3,	35
+IRQ  4,	36
+IRQ  5,	37
+IRQ  6,	38
+IRQ  7,	39
+IRQ  8,	40
+IRQ  9,	41
+IRQ 10,	42
+IRQ 11,	43
+IRQ 12,	44
+IRQ 13,	45
+IRQ 14,	46
+IRQ 15,	47	
 
+[EXTERN isr_handler]		; In isr.c
+
+; This is our common ISR stub. It saves the processor state, sets
+; up for kernel mode segments, calls the C-level fault handler,
+; and finally restores the stack frame.
 isr_common_stub:
+	pusha			; Pushes edi, esi, ebp, esp, ebx, edx, edx, eax
 
-	# Print test - am I getting called?
-	mov %ebx,0xb8000    # The video address
-    mov %al,'!'         # The character to be print
-    mov %ah,0x0F        # The color: white(F) on black(0)
-    movw %ax,(%ebx) 
+	mov ax, ds		; Lower 16-bits of eax = ds.
+	push eax		; save the data segment descriptor
 
-	pusha
-	pushl %ds
-	pushl %es
-	pushl %fs
-	pushl %gs
-	mov $0x10, %ax
-	mov %ax, %ds
-	mov %ax, %es
-	mov %ax, %fs
-	mov %ax, %gs
-	mov %esp, %eax
-	push %eax
-	# Call the C kernel hardware interrupt handler
+	mov ax, 0x10		; load the kernel data segment descriptor
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
+
 	call isr_handler
-	popl %eax
-	popl %gs
-	popl %fs
-	popl %es
-	popl %ds
-	popa
-	add $8, %esp
-	iret
 
-.macro IRQ_ENTRY irq num
-	.global irq\irq
-	irq\irq:
-		cli
-		pushl $0
-		pushl $\num
-		jmp irq_common_stub
-.endm
+	pop eax			; reload the original data segment descriptor
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
 
-IRQ_ENTRY 0, 32
-IRQ_ENTRY 1, 33
-IRQ_ENTRY 2, 34
-IRQ_ENTRY 3, 35
-IRQ_ENTRY 4, 36
-IRQ_ENTRY 5, 37
-IRQ_ENTRY 6, 38
-IRQ_ENTRY 7, 39
-IRQ_ENTRY 8, 40
-IRQ_ENTRY 9, 41
-IRQ_ENTRY 10, 42
-IRQ_ENTRY 11, 43
-IRQ_ENTRY 12, 44
-IRQ_ENTRY 13, 45
-IRQ_ENTRY 14, 46
-IRQ_ENTRY 15, 47
+	popa			; Pops edi, esi, ebp...
+	add esp, 8		; Cleans up the pushed error code and pushed ISR number
+	sti
+	iret			; pops 5 things at once, CS, EIP, EFLAGS, SS, and ESP
 
+; In isr.c
+[EXTERN irq_handler]
+
+; This is our common IRQ stub. It saves the processor state, sets
+; up for kernel mode segments, calls the C-level fault handler,
+; and finally restores the stack frame.
 irq_common_stub:
-	# Print test - am I getting called?
-	mov %ebx,0xb8000    # The video address
-    mov %al,'!'         # The character to be print
-    mov %ah,0x0F        # The color: white(F) on black(0)
-    movw %ax,(%ebx) 
+	pusha			; Pushes edi, esi, ebp, esp, ebx, edx, ecx, eax
+
+	mov ax, ds		; Lower 16 bits of eax = ds.
+	push eax		; save the data segment descriptor
+
+	mov ax, 0x10		; load the kernel data segment descriptor.
+	mov ds, ax
+	mov es, ax
+	mov fs, ax
+	mov gs, ax
 	
-	pusha
-	pushl %ds
-	pushl %es
-	pushl %fs
-	pushl %gs
-	mov $0x10, %ax
-	mov %ax, %ds
-	mov %ax, %es
-	mov %ax, %fs
-	mov %ax, %gs
-	mov %esp, %eax
-	push %eax
-	# Call the kernel IRQ handler
 	call irq_handler
-	popl %eax
-	popl %gs
-	popl %fs
-	popl %es
-	popl %ds
-	popa
-	add $8, %esp
-	iret
+
+	pop ebx			; reload the original data segment descriptor
+	mov ds, bx
+	mov es, bx
+	mov fs, bx
+	mov gs, bx
+
+	popa			; Pops edi, esi, ebp, esp, ebx, edx, ecx, eax
+	add esp, 8		; Cleans up the pushed error code and pushed IRS number
+	sti
+	iret			; pops 5 things at once: CS, EIP, EFLAGS, SS, and ESP

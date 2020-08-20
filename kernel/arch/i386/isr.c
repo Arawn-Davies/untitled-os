@@ -1,12 +1,13 @@
-#include <kernel/idt.h>
-#include <kernel/asm.h>
-#include <string.h>
+//
+// isr.c -- High level interrupt service routines and interrupt request handlers.
+// Part of this code is modified from Bran's kernel development tutorials.
+// Rewritten for JamesM's kernel development tutorials.
+//
 
-#include <kernel/asm.h>
-#include <kernel/interrupts.h>
-#include <kernel/tty.h>
-#include <kernel/types.h>
 #include <kernel/system.h>
+#include <kernel/isr.h>
+#include <kernel/tty.h>
+#include <kernel/asm.h>
 
 isr_t interrupt_handlers[256];
 
@@ -17,9 +18,6 @@ void init_isr_handlers()
 
 void register_interrupt_handler(uint8_t n, isr_t handler)
 {
-	t_writestring("Handler address at: ");
-	t_hex(&handler);
-	t_writestring("\n");
 	interrupt_handlers[n] = handler;
 	if (n >= IRQ0)
 	{
@@ -45,9 +43,9 @@ int is_registered(uint8_t n)
 	return !(interrupt_handlers[n] == 0);
 }
 
+// This gets called from our ASM interrupt handler stub.
 void isr_handler(registers_t regs)
 {
-	t_writestring("handled ISR");
 	if(interrupt_handlers[regs.int_no] != 0)
 	{
 		isr_t handler = interrupt_handlers[regs.int_no];
@@ -65,7 +63,6 @@ void isr_handler(registers_t regs)
 // This gets called from our ASM interrupt handler stub.
 void irq_handler(registers_t regs)
 {
-	t_writestring("handled IRQ");
 	if(interrupt_handlers[regs.int_no] != 0)
 	{
 		isr_t handler = interrupt_handlers[regs.int_no];

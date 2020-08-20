@@ -4,26 +4,25 @@
 # something special in order to set CS. We do what is called a
 # far jump. A jump that includes a segment as well as an offset.
 # This is declared in C as 'extern void gdt_flush(uint32_t gdt_ptr_addr);'
-.global gdt_flush     # Allows the C code to link to this
+
+[GLOBAL gdt_flush]              ; Allows the C code to call gdt_flush().
 gdt_flush:
-    cli
-    mov 4(%esp), %eax
-    lgdt (%eax)
-    mov $0x10, %ax    # 0x10 is the offset in the GDT to our data segment
-    mov %ax, %ds
-    mov %ax, %es
-    mov %ax, %fs
-    mov %ax, %gs
-    mov %ax, %ss
-    jmp $0x08, $.flush
+        mov eax, [esp+4]        ; Get the pointer to the GDT, passed as a parameter.
+        lgdt [eax]              ; Load the new GDT pointer
+
+        mov ax, 0x10            ; 0x10 is the offset in the GDT to our data segment.
+        mov ds, ax              ; Load all the data segment selectors.
+        mov es, ax
+        mov fs, ax
+        mov gs, ax
+        mov ss, ax
+        jmp 0x08:.flush         ; 0x08 is the offset to our code segment: Far jump!
 .flush:
-    ret               # Returns back to the C code!
+        ret
 
+[GLOBAL idt_flush]              ; Allows the C code to call idt_flush().
+idt_flush:
+        mov eax, [esp+4]        ; Get the pointer to the IDT, passes as a parameter.
+        lidt [eax]              ; Load the IDT pointer.
+        ret
 
-# Loads the IDT defined in '_idtp' into the processor.
-# This is declared in C as 'extern void idt_load();'
-.global idt_load
-idt_load:
-    mov 4(%esp), %eax
-    lidt (%eax)
-    ret
