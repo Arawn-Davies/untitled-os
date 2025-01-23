@@ -1,9 +1,9 @@
-# Descriptor Table Assembler source
+; Descriptor Table Assembler source
 
-# This will set up our new segment registers. We need to do
-# something special in order to set CS. We do what is called a
-# far jump. A jump that includes a segment as well as an offset.
-# This is declared in C as 'extern void gdt_flush(uint32_t gdt_ptr_addr);'
+; This will set up our new segment registers. We need to do
+; something special in order to set CS. We do what is called a
+; far jump. A jump that includes a segment as well as an offset.
+; This is declared in C as 'extern void gdt_flush(uint32_t gdt_ptr_addr);'
 
 [GLOBAL gdt_flush]              ; Allows the C code to call gdt_flush().
 gdt_flush:
