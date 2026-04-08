@@ -50,4 +50,6 @@ jobs:
             -display none \
             -no-reboot \
             -no-shutdown \
-          || true
+            > serial.log 2>&1 || true
+          cat serial.log
+          grep -q "Hello, kernel World" serial.log

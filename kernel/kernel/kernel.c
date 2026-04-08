@@ -11,7 +11,7 @@ void kernel_main(void)
 	terminal_initialize();
 	init_descriptor_tables();
 	t_writestring("Hello, kernel World!\n");
-	init_serial(COM2);
+	init_serial(COM1);
 	Serial_WriteString("Hello, kernel World\n");
 	init_timer(50);
 }
