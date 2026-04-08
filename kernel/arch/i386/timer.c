@@ -11,9 +11,10 @@ uint32_t tick = 0;
 
 void timer_callback(registers_t regs)
 {
+	(void)regs;
 	tick++;
 	t_writestring("Tick: ");
-	t_writestring(tick);
+	t_dec(tick);
 	t_writestring("\n");
 }
 
