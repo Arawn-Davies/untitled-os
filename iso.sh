@@ -8,6 +8,9 @@ mkdir -p isodir/boot/grub
 
 cp sysroot/boot/untitled-os.kernel isodir/boot/untitled-os.kernel
 cat > isodir/boot/grub/grub.cfg << EOF
+set default=0
+set timeout=0
+
 menuentry "AOYU OS" {
 	multiboot /boot/untitled-os.kernel
 }

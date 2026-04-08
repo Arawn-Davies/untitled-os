@@ -1,0 +1,58 @@
+name: Build
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            nasm \
+            xorriso \
+            grub-pc-bin \
+            grub-common \
+            mtools \
+            qemu-system-x86
+
+      - name: Install i686-elf toolchain
+        run: |
+          wget -q https://github.com/lordmilko/i686-elf-tools/releases/download/15.2.0/i686-elf-tools-linux.zip
+          sudo unzip -q i686-elf-tools-linux.zip -d /usr/local/cross
+          TOOLCHAIN_BIN=$(dirname "$(find /usr/local/cross -name "i686-elf-gcc" -type f | head -1)")
+          echo "$TOOLCHAIN_BIN" >> $GITHUB_PATH
+
+      - name: Build ISO
+        run: bash iso.sh
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: untitled-os
+          path: untitled-os.iso
+
+      - name: Test boot with QEMU
+        run: |
+          # Run QEMU and stream serial output to both the log and the console in real-time.
+          # To debug locally with GDB: add -s -S flags and connect with
+          #   gdb untitled-os.kernel -ex "target remote :1234"
+          timeout 10 qemu-system-i386 \
+            -cdrom untitled-os.iso \
+            -serial stdio \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            -d int,cpu_reset \
+            -D qemu-debug.log \
+            2>&1 | tee serial.log || true
+          grep -q "Hello, kernel World" serial.log
