@@ -43,12 +43,16 @@ jobs:
 
       - name: Test boot with QEMU
         run: |
+          # Run QEMU and stream serial output to both the log and the console in real-time.
+          # To debug locally with GDB: add -s -S flags and connect with
+          #   gdb untitled-os.kernel -ex "target remote :1234"
           timeout 10 qemu-system-i386 \
             -cdrom untitled-os.iso \
             -serial stdio \
             -display none \
             -no-reboot \
             -no-shutdown \
-            > serial.log 2>&1 || true
-          cat serial.log
+            -d int,cpu_reset \
+            -D qemu-debug.log \
+            2>&1 | tee serial.log || true
           grep -q "Hello, kernel World" serial.log
