@@ -24,7 +24,8 @@ jobs:
             grub-pc-bin \
             grub-common \
             mtools \
-            qemu-system-x86
+            qemu-system-x86 \
+            gdb-multiarch
 
       - name: Install i686-elf toolchain
         run: |
@@ -57,3 +58,29 @@ jobs:
             -D qemu-debug.log \
             2>&1 | tee serial.log || true
           grep -q "Hello, kernel World" serial.log
+
+      - name: GDB boot test
+        run: |
+          # Start QEMU with the GDB stub enabled and the CPU frozen at reset (-S).
+          qemu-system-i386 \
+            -cdrom untitled-os.iso \
+            -serial stdio \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            -s -S &
+          QEMU_PID=$!
+
+          # Give QEMU a moment to open the GDB stub socket.
+          sleep 2
+
+          # Run the GDB test script.  kernel/untitled-os.kernel supplies the
+          # debug symbols; gdb-multiarch handles the i386 target.
+          timeout 60 gdb-multiarch -batch \
+            -ex "source tests/gdb_boot_test.py" \
+            kernel/untitled-os.kernel \
+            2>&1 | tee gdb-test.log
+          GDB_EXIT=${PIPESTATUS[0]}
+
+          kill "$QEMU_PID" 2>/dev/null || true
+          exit "$GDB_EXIT"
