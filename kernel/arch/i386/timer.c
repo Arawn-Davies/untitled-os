@@ -1,5 +1,6 @@
 #include <kernel/timer.h>
 #include <kernel/isr.h>
+#include <kernel/tty.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -12,6 +13,7 @@ void timer_callback(registers_t regs)
 {
 	(void)regs;
 	tick++;
+	t_spinner_tick(tick);
 }
 
 uint32_t timer_get_ticks(void)

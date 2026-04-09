@@ -15,4 +15,6 @@ void t_writestring(const char *data);
 void t_hex(uint32_t num);
 void t_dec(uint32_t num);
 
+void t_spinner_tick(uint32_t tick);
+
 #endif
