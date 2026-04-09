@@ -40,6 +40,11 @@ bool vesa_init(multiboot2_info_t *mbi)
 		return false;
 	}
 
+	if (fb_tag->framebuffer_bpp == 0) {
+		t_writestring("VESA: framebuffer bpp is zero\n");
+		return false;
+	}
+
 	if (fb_tag->framebuffer_bpp % 8 != 0) {
 		t_writestring("VESA: framebuffer bpp is not byte-aligned\n");
 		return false;

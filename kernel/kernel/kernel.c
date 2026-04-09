@@ -9,6 +9,7 @@
 #include <kernel/multiboot.h>
 #include <kernel/pmm.h>
 #include <kernel/vesa.h>
+#include <kernel/vesa_tty.h>
 
 #include <kernel/paging.h>
 
@@ -39,6 +40,7 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	pmm_init(magic, mbi);
 	paging_init();
 	vesa_init(mbi);
+	vesa_tty_init();
 	init_serial(COM1);
 	Serial_WriteString("Hello, kernel World\n");
 	init_timer(50);
