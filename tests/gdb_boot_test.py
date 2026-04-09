@@ -1,7 +1,7 @@
 """GDB boot-test script for untitled-os.
 
 Usage (invoked by the CI workflow):
-    gdb-multiarch -batch -x tests/gdb_boot_test.py kernel/untitled-os.kernel
+    gdb-multiarch -batch -ex "source tests/gdb_boot_test.py" kernel/untitled-os.kernel
 
 The script connects to a QEMU GDB stub on localhost:1234 (QEMU must be started
 with -s -S before this script is run), sets a breakpoint on every boot
