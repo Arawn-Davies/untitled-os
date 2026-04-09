@@ -1,7 +1,6 @@
 #include <kernel/pmm.h>
 #include <kernel/tty.h>
 #include <string.h>
-#include <stdio.h>
 
 /* 4 GB / 4 KB = 1 048 576 frames, stored as 32 768 32-bit words. */
 #define PMM_MAX_FRAMES   (0x100000U)
@@ -72,11 +71,12 @@ void pmm_init(uint32_t magic, multiboot_info_t *mbi)
 	for (uint32_t f = kstart; f < kend; f++)
 		pmm_set_frame(f);
 
-	char buf[64];
-	snprintf(buf, sizeof(buf), "PMM: %u frames free (%u MiB)\n",
-	         pmm_free_count(),
-	         (pmm_free_count() * PMM_FRAME_SIZE) / (1024 * 1024));
-	t_writestring(buf);
+	uint32_t free_frames = pmm_free_count();
+	t_writestring("PMM: ");
+	t_dec(free_frames);
+	t_writestring(" frames free (");
+	t_dec((free_frames * PMM_FRAME_SIZE) / (1024 * 1024));
+	t_writestring(" MiB)\n");
 }
 
 uint32_t pmm_alloc_frame(void)
