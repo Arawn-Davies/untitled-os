@@ -30,6 +30,10 @@ _start:
 	call _init
 
 	# Transfer control to the main kernel.
+	# Pass multiboot info: push mbi pointer (ebx) then magic (eax) so
+	# kernel_main receives them as (uint32_t magic, multiboot_info_t *mbi).
+	pushl %ebx
+	pushl %eax
 	call kernel_main
 
 	# Hang if kernel_main unexpectedly returns.
