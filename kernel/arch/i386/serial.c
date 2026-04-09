@@ -52,6 +52,23 @@ void Serial_WriteString(string a)
     }
 }
 
+// Prints an unsigned 32-bit integer in decimal over a serial connection
+void Serial_WriteDec(uint32_t n)
+{
+    char buf[11]; /* max uint32 is 4294967295 (10 digits) + NUL */
+    int i = 10;
+    buf[i] = '\0';
+    if (n == 0) {
+        buf[--i] = '0';
+    } else {
+        while (n > 0) {
+            buf[--i] = '0' + (n % 10);
+            n /= 10;
+        }
+    }
+    Serial_WriteString(&buf[i]);
+}
+
 //Initialises the serial connection
 void init_serial(int ComPort) 
 {
