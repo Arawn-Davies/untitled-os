@@ -59,6 +59,7 @@ jobs:
           grep -q "tick:" serial.log
 
       - name: GDB boot test
+        shell: bash
         run: |
           # Start QEMU with the GDB stub enabled and the CPU frozen at reset (-S).
           qemu-system-i386 \
