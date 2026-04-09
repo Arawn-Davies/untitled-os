@@ -12,7 +12,7 @@ set default=0
 set timeout=0
 
 menuentry "AOYU OS" {
-	multiboot /boot/untitled-os.kernel
+	multiboot2 /boot/untitled-os.kernel
 }
 EOF
 grub-mkrescue -o untitled-os.iso isodir

@@ -10,12 +10,14 @@ SECTIONS
 	   loaded at by the bootloader. */
 	. = 1M;
 
-	/* First put the multiboot header, as it is required to be put very early
+	/* First put the Multiboot 2 header, as it is required to be put very
 	   early in the image or the bootloader won't recognize the file format.
+	   The Multiboot 2 spec requires the header to be 8-byte aligned and
+	   within the first 32768 bytes of the binary.
 	   Next we'll put the .text section. */
 	.text BLOCK(4K) : ALIGN(4K)
 	{
-		*(.multiboot)
+		*(.multiboot2)
 		*(.text)
 	}
 
@@ -37,6 +39,10 @@ SECTIONS
 		*(COMMON)
 		*(.bss)
 	}
+
+	/* Symbol marking the end of the kernel image. Used by the PMM to
+	   determine which physical frames are occupied by the kernel. */
+	_kernel_end = .;
 
 	/* The compiler may produce other sections, put them in the proper place in
 	   in this file, if you'd like to include them in the final kernel. */
