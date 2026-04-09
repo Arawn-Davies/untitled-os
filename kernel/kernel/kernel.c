@@ -9,7 +9,7 @@
 #include <kernel/multiboot.h>
 #include <kernel/pmm.h>
 
-void kernel_main(uint32_t magic, multiboot_info_t *mbi)
+void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 {
 	terminal_initialize();
 	init_descriptor_tables();

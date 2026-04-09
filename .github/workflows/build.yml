@@ -84,3 +84,28 @@ jobs:
 
           kill "$QEMU_PID" 2>/dev/null || true
           exit "$GDB_EXIT"
+
+      - name: Verify Multiboot 2 magic via GDB
+        run: |
+          # Start a fresh QEMU instance frozen at reset.
+          qemu-system-i386 \
+            -cdrom untitled-os.iso \
+            -serial stdio \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            -s -S &
+          QEMU_PID=$!
+
+          sleep 2
+
+          # The verify script breaks at _start and checks that %eax holds
+          # the Multiboot 2 magic value (0x36D76289).
+          timeout 30 gdb-multiarch -batch \
+            -ex "source tests/gdb_mb2_verify.py" \
+            kernel/untitled-os.kernel \
+            2>&1 | tee gdb-mb2.log
+          GDB_EXIT=${PIPESTATUS[0]}
+
+          kill "$QEMU_PID" 2>/dev/null || true
+          exit "$GDB_EXIT"

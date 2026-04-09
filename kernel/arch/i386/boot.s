@@ -1,16 +1,23 @@
-# Declare constants for the multiboot header.
-.set ALIGN,    1<<0             # align loaded modules on page boundaries
-.set MEMINFO,  1<<1             # provide memory map
-.set FLAGS,    ALIGN | MEMINFO  # this is the Multiboot 'flag' field
-.set MAGIC,    0x1BADB002       # 'magic number' lets bootloader find the header
-.set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
+# Multiboot 2 header constants.
+.set MB2_MAGIC,        0xE85250D6  # Multiboot 2 magic
+.set MB2_ARCH,         0           # i386 protected mode
+.set MB2_HEADER_LEN,   (mb2_header_end - mb2_header_start)
+.set MB2_CHECKSUM,     -(MB2_MAGIC + MB2_ARCH + MB2_HEADER_LEN)
 
-# Declare a header as in the Multiboot Standard.
-.section .multiboot
-.align 4
-.long MAGIC
-.long FLAGS
-.long CHECKSUM
+# Declare a Multiboot 2 header.  Must be 8-byte aligned and within the
+# first 32768 bytes of the binary image.
+.section .multiboot2
+.align 8
+mb2_header_start:
+.long  MB2_MAGIC
+.long  MB2_ARCH
+.long  MB2_HEADER_LEN
+.long  MB2_CHECKSUM
+# End tag (type=0, flags=0, size=8)
+.short 0
+.short 0
+.long  8
+mb2_header_end:
 
 # Reserve a stack for the initial thread.
 .section .bss
@@ -30,8 +37,8 @@ _start:
 	call _init
 
 	# Transfer control to the main kernel.
-	# Pass multiboot info: push mbi pointer (ebx) then magic (eax) so
-	# kernel_main receives them as (uint32_t magic, multiboot_info_t *mbi).
+	# Pass multiboot2 info: push mbi pointer (ebx) then magic (eax) so
+	# kernel_main receives them as (uint32_t magic, multiboot2_info_t *mbi).
 	pushl %ebx
 	pushl %eax
 	call kernel_main

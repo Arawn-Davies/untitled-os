@@ -7,10 +7,10 @@
 #define PMM_FRAME_SIZE   0x1000        /* 4 KiB per frame */
 #define PMM_ALLOC_ERROR  0xFFFFFFFF    /* returned when no frame is free */
 
-/* Initialise the PMM from the multiboot memory map.
+/* Initialise the PMM from the Multiboot 2 memory map.
    Marks every frame as used, then frees usable regions, then re-marks
    the null page and all kernel frames as used. */
-void     pmm_init(uint32_t magic, multiboot_info_t *mbi);
+void     pmm_init(uint32_t magic, multiboot2_info_t *mbi);
 
 /* Allocate one physical frame.  Returns the physical address of the
    frame (always a multiple of PMM_FRAME_SIZE), or PMM_ALLOC_ERROR if

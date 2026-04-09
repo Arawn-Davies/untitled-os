@@ -19,45 +19,66 @@ static inline void pmm_clear_frame(uint32_t frame)
 	bitmap[frame / 32] &= ~(1U << (frame % 32));
 }
 
-void pmm_init(uint32_t magic, multiboot_info_t *mbi)
+void pmm_init(uint32_t magic, multiboot2_info_t *mbi)
 {
 	extern uint32_t _kernel_end;
 
 	/* Start with every frame marked as used. */
 	memset(bitmap, 0xFF, sizeof(bitmap));
 
-	if (magic != MULTIBOOT_BOOTLOADER_MAGIC) {
-		t_writestring("PMM: invalid multiboot magic, no memory freed\n");
+	if (magic != MULTIBOOT2_BOOTLOADER_MAGIC) {
+		t_writestring("PMM: invalid multiboot2 magic, no memory freed\n");
 		return;
 	}
 
-	if (!(mbi->flags & MULTIBOOT_INFO_MEM_MAP)) {
-		t_writestring("PMM: no memory map from bootloader, no memory freed\n");
+	/* Walk the Multiboot 2 tag list.  Tags start immediately after the
+	   8-byte info header and are each padded to an 8-byte boundary. */
+	multiboot2_tag_mmap_t *mmap_tag = NULL;
+
+	uint8_t *tag_ptr = (uint8_t *)mbi + sizeof(multiboot2_info_t);
+	uint8_t *info_end = (uint8_t *)mbi + mbi->total_size;
+
+	while (tag_ptr < info_end) {
+		multiboot2_tag_t *tag = (multiboot2_tag_t *)tag_ptr;
+
+		if (tag->type == MULTIBOOT2_TAG_TYPE_END)
+			break;
+
+		if (tag->type == MULTIBOOT2_TAG_TYPE_MMAP) {
+			mmap_tag = (multiboot2_tag_mmap_t *)tag;
+			break;
+		}
+
+		/* Advance to next tag, aligned to 8 bytes. */
+		tag_ptr += (tag->size + 7) & ~7u;
+	}
+
+	if (!mmap_tag) {
+		t_writestring("PMM: no memory map tag from bootloader, no memory freed\n");
 		return;
 	}
 
-	/* Walk the memory map and mark usable regions as free. */
-	multiboot_mmap_entry_t *entry =
-		(multiboot_mmap_entry_t *)(uintptr_t)mbi->mmap_addr;
-	multiboot_mmap_entry_t *map_end =
-		(multiboot_mmap_entry_t *)(uintptr_t)(mbi->mmap_addr + mbi->mmap_length);
+	/* Walk memory map entries. */
+	uint8_t *entry_ptr = (uint8_t *)mmap_tag + sizeof(multiboot2_tag_mmap_t);
+	uint8_t *mmap_end  = (uint8_t *)mmap_tag + mmap_tag->size;
 
-	while (entry < map_end) {
-		if (entry->type == MULTIBOOT_MEMORY_AVAILABLE) {
+	while (entry_ptr < mmap_end) {
+		multiboot2_mmap_entry_t *entry = (multiboot2_mmap_entry_t *)entry_ptr;
+
+		if (entry->type == MULTIBOOT2_MEMORY_AVAILABLE) {
 			/* Round start up and end down to 4 KiB boundaries. */
 			uint64_t region_start =
-				(entry->addr + PMM_FRAME_SIZE - 1) & ~(uint64_t)(PMM_FRAME_SIZE - 1);
+				(entry->base_addr + PMM_FRAME_SIZE - 1) & ~(uint64_t)(PMM_FRAME_SIZE - 1);
 			uint64_t region_end =
-				(entry->addr + entry->len) & ~(uint64_t)(PMM_FRAME_SIZE - 1);
+				(entry->base_addr + entry->length) & ~(uint64_t)(PMM_FRAME_SIZE - 1);
 
 			for (uint64_t addr = region_start; addr < region_end; addr += PMM_FRAME_SIZE) {
 				if (addr < (uint64_t)PMM_MAX_FRAMES * PMM_FRAME_SIZE)
 					pmm_clear_frame((uint32_t)(addr / PMM_FRAME_SIZE));
 			}
 		}
-		/* Advance: 'size' excludes itself, so add sizeof(size) too. */
-		entry = (multiboot_mmap_entry_t *)
-			((uintptr_t)entry + entry->size + sizeof(entry->size));
+
+		entry_ptr += mmap_tag->entry_size;
 	}
 
 	/* Re-mark the null page as used (guard against NULL dereferences). */
