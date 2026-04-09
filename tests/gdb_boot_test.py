@@ -13,9 +13,14 @@ if any checkpoint is missed (or an error occurs) it calls `quit 1`.
 Checkpoints are printed as:
     CHECKPOINT: <function-name>
 so the CI step can also grep the log for individual names if desired.
+
+The script also verifies the Multiboot 2 magic value in %eax at _start
+(0x36D76289) before proceeding with the checkpoint sequence.
 """
 
 import gdb  # provided by GDB's embedded Python interpreter
+
+MULTIBOOT2_MAGIC = 0x36D76289
 
 # ---------------------------------------------------------------------------
 # Boot checkpoints – every function listed here must be called during a
@@ -53,6 +58,32 @@ def main():
     gdb.execute('set pagination off')
     gdb.execute('set confirm off')
     gdb.execute('target remote :1234')
+
+    # --- Multiboot 2 magic check -------------------------------------------
+    # Break at the very first instruction of the kernel entry point and verify
+    # that the bootloader placed the Multiboot 2 magic value in %eax.
+    mb2_bp = gdb.Breakpoint('_start', internal=True)
+    mb2_bp.silent = True
+    try:
+        gdb.execute('continue')
+    except gdb.error as exc:
+        print('GDB error reaching _start: ' + str(exc), flush=True)
+        gdb.execute('quit 1')
+        return
+
+    eax = int(gdb.parse_and_eval('$eax')) & 0xFFFFFFFF
+    print('EAX at _start: 0x{:08X}'.format(eax), flush=True)
+    if eax != MULTIBOOT2_MAGIC:
+        print(
+            'FAIL: expected Multiboot 2 magic 0x{:08X}, got 0x{:08X}'.format(
+                MULTIBOOT2_MAGIC, eax),
+            flush=True,
+        )
+        gdb.execute('quit 1')
+        return
+    print('PASS: Multiboot 2 magic verified (0x{:08X})'.format(eax), flush=True)
+    mb2_bp.delete()
+    # -----------------------------------------------------------------------
 
     for fn in CHECKPOINTS:
         bp = CheckpointBreakpoint(fn)
