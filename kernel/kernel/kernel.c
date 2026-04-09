@@ -11,13 +11,13 @@
 
 #include <kernel/paging.h>
 
-/* Post-boot heartbeat: prints the tick count 3 times (1 second apart) to
+/* Post-boot heartbeat: prints the tick count 10 times (1 second apart) to
    both the VGA terminal and the serial port.  This confirms that the PIT
    timer interrupt is firing and the OS has not crashed after initialisation.
    The function is non-static so the GDB test can set a breakpoint on it. */
 void kernel_post_boot(void)
 {
-	for (int i = 1; i <= 3; i++) {
+	for (int i = 1; i <= 10; i++) {
 		ksleep(50);  /* sleep 50 ticks = 1 s at 50 Hz */
 		uint32_t t = timer_get_ticks();
 		t_writestring("tick: ");
