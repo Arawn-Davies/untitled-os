@@ -58,6 +58,7 @@ jobs:
             -D qemu-debug.log \
             2>&1 | tee serial.log || true
           grep -q "Hello, kernel World" serial.log
+          grep -q "tick:" serial.log
 
       - name: GDB boot test
         run: |

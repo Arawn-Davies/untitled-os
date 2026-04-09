@@ -13,5 +13,6 @@ void init_serial(int ComPort);
 char Serial_ReadChar();
 void Serial_WriteChar(char a);
 void Serial_WriteString(string a);
+void Serial_WriteDec(uint32_t n);
 
 #endif
