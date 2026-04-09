@@ -28,7 +28,7 @@ inline uint8_t inb(uint16_t port)
 
 inline void enable_interrupts(void) { asm volatile("sti"); }
 
-inline void disable_interrupts(void) { asm volatile("sti"); }
+inline void disable_interrupts(void) { asm volatile("cli"); }
 
 inline void invlpg(void *m)
 {

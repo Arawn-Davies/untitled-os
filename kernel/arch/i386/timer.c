@@ -48,4 +48,8 @@ void init_timer(uint32_t frequency)
 	// Send the frequency divisor.
 	outb(0x40, l);
 	outb(0x40, h);
+
+	// Multiboot 2 enters the kernel with interrupts disabled.  Enable them
+	// now that the IDT and PIT are fully configured so that IRQs can fire.
+	enable_interrupts();
 }
