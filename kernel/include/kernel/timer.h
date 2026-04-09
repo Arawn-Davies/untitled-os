@@ -7,5 +7,7 @@
 #include <kernel/types.h>
 
 void init_timer(uint32_t frequency);
+uint32_t timer_get_ticks(void);
+void ksleep(uint32_t ticks);
 
 #endif
