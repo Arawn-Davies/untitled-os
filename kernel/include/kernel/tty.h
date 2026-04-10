@@ -7,6 +7,7 @@
 #include <string.h>
 
 void terminal_initialize(void);
+void t_setcolor(uint8_t color);
 void t_backspace();
 void t_putchar(char c);
 void t_write(const char *data, size_t size);

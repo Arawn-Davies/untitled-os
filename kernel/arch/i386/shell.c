@@ -106,6 +106,7 @@ static void cmd_help(void)
     t_writestring("  echo [args..] - print arguments\n");
     t_writestring("  meminfo       - print heap used/free\n");
     t_writestring("  uptime        - ticks since boot\n");
+    t_writestring("  shutdown      - halt the system\n");
 }
 
 static void cmd_clear(void)
@@ -144,6 +145,14 @@ static void cmd_uptime(void)
     t_writestring(" ticks\n");
 }
 
+static void cmd_shutdown(void)
+{
+    t_writestring("System halted. It is now safe to turn off your computer.\n");
+    asm volatile ("cli");
+    for (;;)
+        asm volatile ("hlt");
+}
+
 /* ---------------------------------------------------------------------------
  * shell_run – infinite REPL loop.  Never returns.
  * --------------------------------------------------------------------------- */
@@ -172,6 +181,8 @@ void shell_run(void)
             cmd_meminfo();
         } else if (strcmp(argv[0], "uptime") == 0) {
             cmd_uptime();
+        } else if (strcmp(argv[0], "shutdown") == 0) {
+            cmd_shutdown();
         } else {
             t_writestring("Unknown command: ");
             t_writestring(argv[0]);
