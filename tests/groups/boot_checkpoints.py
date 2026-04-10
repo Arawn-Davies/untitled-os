@@ -22,9 +22,10 @@ CHECKPOINTS = [
     'init_debug_handlers',
     'pmm_init',
     'paging_init',
+    'heap_init',
+    'init_serial',
     'vesa_init',
     'vesa_tty_init',
-    'init_serial',
     'init_timer',
     'kernel_post_boot',
 ]

@@ -1,6 +1,7 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/vesa.h>
 #include <kernel/vesa_font.h>
+#include <kernel/paging.h>
 #include <string.h>
 
 static bool     tty_ready = false;
@@ -26,6 +27,11 @@ bool vesa_tty_init(void)
 	const vesa_fb_t *fb = vesa_get_fb();
 	if (!fb)
 		return false;
+
+	/* The framebuffer lives at a high physical address outside the boot-time
+	   0–8 MiB identity mapping.  Map it before writing a single pixel. */
+	paging_map_region((uint32_t)(uintptr_t)fb->addr,
+	                  fb->pitch * fb->height);
 
 	tty_cols = fb->width  / FONT8x8_CHAR_W;
 	tty_rows = fb->height / FONT8x8_CHAR_H;

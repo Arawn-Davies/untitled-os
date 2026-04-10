@@ -10,4 +10,12 @@
  */
 void paging_init(void);
 
+/*
+ * Identity-map an arbitrary physical address range [phys_start, phys_start+size)
+ * using a static pool of extra page tables.  Safe to call after paging_init().
+ * Silently ignores ranges that are already mapped.  Returns without mapping
+ * anything if the internal page-table pool is exhausted.
+ */
+void paging_map_region(uint32_t phys_start, uint32_t size);
+
 #endif /* _KERNEL_PAGING_H */
