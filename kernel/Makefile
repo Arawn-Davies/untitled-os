@@ -63,7 +63,7 @@ $(ARCHDIR)/crtbegin.o $(ARCHDIR)/crtend.o:
 	$(CC) -MD -c $< -o $@ -std=gnu11 $(CFLAGS) $(CPPFLAGS)
 
 .S.o:
-	nasm -felf32 $(ASFLAGS) -o $@ $<
+	$(CC) -MD -c $< -o $@ -x assembler-with-cpp $(CFLAGS) $(CPPFLAGS)
 	
 .s.o:
 	$(CC) -MD -c $< -o $@ -x assembler-with-cpp $(CFLAGS) $(CPPFLAGS)
