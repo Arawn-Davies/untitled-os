@@ -25,4 +25,17 @@ Key design points:
 - **Free count** (`pmm_free_count`): counts free frames using
   Brian Kernighan's bit-counting method (a standard public-domain technique).
 
-No third-party code was used in this implementation.
+## Reference
+
+The design of this allocator was informed by the hierarchical PMM frame
+allocator published by Z903:
+
+> Z903, *Physical Memory Manager (PMM) Frame Allocator*,
+> <https://gist.github.com/Z903/a6ba787f42dd07ad952095bc99087f09>
+
+No code was copied from that work.  The implementation here differs
+substantially: it uses a single-level flat bitmap (not a two-layer
+hierarchical structure), supports only 4 KiB pages (no 2 MiB huge-page
+mode), covers at most 4 GiB (not 64 GiB), performs a first-fit linear
+scan (rather than free-list stacks with lazy cleanup), and contains no
+spinlocks or atomic operations.
