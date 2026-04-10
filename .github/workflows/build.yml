@@ -38,16 +38,16 @@ jobs:
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: untitled-os
-          path: untitled-os.iso
+          name: makar
+          path: makar.iso
 
       - name: Test boot with QEMU
         run: |
           # Run QEMU and stream serial output to both the log and the console in real-time.
           # To debug locally with GDB: add -s -S flags and connect with
-          #   gdb untitled-os.kernel -ex "target remote :1234"
+          #   gdb makar.kernel -ex "target remote :1234"
           timeout 20 qemu-system-i386 \
-            -cdrom untitled-os.iso \
+            -cdrom makar.iso \
             -serial stdio \
             -display none \
             -no-reboot \
@@ -63,7 +63,7 @@ jobs:
         run: |
           # Start QEMU with the GDB stub enabled and the CPU frozen at reset (-S).
           qemu-system-i386 \
-            -cdrom untitled-os.iso \
+            -cdrom makar.iso \
             -serial stdio \
             -display none \
             -no-reboot \
@@ -74,11 +74,11 @@ jobs:
           # Give QEMU a moment to open the GDB stub socket.
           sleep 2
 
-          # Run the GDB test script.  kernel/untitled-os.kernel supplies the
+          # Run the GDB test script.  kernel/makar.kernel supplies the
           # debug symbols; gdb-multiarch handles the i386 target.
           timeout 60 gdb-multiarch -batch \
             -ex "source tests/gdb_boot_test.py" \
-            kernel/untitled-os.kernel \
+            kernel/makar.kernel \
             2>&1 | tee gdb-test.log
           GDB_EXIT=${PIPESTATUS[0]}
 

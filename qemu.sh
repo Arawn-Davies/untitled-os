@@ -2,5 +2,5 @@
 set -e
 . ./iso.sh
 
-qemu-system-$(./target-triplet-to-arch.sh $HOST) -cdrom untitled-os.iso -serial stdio
+qemu-system-$(./target-triplet-to-arch.sh $HOST) -cdrom makar.iso -serial stdio
 ./clean.sh
