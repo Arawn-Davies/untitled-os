@@ -69,6 +69,21 @@ void Serial_WriteDec(uint32_t n)
     Serial_WriteString(&buf[i]);
 }
 
+// Prints an unsigned 32-bit integer in hexadecimal (0xXXXXXXXX) over serial
+void Serial_WriteHex(uint32_t n)
+{
+    static const char hexdigits[] = "0123456789ABCDEF";
+    char buf[11]; /* "0x" + 8 hex digits + NUL */
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 7; i >= 0; i--) {
+        buf[2 + i] = hexdigits[n & 0xF];
+        n >>= 4;
+    }
+    buf[10] = '\0';
+    Serial_WriteString(buf);
+}
+
 //Initialises the serial connection
 void init_serial(int ComPort) 
 {

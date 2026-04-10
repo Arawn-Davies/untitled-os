@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <kernel/vga.h>
+#include <kernel/vesa_tty.h>
 
 size_t t_line_fill[VGA_WIDTH];
 size_t t_row;
@@ -32,6 +33,8 @@ void terminal_initialize(void)
 
 void t_backspace()
 {
+	vesa_tty_putchar('\b');
+
 	if (t_column == 0)
 	{
 		if (t_row > 0)
@@ -62,6 +65,8 @@ void t_putentryat(char c, uint8_t color, size_t x, size_t y)
 
 void t_putchar(char c)
 {
+	vesa_tty_putchar(c);
+
 	if (c != '\n')
 	{
 		t_putentryat(c, t_color, t_column, t_row);
@@ -157,4 +162,5 @@ void t_spinner_tick(uint32_t tick)
 	static const char frames[] = {'|', '/', '-', '\\'};
 	char c = frames[(tick / 12) % 4];
 	t_putentryat(c, make_color(COLOR_WHITE, COLOR_BLACK), VGA_WIDTH - 1, 0);
+	vesa_tty_spinner_tick(tick);
 }

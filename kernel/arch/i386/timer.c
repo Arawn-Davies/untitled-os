@@ -1,6 +1,7 @@
 #include <kernel/timer.h>
 #include <kernel/isr.h>
 #include <kernel/tty.h>
+#include <kernel/serial.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -54,4 +55,7 @@ void init_timer(uint32_t frequency)
 	// Multiboot 2 enters the kernel with interrupts disabled.  Enable them
 	// now that the IDT and PIT are fully configured so that IRQs can fire.
 	enable_interrupts();
+	KLOG("init_timer: ");
+	KLOG_DEC(frequency);
+	KLOG(" Hz, interrupts enabled\n");
 }

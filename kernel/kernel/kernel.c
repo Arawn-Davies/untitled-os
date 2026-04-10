@@ -8,6 +8,9 @@
 #include <kernel/debug.h>
 #include <kernel/multiboot.h>
 #include <kernel/pmm.h>
+#include <kernel/vesa.h>
+#include <kernel/vesa_tty.h>
+#include <kernel/heap.h>
 
 #include <kernel/paging.h>
 
@@ -32,13 +35,16 @@ void kernel_post_boot(void)
 void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 {
 	terminal_initialize();
+	init_serial(COM1);
+	Serial_WriteString("Hello, kernel World\n");
 	init_descriptor_tables();
 	init_debug_handlers();
 	t_writestring("Hello, kernel World!\n");
 	pmm_init(magic, mbi);
 	paging_init();
-	init_serial(COM1);
-	Serial_WriteString("Hello, kernel World\n");
+	heap_init();
+	vesa_init(mbi);
+	vesa_tty_init();
 	init_timer(50);
 	kernel_post_boot();
 }

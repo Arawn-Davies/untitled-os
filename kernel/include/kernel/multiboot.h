@@ -7,11 +7,17 @@
 #define MULTIBOOT2_BOOTLOADER_MAGIC  0x36D76289
 
 /* Multiboot 2 tag types. */
-#define MULTIBOOT2_TAG_TYPE_END      0
-#define MULTIBOOT2_TAG_TYPE_MMAP     6
+#define MULTIBOOT2_TAG_TYPE_END          0
+#define MULTIBOOT2_TAG_TYPE_MMAP         6
+#define MULTIBOOT2_TAG_TYPE_FRAMEBUFFER  8
 
 /* Multiboot 2 memory map entry type: usable RAM. */
 #define MULTIBOOT2_MEMORY_AVAILABLE  1
+
+/* Framebuffer types reported in multiboot2_tag_framebuffer_t. */
+#define MULTIBOOT2_FRAMEBUFFER_TYPE_INDEXED  0
+#define MULTIBOOT2_FRAMEBUFFER_TYPE_RGB      1
+#define MULTIBOOT2_FRAMEBUFFER_TYPE_EGA_TEXT 2
 
 /* Fixed 8-byte header at the start of the Multiboot 2 information structure. */
 typedef struct
@@ -45,5 +51,26 @@ typedef struct
 	uint32_t entry_version;
 	/* multiboot2_mmap_entry_t entries[] follow immediately. */
 } __attribute__((packed)) multiboot2_tag_mmap_t;
+
+/* Framebuffer tag (type 8). */
+typedef struct
+{
+	uint32_t type;               /* = MULTIBOOT2_TAG_TYPE_FRAMEBUFFER */
+	uint32_t size;
+	uint64_t framebuffer_addr;   /* physical base address */
+	uint32_t framebuffer_pitch;  /* bytes per scanline */
+	uint32_t framebuffer_width;  /* pixels per row */
+	uint32_t framebuffer_height; /* rows */
+	uint8_t  framebuffer_bpp;    /* bits per pixel */
+	uint8_t  framebuffer_type;   /* MULTIBOOT2_FRAMEBUFFER_TYPE_* */
+	uint16_t reserved;
+	/* For RGB (type 1): six colour-channel descriptor bytes follow. */
+	uint8_t  red_field_position;
+	uint8_t  red_mask_size;
+	uint8_t  green_field_position;
+	uint8_t  green_mask_size;
+	uint8_t  blue_field_position;
+	uint8_t  blue_mask_size;
+} __attribute__((packed)) multiboot2_tag_framebuffer_t;
 
 #endif

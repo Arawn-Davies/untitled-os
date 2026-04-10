@@ -1,3 +1,5 @@
+#include <kernel/vesa_config.h>
+
 # Multiboot 2 header constants.
 .set MB2_MAGIC,        0xE85250D6  # Multiboot 2 magic
 .set MB2_ARCH,         0           # i386 protected mode
@@ -13,7 +15,18 @@ mb2_header_start:
 .long  MB2_ARCH
 .long  MB2_HEADER_LEN
 .long  MB2_CHECKSUM
+# Framebuffer tag (type=5): request a linear framebuffer from the bootloader.
+# flags=1 means the tag is optional – the kernel still boots in text mode if
+# the bootloader cannot honour the request.
+.align 8
+.short 5        # type = framebuffer request
+.short 1        # flags = optional
+.long  20       # size  = 20 bytes (header + 3 × uint32)
+.long  VESA_WIDTH    # preferred width  — change in kernel/include/kernel/vesa_config.h
+.long  VESA_HEIGHT   # preferred height
+.long  VESA_BPP      # preferred depth (bits per pixel)
 # End tag (type=0, flags=0, size=8)
+.align 8
 .short 0
 .short 0
 .long  8
