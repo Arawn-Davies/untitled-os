@@ -14,7 +14,7 @@
 
 set -e
 
-. ./config.sh
+. ./src/config.sh
 
 # ── Locate a suitable GDB ────────────────────────────────────────────────────
 # Prefer the same cross-toolchain GDB that matches the target (i686-elf-gdb),
@@ -47,7 +47,7 @@ echo "==> Building debug ISO..."
 . ./iso.sh
 
 echo "==> Starting QEMU (GDB stub on :1234)..."
-qemu-system-$(./target-triplet-to-arch.sh "$HOST") \
+qemu-system-$(./src/target-triplet-to-arch.sh "$HOST") \
     -cdrom makar.iso \
     -serial stdio \
     -display none \
@@ -62,7 +62,7 @@ sleep 2
 echo "==> Running GDB test suite..."
 timeout 60 "$GDB" -batch \
     -ex "source tests/gdb_boot_test.py" \
-    kernel/makar.kernel \
+    src/kernel/makar.kernel \
     2>&1 | tee gdb-test.log
 GDB_EXIT=${PIPESTATUS[0]}
 
