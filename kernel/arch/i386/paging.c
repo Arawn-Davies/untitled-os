@@ -86,9 +86,9 @@ void paging_map_region(uint32_t phys_start, uint32_t size)
 
     /* Work with page-aligned boundaries. */
     uint32_t start = phys_start & ~0xFFFu;
-    /* Guard against overflow: if phys_start + size wraps, clamp to 0xFFFFF000. */
+    /* Guard against overflow: clamp to the last page-aligned address. */
     uint32_t end;
-    if (phys_start > 0xFFFFFFFFu - size)
+    if (size > 0xFFFFFFFFu - phys_start)
         end = 0xFFFFF000u;
     else
         end = (phys_start + size + 0xFFFu) & ~0xFFFu;

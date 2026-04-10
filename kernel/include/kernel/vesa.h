@@ -6,8 +6,8 @@
 #include <kernel/multiboot.h>
 
 /* Preferred framebuffer geometry (requested via the Multiboot 2 header tag). */
-#define VESA_PREFERRED_WIDTH  1024
-#define VESA_PREFERRED_HEIGHT  768
+#define VESA_PREFERRED_WIDTH   640
+#define VESA_PREFERRED_HEIGHT  480
 #define VESA_PREFERRED_BPP      32
 
 /* Framebuffer descriptor populated by vesa_init(). */
