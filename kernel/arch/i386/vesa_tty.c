@@ -93,7 +93,7 @@ static void draw_char(char c, uint32_t col, uint32_t row)
 	for (uint32_t y = 0; y < FONT8x8_CHAR_H; y++) {
 		uint8_t bits = glyph[y];
 		for (uint32_t x = 0; x < FONT8x8_CHAR_W; x++) {
-			uint32_t colour = (bits & (0x80u >> x)) ? tty_fg : tty_bg;
+			uint32_t colour = (bits & (1u << x)) ? tty_fg : tty_bg;
 			/* Each source pixel becomes a FONT_SCALE × FONT_SCALE block. */
 			for (uint32_t sy = 0; sy < FONT_SCALE; sy++)
 				for (uint32_t sx = 0; sx < FONT_SCALE; sx++)
