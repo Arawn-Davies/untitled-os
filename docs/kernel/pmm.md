@@ -97,6 +97,7 @@ with `0xFF` (all used) before selectively freeing usable regions.
 
 ## Future work
 
+- Break the 4GB barrier! This isn't the 2000's with a Pentium 4 anymore
 - Add a multi-frame contiguous allocator (`pmm_alloc_contiguous(n)`) for DMA
   buffers and page-table pools.
 - Expose NUMA zone information if a multi-processor platform is targeted.
