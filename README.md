@@ -22,6 +22,8 @@ GRUB Multiboot 2.
 - Kernel heap (`kmalloc` / `kfree` / `krealloc`)
 - PIT timer (50 Hz) + `ksleep`
 - INT 1 / INT 3 debug handlers (GDB-friendly)
+- PS/2 keyboard driver (IRQ 1, scan-code set 1, ring buffer)
+- Kernel shell (`help`, `clear`, `echo`, `meminfo`, `uptime`, `shutdown`)
 
 ## Documentation
 

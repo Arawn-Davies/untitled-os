@@ -28,6 +28,8 @@ roadmap.
 | [vesa_tty](kernel/vesa_tty.md) | VESA bitmap-font text renderer |
 | [debug](kernel/debug.md) | INT 1 / INT 3 debug-exception handlers |
 | [multiboot](kernel/multiboot.md) | Multiboot 2 structure definitions |
+| [keyboard](kernel/keyboard.md) | PS/2 keyboard driver (IRQ 1, scan-code set 1, ring buffer) |
+| [shell](kernel/shell.md) | Minimal interactive kernel command shell |
 
 ## Standard library (libc)
 
