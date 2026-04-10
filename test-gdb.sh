@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # test-gdb.sh – build a debug ISO and run the GDB boot-test suite locally.
 #
 # Usage: ./test-gdb.sh

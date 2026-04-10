@@ -39,7 +39,7 @@ static void kprint_ok(const char *label)
 	while (label[len])
 		len++;
 
-	/* Pad with spaces to reach BOOT_OK_COL. */
+	/* Pad with spaces to reach BOOT_OK_COL (skip if label overruns). */
 	for (size_t i = len; i < BOOT_OK_COL; i++)
 		t_putchar(' ');
 
