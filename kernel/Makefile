@@ -66,7 +66,7 @@ $(ARCHDIR)/crtbegin.o $(ARCHDIR)/crtend.o:
 	nasm -felf32 $(ASFLAGS) $<
 	
 .s.o:
-	$(CC) -MD -c $< -o $@ $(CFLAGS) $(CPPFLAGS)
+	$(CC) -MD -c $< -o $@ -x assembler-with-cpp $(CFLAGS) $(CPPFLAGS)
 
 clean:
 	rm -f untitled-os.kernel

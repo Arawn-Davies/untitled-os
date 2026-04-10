@@ -4,11 +4,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <kernel/multiboot.h>
+#include <kernel/vesa_config.h>
 
-/* Preferred framebuffer geometry (requested via the Multiboot 2 header tag). */
-#define VESA_PREFERRED_WIDTH   640
-#define VESA_PREFERRED_HEIGHT  480
-#define VESA_PREFERRED_BPP      32
+/* Preferred framebuffer geometry (requested via the Multiboot 2 header tag).
+ * These resolve to the values in <kernel/vesa_config.h>. */
+#define VESA_PREFERRED_WIDTH   VESA_WIDTH
+#define VESA_PREFERRED_HEIGHT  VESA_HEIGHT
+#define VESA_PREFERRED_BPP     VESA_BPP
 
 /* Framebuffer descriptor populated by vesa_init(). */
 typedef struct
