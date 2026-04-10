@@ -5,7 +5,7 @@
  *   shell_readline() - echoes input, handles backspace, ends on Enter
  *   shell_run()      - infinite prompt loop ("untitled> ")
  *
- * Built-in commands: help, clear, echo, meminfo, uptime
+ * Built-in commands: help, clear, echo, meminfo, uptime, shutdown
  */
 
 #include <kernel/shell.h>
