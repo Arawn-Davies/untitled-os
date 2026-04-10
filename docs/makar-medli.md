@@ -103,9 +103,9 @@ Medli is practical.
 
 ### Near-term
 
-- [ ] **Keyboard driver** — PS/2 keyboard via IRQ 1; translate scan codes to
+- [x] **Keyboard driver** — PS/2 keyboard via IRQ 1; translate scan codes to
   ASCII.
-- [ ] **Shell** — minimal interactive command loop over the VGA/VESA terminal,
+- [x] **Shell** — minimal interactive command loop over the VGA/VESA terminal,
   matching Medli's command vocabulary.
 - [ ] **FAT32 driver** — read/write access to FAT32 volumes; adopt Medli's
   filesystem layout (`Users\`, `Apps\`, `System\` etc.).
