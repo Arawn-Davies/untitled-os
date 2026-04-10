@@ -5,10 +5,10 @@
 #include <stdio.h>
 
 // Waits for 400ns, used for reading from ATA/ATAPI devices with IRQs etc.
-inline void io_wait();
+void io_wait();
 
 // Halts the CPU, executes when there's an unrecoverable exception or some other error
-inline void halt();
+void halt();
 
 
 
