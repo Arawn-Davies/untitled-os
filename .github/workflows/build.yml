@@ -2,7 +2,11 @@ name: Build
 
 on:
   push:
+    paths:
+      - 'src/**'
   pull_request:
+    paths:
+      - 'src/**'
 
 permissions:
   contents: read
@@ -78,7 +82,7 @@ jobs:
           # debug symbols; gdb-multiarch handles the i386 target.
           timeout 60 gdb-multiarch -batch \
             -ex "source tests/gdb_boot_test.py" \
-            kernel/makar.kernel \
+            src/kernel/makar.kernel \
             2>&1 | tee gdb-test.log
           GDB_EXIT=${PIPESTATUS[0]}
 
