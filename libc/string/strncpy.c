@@ -2,9 +2,10 @@
 
 char* strncpy(char* restrict dst, const char* restrict src, size_t n) {
 	char* ret = dst;
-	while (n && (*dst++ = *src++))
-		n--;
-	while (n--)
-		*dst++ = '\0';
+	size_t i;
+	for (i = 0; i < n && src[i] != '\0'; i++)
+		dst[i] = src[i];
+	for (; i < n; i++)
+		dst[i] = '\0';
 	return ret;
 }
