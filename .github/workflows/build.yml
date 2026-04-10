@@ -55,8 +55,8 @@ jobs:
             -d int,cpu_reset \
             -D qemu-debug.log \
             2>&1 | tee serial.log || true
-          grep -q "Hello, kernel World" serial.log
-          grep -q "tick:" serial.log
+          grep -q "serial: COM1 ready" serial.log
+          grep -q "keyboard: PS/2 IRQ1 handler registered" serial.log
 
       - name: GDB boot test
         shell: bash

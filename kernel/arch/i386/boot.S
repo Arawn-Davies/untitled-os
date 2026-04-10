@@ -46,12 +46,19 @@ stack_top:
 _start:
 	movl $stack_top, %esp
 
+	# Save the MBI pointer (ebx) and multiboot2 magic (eax) before calling
+	# _init, which may clobber caller-saved registers including eax.
+	pushl %eax
+	pushl %ebx
+
 	# Call the global constructors.
 	call _init
 
-	# Transfer control to the main kernel.
-	# Pass multiboot2 info: push mbi pointer (ebx) then magic (eax) so
-	# kernel_main receives them as (uint32_t magic, multiboot2_info_t *mbi).
+	# Restore and pass multiboot2 info to kernel_main.
+	# Push mbi pointer (ebx) then magic (eax) so kernel_main receives them
+	# as (uint32_t magic, multiboot2_info_t *mbi) per i386 cdecl.
+	popl %ebx
+	popl %eax
 	pushl %ebx
 	pushl %eax
 	call kernel_main
