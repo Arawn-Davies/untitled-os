@@ -63,10 +63,10 @@ $(ARCHDIR)/crtbegin.o $(ARCHDIR)/crtend.o:
 	$(CC) -MD -c $< -o $@ -std=gnu11 $(CFLAGS) $(CPPFLAGS)
 
 .S.o:
-	$(CC) -MD -c $< -o $@ -x assembler-with-cpp $(CFLAGS) $(CPPFLAGS)
-	
+	$(CC) -MD -x assembler-with-cpp -c $< -o $@ $(CFLAGS) $(CPPFLAGS)
+
 .s.o:
-	$(CC) -MD -c $< -o $@ -x assembler-with-cpp $(CFLAGS) $(CPPFLAGS)
+	$(CC) -MD -x assembler-with-cpp -c $< -o $@ $(CFLAGS) $(CPPFLAGS)
 
 clean:
 	rm -f untitled-os.kernel
