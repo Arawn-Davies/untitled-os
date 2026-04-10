@@ -1,6 +1,6 @@
 # Makar
 
-Makar is a bare-metal i686 operating system written in C.  It is the C/C++
+Makar is a bare-metal i686 operating system written in C/C++.  It is the GCC
 sibling of [Medli](https://github.com/Arawn-Davies/Medli) — two independent
 implementations of the same OS, sharing UX conventions, filesystem design,
 and long-term binary format goals.
