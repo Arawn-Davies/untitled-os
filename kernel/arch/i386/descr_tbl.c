@@ -1,5 +1,6 @@
 #include <kernel/asm.h>
 #include <kernel/tty.h>
+#include <kernel/serial.h>
 #include <stdio.h>
 #include <string.h>
 #include <kernel/descr_tbl.h>
@@ -28,10 +29,13 @@ void init_descriptor_tables()
 	// Initialise the global descriptor table.
 	init_gdt();
 	t_writestring("GDT Initialised.\n");
+	KLOG("init_descriptor_tables: GDT OK\n");
 	init_idt();
 	t_writestring("IDT Initialised.\n");
+	KLOG("init_descriptor_tables: IDT OK\n");
 	init_isr_handlers();
 	t_writestring("ISR Handlers Initialised.\n");
+	KLOG("init_descriptor_tables: ISR handlers OK\n");
 }
 
 static void init_idt()

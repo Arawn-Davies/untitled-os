@@ -2,6 +2,7 @@
 #include <kernel/isr.h>
 #include <kernel/tty.h>
 #include <kernel/system.h>
+#include <kernel/serial.h>
 
 /* 8 MiB / 4 KiB per page = 2048 pages = 2 page tables (1024 entries each) */
 #define PAGE_TABLES_8MB  2
@@ -69,12 +70,19 @@ void paging_init(void)
     asm volatile("mov %0, %%cr0" :: "r"(cr0) : "memory");
 
     t_writestring("Paging: enabled (identity-mapped 0-8 MB)\n");
+    KLOG("paging_init: enabled (identity-mapped 0-8 MB)\n");
 }
 
 void paging_map_region(uint32_t phys_start, uint32_t size)
 {
     if (size == 0)
         return;
+
+    KLOG("paging_map_region: ");
+    KLOG_HEX(phys_start);
+    KLOG(" len=");
+    KLOG_HEX(size);
+    KLOG("\n");
 
     /* Work with page-aligned boundaries. */
     uint32_t start = phys_start & ~0xFFFu;

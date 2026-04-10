@@ -24,4 +24,17 @@ void vesa_tty_putchar(char c);
 /* Set foreground and background colours as 24-bit RGB (0x00RRGGBB). */
 void vesa_tty_setcolor(uint32_t fg_rgb, uint32_t bg_rgb);
 
+/*
+ * Render character c at a specific cell (col, row) without moving the cursor.
+ * Safe to call before vesa_tty_init() — exits immediately if not ready.
+ */
+void vesa_tty_put_at(char c, uint32_t col, uint32_t row);
+
+/*
+ * Animate a spinning cursor at the top-right corner of the VESA display.
+ * Call with the current timer tick count (same as t_spinner_tick).
+ * Safe to call before vesa_tty_init() — exits immediately if not ready.
+ */
+void vesa_tty_spinner_tick(uint32_t tick);
+
 #endif

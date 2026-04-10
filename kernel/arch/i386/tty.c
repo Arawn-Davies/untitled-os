@@ -162,4 +162,5 @@ void t_spinner_tick(uint32_t tick)
 	static const char frames[] = {'|', '/', '-', '\\'};
 	char c = frames[(tick / 12) % 4];
 	t_putentryat(c, make_color(COLOR_WHITE, COLOR_BLACK), VGA_WIDTH - 1, 0);
+	vesa_tty_spinner_tick(tick);
 }

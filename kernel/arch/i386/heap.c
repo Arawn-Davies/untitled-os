@@ -1,5 +1,6 @@
 #include <kernel/heap.h>
 #include <kernel/paging.h>
+#include <kernel/serial.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
@@ -42,6 +43,12 @@ void heap_init(void)
     heap_head->size    = HEAP_MAX - HEAP_START - BLOCK_HDR_SIZE;
     heap_head->is_free = 1;
     heap_head->next    = NULL;
+
+    KLOG("heap_init: ");
+    KLOG_DEC((HEAP_MAX - HEAP_START) / (1024 * 1024));
+    KLOG(" MiB @ ");
+    KLOG_HEX(HEAP_START);
+    KLOG("\n");
 }
 
 /* ---------------------------------------------------------------------------

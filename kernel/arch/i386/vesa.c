@@ -1,5 +1,6 @@
 #include <kernel/vesa.h>
 #include <kernel/tty.h>
+#include <kernel/serial.h>
 #include <string.h>
 
 static vesa_fb_t fb;
@@ -32,21 +33,25 @@ bool vesa_init(multiboot2_info_t *mbi)
 
 	if (!fb_tag) {
 		t_writestring("VESA: no framebuffer tag from bootloader\n");
+		KLOG("vesa_init: no framebuffer tag from bootloader\n");
 		return false;
 	}
 
 	if (fb_tag->framebuffer_type != MULTIBOOT2_FRAMEBUFFER_TYPE_RGB) {
 		t_writestring("VESA: framebuffer is not direct-colour RGB\n");
+		KLOG("vesa_init: framebuffer is not direct-colour RGB\n");
 		return false;
 	}
 
 	if (fb_tag->framebuffer_bpp == 0) {
 		t_writestring("VESA: framebuffer bpp is zero\n");
+		KLOG("vesa_init: framebuffer bpp is zero\n");
 		return false;
 	}
 
 	if (fb_tag->framebuffer_bpp % 8 != 0) {
 		t_writestring("VESA: framebuffer bpp is not byte-aligned\n");
+		KLOG("vesa_init: framebuffer bpp is not byte-aligned\n");
 		return false;
 	}
 
@@ -73,6 +78,16 @@ bool vesa_init(multiboot2_info_t *mbi)
 	t_writestring(" @ 0x");
 	t_hex((uint32_t)(uintptr_t)fb.addr);
 	t_writestring("\n");
+
+	KLOG("vesa_init: framebuffer ");
+	KLOG_DEC(fb.width);
+	KLOG("x");
+	KLOG_DEC(fb.height);
+	KLOG("x");
+	KLOG_DEC(fb.bpp);
+	KLOG(" @ ");
+	KLOG_HEX((uint32_t)(uintptr_t)fb.addr);
+	KLOG("\n");
 
 	return true;
 }

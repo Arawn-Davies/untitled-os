@@ -1,5 +1,6 @@
 #include <kernel/pmm.h>
 #include <kernel/tty.h>
+#include <kernel/serial.h>
 #include <string.h>
 
 /* 4 GB / 4 KB = 1 048 576 frames, stored as 32 768 32-bit words. */
@@ -28,6 +29,7 @@ void pmm_init(uint32_t magic, multiboot2_info_t *mbi)
 
 	if (magic != MULTIBOOT2_BOOTLOADER_MAGIC) {
 		t_writestring("PMM: invalid multiboot2 magic, no memory freed\n");
+		KLOG("pmm_init: invalid multiboot2 magic\n");
 		return;
 	}
 
@@ -55,6 +57,7 @@ void pmm_init(uint32_t magic, multiboot2_info_t *mbi)
 
 	if (!mmap_tag) {
 		t_writestring("PMM: no memory map tag from bootloader, no memory freed\n");
+		KLOG("pmm_init: no memory map tag\n");
 		return;
 	}
 
@@ -98,6 +101,12 @@ void pmm_init(uint32_t magic, multiboot2_info_t *mbi)
 	t_writestring(" frames free (");
 	t_dec((free_frames * PMM_FRAME_SIZE) / (1024 * 1024));
 	t_writestring(" MiB)\n");
+
+	KLOG("pmm_init: ");
+	KLOG_DEC(free_frames);
+	KLOG(" frames free (");
+	KLOG_DEC((free_frames * PMM_FRAME_SIZE) / (1024 * 1024));
+	KLOG(" MiB)\n");
 }
 
 uint32_t pmm_alloc_frame(void)

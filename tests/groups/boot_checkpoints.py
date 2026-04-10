@@ -18,12 +18,12 @@ NAME = 'Boot Checkpoints'
 CHECKPOINTS = [
     'kernel_main',
     'terminal_initialize',
+    'init_serial',
     'init_descriptor_tables',
     'init_debug_handlers',
     'pmm_init',
     'paging_init',
     'heap_init',
-    'init_serial',
     'vesa_init',
     'vesa_tty_init',
     'init_timer',

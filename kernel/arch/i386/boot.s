@@ -20,8 +20,8 @@ mb2_header_start:
 .short 5        # type = framebuffer request
 .short 1        # flags = optional
 .long  20       # size  = 20 bytes (header + 3 × uint32)
-.long  1024     # preferred width
-.long  768      # preferred height
+.long  640      # preferred width  (VGA-equivalent: bigger glyphs at this res)
+.long  480      # preferred height
 .long  32       # preferred depth (bits per pixel)
 # End tag (type=0, flags=0, size=8)
 .align 8
