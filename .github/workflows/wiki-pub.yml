@@ -24,7 +24,7 @@ jobs:
 
           git clone "https://x-access-token:${WIKI_TOKEN}@github.com/${{ github.repository }}.wiki.git" wiki-repo
 
-          cp docs/* wiki-repo/
+          cp -r docs/* wiki-repo/
 
           cd wiki-repo
           git add .
