@@ -19,7 +19,7 @@
 
 /*
  * Column at which " [ OK ]" is printed.  Labels shorter than this are padded
- * with dots; the longest label is ~30 chars so 55 gives at least 25 dots.
+ * with spaces so the brackets are tab-aligned on every boot line.
  */
 #define BOOT_OK_COL 55
 
@@ -39,9 +39,9 @@ static void kprint_ok(const char *label)
 	while (label[len])
 		len++;
 
-	/* Pad with dots to reach BOOT_OK_COL. */
+	/* Pad with spaces to reach BOOT_OK_COL. */
 	for (size_t i = len; i < BOOT_OK_COL; i++)
-		t_putchar('.');
+		t_putchar(' ');
 
 	/* Switch to bright green on both VGA and VESA (if active). */
 	t_setcolor(make_color(COLOR_LIGHT_GREEN, COLOR_BLACK));
