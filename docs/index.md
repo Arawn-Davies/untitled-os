@@ -1,6 +1,11 @@
 # Makar — Documentation
 
-Makar is a bare-bones i686 OS kernel written in C, assembled with a cross-compiler toolchain (`i686-elf-gcc`) and booted via GRUB Multiboot 2.
+Makar is a bare-metal i686 operating system written in C, booted via GRUB
+Multiboot 2.  It is the C/C++ sibling of
+[Medli](https://github.com/Arawn-Davies/Medli) — both implement the same OS
+concept, sharing UX conventions, filesystem design, and long-term binary
+format goals.  See [Makar × Medli](makar-medli.md) for the full co-operation
+roadmap.
 
 ## Kernel subsystems
 
@@ -32,6 +37,12 @@ Makar is a bare-bones i686 OS kernel written in C, assembled with a cross-compil
 | [stdio](libc/stdio.md) | `printf`, `putchar`, `puts` |
 | [stdlib](libc/stdlib.md) | `abort` |
 | [string](libc/string.md) | Memory and string utilities |
+
+## Makar × Medli
+
+| Document | Description |
+|---|---|
+| [makar-medli](makar-medli.md) | Co-operation roadmap, shared filesystem layout, binary compatibility goals, and planned milestones |
 
 ## Build & run
 
