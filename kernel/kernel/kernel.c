@@ -13,6 +13,7 @@
 #include <kernel/heap.h>
 
 #include <kernel/paging.h>
+#include <kernel/keyboard.h>
 
 /* Post-boot heartbeat: prints the tick count 10 times (1 second apart) to
    both the VGA terminal and the serial port.  This confirms that the PIT
@@ -46,5 +47,6 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	vesa_init(mbi);
 	vesa_tty_init();
 	init_timer(50);
+	keyboard_init();
 	kernel_post_boot();
 }
