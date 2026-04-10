@@ -110,6 +110,9 @@ static void cmd_help(void)
 
 static void cmd_clear(void)
 {
+    /* Both outputs are always active in parallel: tty.c writes to VGA and
+       forwards every character to vesa_tty.  Reset both so they stay in sync.
+       vesa_tty_init() is a no-op when no VESA framebuffer is present. */
     terminal_initialize();
     vesa_tty_init();
 }
