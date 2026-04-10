@@ -50,11 +50,11 @@ $(ARCHDIR)/crtn.o \
 .PHONY: all clean install install-headers install-kernel
 .SUFFIXES: .o .c .S .s
 
-all: untitled-os.kernel
+all: makar.kernel
 
-untitled-os.kernel: $(OBJS) $(ARCHDIR)/linker.ld
+makar.kernel: $(OBJS) $(ARCHDIR)/linker.ld
 	$(CC) -T $(ARCHDIR)/linker.ld -o $@ $(CFLAGS) $(LINK_LIST)
-	grub-file --is-x86-multiboot2 untitled-os.kernel
+	grub-file --is-x86-multiboot2 makar.kernel
 
 $(ARCHDIR)/crtbegin.o $(ARCHDIR)/crtend.o:
 	OBJ=`$(CC) $(CFLAGS) $(LDFLAGS) -print-file-name=$(@F)` && cp "$$OBJ" $@
@@ -69,7 +69,7 @@ $(ARCHDIR)/crtbegin.o $(ARCHDIR)/crtend.o:
 	$(CC) -MD -x assembler-with-cpp -c $< -o $@ $(CFLAGS) $(CPPFLAGS)
 
 clean:
-	rm -f untitled-os.kernel
+	rm -f makar.kernel
 	rm -f $(OBJS) *.o */*.o */*/*.o
 	rm -f $(OBJS:.o=.d) *.d */*.d */*/*.d
 
@@ -79,8 +79,8 @@ install-headers:
 	mkdir -p $(DESTDIR)$(INCLUDEDIR)
 	cp -R --preserve=timestamps include/. $(DESTDIR)$(INCLUDEDIR)/.
 
-install-kernel: untitled-os.kernel
+install-kernel: makar.kernel
 	mkdir -p $(DESTDIR)$(BOOTDIR)
-	cp untitled-os.kernel $(DESTDIR)$(BOOTDIR)
+	cp makar.kernel $(DESTDIR)$(BOOTDIR)
 
 -include $(OBJS:.o=.d)

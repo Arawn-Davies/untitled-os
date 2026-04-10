@@ -1,4 +1,4 @@
-# Untitled OS
+# Makar
 
 Just another bare-bones OS kernel made using the i686-elf-gcc cross compiler (Compiled using [Quick-i686](https://github.com/Arawn-Davies/quick-i686))  
 Currently done:  

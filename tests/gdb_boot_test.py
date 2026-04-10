@@ -1,7 +1,7 @@
-"""GDB test runner for untitled-os.
+"""GDB test runner for Makar.
 
 Usage (invoked by the CI workflow):
-    gdb-multiarch -batch -ex "source tests/gdb_boot_test.py" kernel/untitled-os.kernel
+    gdb-multiarch -batch -ex "source tests/gdb_boot_test.py" kernel/makar.kernel
 
 The runner:
   1. Connects to a QEMU GDB stub on localhost:1234 (QEMU must be started
