@@ -134,7 +134,7 @@ Medli is practical.
   `System\Data\usrinfo.sys`, matching the Medli account file format.
 - [ ] **Inter-OS file exchange** — agreed-upon config and data file formats
   (plain text, INI-style) readable by both OSes from a shared FAT32 partition.
-
+- [ ] **True native utilities** Convert built-in kernel-linked utilities to executables with syscall access
 ---
 
 ## Shared UX conventions
