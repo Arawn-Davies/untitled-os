@@ -46,9 +46,13 @@ export CFLAGS='-O0 -g3'
 echo "==> Building debug ISO..."
 . ./iso.sh
 
+echo "==> Preparing disk image..."
+. ./make-disk.sh
+
 echo "==> Starting QEMU (GDB stub on :1234)..."
 qemu-system-$(./src/target-triplet-to-arch.sh "$HOST") \
     -cdrom makar.iso \
+    -drive file="$DISK_IMAGE",format=raw,media=disk,if=ide,index=0 \
     -serial stdio \
     -display none \
     -no-reboot \

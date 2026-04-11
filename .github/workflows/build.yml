@@ -34,6 +34,7 @@ jobs:
             grub-common \
             mtools \
             qemu-system-x86 \
+            qemu-utils \
             gdb-multiarch
 
       - name: Build ISO
@@ -47,11 +48,15 @@ jobs:
 
       - name: Test boot with QEMU
         run: |
+          # Create the disk image if it does not already exist.
+          bash make-disk.sh
+
           # Run QEMU and stream serial output to both the log and the console in real-time.
           # To debug locally with GDB: add -s -S flags and connect with
           #   gdb makar.kernel -ex "target remote :1234"
           timeout 20 qemu-system-i386 \
             -cdrom makar.iso \
+            -drive file="$DISK_IMAGE",format=raw,media=disk,if=ide,index=0 \
             -serial stdio \
             -display none \
             -no-reboot \
@@ -65,9 +70,14 @@ jobs:
       - name: GDB boot test
         shell: bash
         run: |
+          # Create the disk image if it does not already exist (reuse from
+          # previous step if the workflow runs them sequentially).
+          bash make-disk.sh
+
           # Start QEMU with the GDB stub enabled and the CPU frozen at reset (-S).
           qemu-system-i386 \
             -cdrom makar.iso \
+            -drive file="$DISK_IMAGE",format=raw,media=disk,if=ide,index=0 \
             -serial stdio \
             -display none \
             -no-reboot \
@@ -88,4 +98,10 @@ jobs:
 
           kill "$QEMU_PID" 2>/dev/null || true
           exit "$GDB_EXIT"
+
+      - name: Upload disk image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: makar-disk
+          path: makar-disk.img
 
