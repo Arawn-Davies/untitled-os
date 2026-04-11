@@ -92,7 +92,7 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	pmm_init(magic, mbi);
 	kprint_ok(step);
 
-	step = "Enabling paging";
+	step = "Enabling paging (256 MiB, 4 MiB large pages)";
 	t_writestring(step);
 	paging_init();
 	KLOG("paging: init complete\n");
