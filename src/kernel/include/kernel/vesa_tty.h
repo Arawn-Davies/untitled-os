@@ -37,4 +37,12 @@ void vesa_tty_put_at(char c, uint32_t col, uint32_t row);
  */
 void vesa_tty_spinner_tick(uint32_t tick);
 
+/*
+ * Change the font scale factor.  scale=2 gives large glyphs (~25 lines at
+ * 1024×768), scale=1 gives small glyphs (~50 lines at 1024×768).
+ * Clears the screen and resets the cursor.
+ * Safe to call before vesa_tty_init() — exits immediately if not ready.
+ */
+void vesa_tty_set_scale(uint32_t scale);
+
 #endif

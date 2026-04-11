@@ -6,7 +6,11 @@
 #include <stdint.h>
 #include <string.h>
 
+/* Current number of VGA text rows (25 or 50). */
+extern size_t t_height;
+
 void terminal_initialize(void);
+void terminal_set_rows(size_t rows);
 void t_setcolor(uint8_t color);
 void t_backspace();
 void t_putchar(char c);
