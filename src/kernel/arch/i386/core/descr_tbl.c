@@ -6,12 +6,20 @@
 #include <kernel/descr_tbl.h>
 #include <kernel/isr.h>
 
-// Lets us access our ASM functions from our C code.
+/* OSDev references:
+ *   GDT / segment descriptors  – https://wiki.osdev.org/GDT
+ *   GDT Tutorial (flush + far jump) – https://wiki.osdev.org/GDT_Tutorial
+ *   IDT / interrupt gate descriptors – https://wiki.osdev.org/IDT
+ *   8259 PIC remapping            – https://wiki.osdev.org/8259_PIC
+ *   Task State Segment (TSS)      – https://wiki.osdev.org/TSS
+ */
+
+/* Lets us access our ASM functions from our C code. */
 extern void gdt_flush(uint32_t);
 extern void idt_flush(uint32_t);
 extern void tss_flush(void);
 
-// Internal function prototypes.
+/* Internal function prototypes. */
 static void init_gdt();
 static void gdt_set_gate(int32_t, uint32_t, uint32_t, uint8_t, uint8_t);
 static void tss_set_gate(int32_t num, uint32_t base, uint32_t limit);
@@ -29,11 +37,13 @@ idt_ptr_t	idt_ptr;
 /* The single TSS for the system.  ESP0/SS0 are updated per task-switch. */
 static tss_t tss;
 
-// Initialisation routine - zeroes all the interrupt service routines,
-// initialises the GDT and IDT.
+/* Initialisation routine – zeroes all the interrupt service routines,
+ * initialises the GDT and IDT.
+ * See: https://wiki.osdev.org/GDT_Tutorial, https://wiki.osdev.org/IDT
+ */
 void init_descriptor_tables()
 {
-	// Initialise the global descriptor table.
+	/* Initialise the global descriptor table. */
 	init_gdt();
 	t_writestring("GDT Initialised.\n");
 	KLOG("init_descriptor_tables: GDT OK\n");
@@ -45,6 +55,19 @@ void init_descriptor_tables()
 	KLOG("init_descriptor_tables: ISR handlers OK\n");
 }
 
+/*
+ * init_idt – populate all 256 IDT gate descriptors and load the IDT.
+ *
+ * Before installing gates we remap the 8259 PIC so that hardware IRQs
+ * (IRQ 0–15) are delivered on vectors 32–47 instead of the default 8–15
+ * (which conflicts with CPU exceptions).  See https://wiki.osdev.org/8259_PIC
+ * for the full ICW1–ICW4 initialisation sequence used here.
+ *
+ * Each idt_set_gate() call uses selector 0x08 (kernel code segment) and
+ * flags 0x8E (interrupt gate, DPL=0, present).  The syscall gate at
+ * vector 128 uses 0xEE (DPL=3) so that user-mode code can invoke int 0x80.
+ * See https://wiki.osdev.org/IDT for the gate-descriptor bit layout.
+ */
 static void init_idt()
 {
 	idt_ptr.limit = sizeof(idt_entry_t) * 256 -1;
@@ -52,7 +75,17 @@ static void init_idt()
 
 	memset(&idt_entries, 0, sizeof(idt_entry_t)*256);
 
-	// Remap the irq table.
+	/*
+	 * Remap the 8259 PIC (master + slave) via ICW1–ICW4 so that hardware
+	 * IRQs land on vectors 32–47 rather than the default 8–23.
+	 *   Master PIC: command port 0x20, data port 0x21
+	 *   Slave  PIC: command port 0xA0, data port 0xA1
+	 * ICW1 (0x11): start initialisation, cascade mode, ICW4 needed.
+	 * ICW2: master offset 0x20 (32), slave offset 0x28 (40).
+	 * ICW3: master pin 2 has slave (0x04), slave ID is 2 (0x02).
+	 * ICW4 (0x01): 8086/88 mode.
+	 * OCW1: unmask all IRQs (0x00 for both PICs).
+	 */
 	outb(0x20, 0x11);
 	outb(0xA0, 0x11);
 	outb(0x21, 0x20);
@@ -121,6 +154,14 @@ static void init_idt()
 	idt_flush((uint32_t)&idt_ptr);
 }
 
+/*
+ * init_gdt – install 6 GDT descriptors and reload all segment registers.
+ *
+ * Flat 4 GiB segments (base=0, limit=0xFFFFFFFF) are used for both code
+ * and data in ring 0 and ring 3.  Segmentation is effectively disabled;
+ * all protection is handled by the paging unit.
+ * See https://wiki.osdev.org/GDT and https://wiki.osdev.org/GDT_Tutorial
+ */
 static void init_gdt()
 {
 	gdt_ptr.limit = (sizeof(gdt_entry_t) * 6) - 1;
@@ -137,7 +178,11 @@ static void init_gdt()
 	tss_flush();
 }
 
-// Set the value of one IDT entry.
+/* idt_set_gate – write one 8-byte interrupt-gate descriptor into the IDT.
+ * `base` is the 32-bit handler address; `sel` is the code segment (0x08);
+ * `flags` encodes gate type (0x8E = interrupt gate, DPL=0, present).
+ * See https://wiki.osdev.org/IDT for the full bit layout.
+ */
 static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags)
 {
 	idt_entries[num].base_lo = base & 0xFFFF;
@@ -148,7 +193,11 @@ static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags
 	idt_entries[num].flags		= flags;
 }
 
-// Set the value of one GDT entry.
+/* gdt_set_gate – write one 8-byte segment descriptor into the GDT.
+ * `access` encodes type, DPL and present bit; `gran` encodes the G/D/L/AVL
+ * nibble that is combined with the top 4 bits of the limit.
+ * See https://wiki.osdev.org/GDT for the full bit layout.
+ */
 static void gdt_set_gate(int32_t num, uint32_t base, uint32_t limit, uint8_t access, uint8_t gran)
 {
 	gdt_entries[num].base_low	= (base & 0xFFFF);

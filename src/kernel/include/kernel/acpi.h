@@ -6,9 +6,10 @@
 /*
  * acpi_init – scan for the RSDP and parse the FADT / DSDT.
  *
- * Must be called after paging is enabled (BIOS ROM is identity-mapped in the
- * first 8 MiB window).  On success the PM1a/PM1b control-block ports and the
- * S5 sleep-type values are cached for use by acpi_shutdown().
+ * Must be called after paging is enabled (ACPI tables in low physical memory
+ * are covered by the 256 MiB identity-mapped window).  On success the
+ * PM1a/PM1b control-block ports and the S5 sleep-type values are cached for
+ * use by acpi_shutdown().
  *
  * Returns 1 if ACPI tables were found and parsed successfully, 0 otherwise.
  */

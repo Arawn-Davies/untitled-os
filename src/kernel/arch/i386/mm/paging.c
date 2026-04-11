@@ -17,6 +17,12 @@
  *
  * Addresses above 256 MiB (e.g. VESA framebuffers) are still handled on
  * demand by paging_map_region() using fine-grained 4 KiB pages.
+ *
+ * OSDev references:
+ *   Paging (32-bit)           – https://wiki.osdev.org/Paging
+ *   Page Size Extensions      – https://wiki.osdev.org/Page_Size_Extension
+ *   Control Register 4 (CR4) – https://wiki.osdev.org/CPU_Registers_x86#CR4
+ *   Page fault / error codes  – https://wiki.osdev.org/Exceptions#Page_Fault
  * ------------------------------------------------------------------------- */
 #define IDENTITY_MAP_MB      256u
 #define LARGE_PAGE_SIZE      (4u * 1024u * 1024u)   /* 4 MiB per PSE entry */
