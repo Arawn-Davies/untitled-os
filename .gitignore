@@ -1,4 +1,6 @@
 *.iso
 isodir
 sysroot
-hdd.qcow2
+*.img
+*.qcow2
+*\**.pyc

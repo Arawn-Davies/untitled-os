@@ -3,7 +3,7 @@
  *
  * Provides:
  *   shell_readline() - echoes input, handles backspace, ends on Enter
- *   shell_run()      - infinite prompt loop ("untitled> ")
+ *   shell_run()      - infinite prompt loop ("makar-sh> ")
  *
  * Built-in commands: help, clear, echo, meminfo, uptime, shutdown
  */
@@ -21,7 +21,7 @@
 
 #define SHELL_MAX_INPUT  256
 #define SHELL_MAX_ARGS   8
-#define SHELL_PROMPT     "untitled> "
+#define SHELL_PROMPT     "makar-sh> "
 
 /* ---------------------------------------------------------------------------
  * shell_readline – read a line from the PS/2 keyboard into buf.
