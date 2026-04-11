@@ -5,11 +5,11 @@ Verifies CPU register state and liveness after the boot sequence:
   2. CR3 must be non-zero         – page directory is loaded.
   3. timer_callback must fire     – PIT is ticking (kernel is alive).
 
-This group is entered with execution stopped at shell_run (the last
-boot checkpoint).  It reads CR0/CR3 while stopped there, then installs a
-one-shot breakpoint on timer_callback and continues.  The shell blocks in
-keyboard_getchar() waiting for PS/2 input; during that spin-wait the PIT
-fires and timer_callback is reached, confirming the PIT is alive.
+This group is entered with execution stopped at debug_idle (the last boot
+checkpoint).  It reads CR0/CR3 while stopped there, then installs a one-shot
+breakpoint on timer_callback and continues.  debug_idle loops with the HLT
+instruction so the CPU yields to QEMU's event scheduler; the PIT delivers
+IRQ0 almost immediately, calling timer_callback and stopping GDB there.
 """
 
 import gdb

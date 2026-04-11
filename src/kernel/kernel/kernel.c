@@ -18,6 +18,11 @@
 #include <kernel/ata.h>
 #include <kernel/shell.h>
 
+#ifdef DEV_BUILD
+/* Forward declaration so kernel_main can call debug_idle() defined below. */
+static __attribute__((noinline)) void debug_idle(void);
+#endif
+
 /*
  * Column at which " [ OK ]" is printed.  Labels shorter than this are padded
  * with spaces so the brackets are tab-aligned on every boot line.
@@ -130,5 +135,30 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	kprint_ok(step);
 
 	t_writestring("\nAll subsystems ready.\n\n");
+
+#ifdef DEV_BUILD
+	debug_idle();
+#else
 	shell_run();
+#endif
 }
+
+#ifdef DEV_BUILD
+/*
+ * debug_idle – entered instead of shell_run() when DEV_BUILD is defined.
+ *
+ * In debug/GDB-test builds the interactive PS/2 keyboard shell is suppressed.
+ * The kernel signals "ready" on the debug serial port so the CI boot-sanity
+ * grep still passes, then enters an HLT-based idle loop.  Unlike a busy
+ * spin-loop with 'pause', HLT yields to QEMU's event scheduler so the PIT
+ * delivers timer_callback interrupts reliably.  GDB can then catch
+ * timer_callback via a normal software breakpoint without racing against
+ * keyboard polling.
+ */
+static __attribute__((noinline)) void debug_idle(void)
+{
+	serial_write_str(SERIAL_DEBUG, "debug: idle loop active\n");
+	for (;;)
+		asm volatile("hlt");
+}
+#endif

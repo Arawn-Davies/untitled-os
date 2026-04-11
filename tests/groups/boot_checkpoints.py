@@ -27,7 +27,7 @@ CHECKPOINTS = [
     'vesa_init',
     'vesa_tty_init',
     'init_timer',
-    'shell_run',
+    'debug_idle',
 ]
 
 

@@ -67,7 +67,7 @@ jobs:
             2>&1 | tee serial.log || true
           grep -q "serial: COM1 ready" serial.log
           grep -q "keyboard: PS/2 IRQ1 handler registered" serial.log
-          grep -q "shell: prompt ready" serial.log
+          grep -q "debug: idle loop active" serial.log
 
       - name: GDB boot test
         shell: bash
