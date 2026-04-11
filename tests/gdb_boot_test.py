@@ -121,6 +121,17 @@ def main():
         return
 
     for group in GROUPS:
+        # After each group hands off control, GDB may still consider the target
+        # "running" because the software-breakpoint mechanism single-steps past
+        # the trap instruction before notifying Python.  Issue 'interrupt' to
+        # force a clean stop before the next group reads registers or memory.
+        # 'to_string=True' suppresses any "already stopped" output; the
+        # exception is swallowed because the target may legitimately be stopped.
+        try:
+            gdb.execute('interrupt', to_string=True)
+        except gdb.error:
+            pass
+
         print('--- Running group: {} ---'.format(group.NAME), flush=True)
         g_passed, g_total = group.run()
         total_passed += g_passed

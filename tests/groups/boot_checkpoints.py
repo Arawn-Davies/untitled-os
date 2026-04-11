@@ -48,14 +48,24 @@ def run():
             print('CHECKPOINT: ' + self.location, flush=True)
             return hit >= checkpoint_set
 
+    breakpoints = []
     for fn in CHECKPOINTS:
         bp = CheckpointBreakpoint(fn)
         bp.silent = True
+        breakpoints.append(bp)
 
     try:
         gdb.execute('continue')
     except gdb.error as exc:
         print('GDB error during boot checkpoints: ' + str(exc), flush=True)
+
+    # Remove all checkpoint breakpoints so they cannot interfere with later
+    # groups and so GDB has no stale breakpoint state to reconcile.
+    for bp in breakpoints:
+        try:
+            bp.delete()
+        except gdb.error:
+            pass
 
     missing = [fn for fn in CHECKPOINTS if fn not in hit]
     if missing:
