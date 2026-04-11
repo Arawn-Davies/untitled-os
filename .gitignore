@@ -4,3 +4,5 @@ sysroot
 *.img
 *.qcow2
 *\**.pyc
+# compiled binary artifacts (no extension) that may appear in arch dirs
+src/kernel/arch/*/dt_asm
