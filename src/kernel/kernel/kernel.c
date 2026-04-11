@@ -66,10 +66,12 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	terminal_initialize();
 	t_writestring("Makar kernel starting...\n");
 
-	step = "Initializing serial COM1";
+	step = "Initializing serial ports";
 	t_writestring(step);
-	init_serial(COM1);
-	KLOG("serial: COM1 ready\n");
+	serial_init(SERIAL_DEBUG);  /* COM1 — kernel debug / KLOG      */
+	serial_init(SERIAL_SHELL);  /* COM2 — serial terminal shell     */
+	serial_init(SERIAL_TERM);   /* COM3 — terminal emulation        */
+	KLOG("serial: COM1=debug COM2=shell COM3=term ready\n");
 	kprint_ok(step);
 
 	step = "Loading descriptor tables";

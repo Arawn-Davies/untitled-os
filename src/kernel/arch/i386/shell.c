@@ -456,7 +456,7 @@ static void diskutil_create_partitions(void)
     for (int i = 0; i < 4; i++) {
         if (i < nparts) {
             mbr.parts[i].status       = 0x00;
-            mbr.parts[i].type         = 0xFA; /* MDFS — shared Makar/Medli ID */
+            mbr.parts[i].type         = MBR_TYPE_MDFS; /* Makar/Medli shared FS ID */
             mbr.parts[i].lba_start    = starts[i];
             mbr.parts[i].sector_count = counts[i];
             /* Clear CHS fields — not used in LBA mode. */

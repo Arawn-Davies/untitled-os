@@ -88,7 +88,7 @@ static const char *part_type_name(uint8_t type)
     case 0x0F: return "Extended LBA";
     case 0x82: return "Linux swap";
     case 0x83: return "Linux ext";
-    case 0xFA: return "MDFS";     /* Medli/Makar shared FS ID */
+    case 0xFA: return "MDFS";     /* Makar/Medli shared FS — see MBR_TYPE_MDFS */
     case 0xFB: return "MDFS-alt";
     default:   return NULL;
     }

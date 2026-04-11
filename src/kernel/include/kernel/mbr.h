@@ -31,7 +31,8 @@
 #define MBR_MAX_PARTITIONS  4
 #define MBR_BOOT_SIGNATURE  0xAA55u
 
-/* One entry from the partition table (matches the on-disk layout). */
+/* Partition type IDs used when writing a new MBR partition table. */
+#define MBR_TYPE_MDFS  0xFA   /* Makar/Medli shared filesystem ID */
 typedef struct __attribute__((packed)) {
     uint8_t  status;        /* 0x80 = bootable, 0x00 = not                     */
     uint8_t  chs_first[3]; /* CHS address of first sector (legacy, ignored)     */
