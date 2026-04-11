@@ -107,6 +107,10 @@ static void init_idt()
         idt_set_gate(46, (uint32_t)irq14, 0x08, 0x8E);
         idt_set_gate(47, (uint32_t)irq15, 0x08, 0x8E);
 
+	/* Syscall gate: int 0x80 (vector 128).
+	 * DPL=3 (0xEE) so user-mode code can invoke it when ring-3 is added. */
+	idt_set_gate(128, (uint32_t)isr128, 0x08, 0xEE);
+
 	idt_flush((uint32_t)&idt_ptr);
 }
 

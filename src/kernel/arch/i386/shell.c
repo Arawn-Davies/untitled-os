@@ -15,6 +15,7 @@
 #include <kernel/heap.h>
 #include <kernel/vesa_tty.h>
 #include <kernel/ide.h>
+#include <kernel/task.h>
 
 #include <string.h>
 #include <stddef.h>
@@ -107,6 +108,7 @@ static void cmd_help(void)
     t_writestring("  echo [args..]          - print arguments\n");
     t_writestring("  meminfo                - print heap used/free\n");
     t_writestring("  uptime                 - ticks since boot\n");
+    t_writestring("  tasks                  - list kernel tasks\n");
     t_writestring("  lsdisks                - list detected ATA drives\n");
     t_writestring("  lspart <drv>           - list MBR partitions on a drive\n");
     t_writestring("  readsector <drv> <lba> - hex-dump one sector\n");
@@ -148,6 +150,29 @@ static void cmd_uptime(void)
     t_writestring("uptime: ");
     t_dec(timer_get_ticks());
     t_writestring(" ticks\n");
+}
+
+static void cmd_tasks(void)
+{
+    static const char * const state_names[] = { "ready", "running", "dead" };
+    int n = task_count();
+
+    t_writestring("Tasks (");
+    t_dec((uint32_t)n);
+    t_writestring(" total):\n");
+
+    for (int i = 0; i < n; i++) {
+        task_t *t = task_get(i);
+        if (!t)
+            continue;
+        t_writestring("  [");
+        t_dec((uint32_t)i);
+        t_writestring("] ");
+        t_writestring(t->name ? t->name : "(unnamed)");
+        t_writestring(" - ");
+        t_writestring(state_names[t->state]);
+        t_putchar('\n');
+    }
 }
 
 static void cmd_lsdisks(void)
@@ -442,6 +467,8 @@ void shell_run(void)
             cmd_meminfo();
         } else if (strcmp(argv[0], "uptime") == 0) {
             cmd_uptime();
+        } else if (strcmp(argv[0], "tasks") == 0) {
+            cmd_tasks();
         } else if (strcmp(argv[0], "lsdisks") == 0) {
             cmd_lsdisks();
         } else if (strcmp(argv[0], "lspart") == 0) {

@@ -76,6 +76,9 @@ IRQ 13,	45
 IRQ 14,	46
 IRQ 15,	47
 
+/* Syscall gate: int 0x80 (vector 128) */
+ISR_NOERRCODE 128
+
 .extern isr_handler              /* In isr.c */
 
 /* This is our common ISR stub. It saves the processor state, sets

@@ -1,0 +1,177 @@
+/*
+ * task.c -- Cooperative kernel multitasking.
+ *
+ * Implements a simple round-robin scheduler over a fixed pool of kernel tasks.
+ * Tasks voluntarily yield the CPU via task_yield(); no preemptive switching
+ * occurs inside interrupt handlers, so the IRQ frame and task frame never mix.
+ *
+ * The spinner in tty.c continues to be driven directly by the PIT IRQ callback
+ * (timer.c) and therefore updates on every tick regardless of which task is
+ * currently executing.
+ */
+
+#include <kernel/task.h>
+#include <kernel/heap.h>
+#include <kernel/system.h>
+#include <kernel/tty.h>
+#include <kernel/asm.h>
+#include <string.h>
+
+/* -------------------------------------------------------------------------
+ * Internal state
+ * ------------------------------------------------------------------------- */
+
+static task_t  task_pool[MAX_TASKS];
+static int     task_pool_count = 0;
+static task_t *current_task    = NULL;
+static int     tasking_active  = 0;
+
+/* -------------------------------------------------------------------------
+ * init_task_stack
+ *
+ * Pre-populates the stack of a brand-new task so that the first call to
+ * task_switch() into this task behaves as if task_switch() was called from
+ * within the entry function.
+ *
+ * task_switch() saves: pushf, push ebp, push ebx, push esi, push edi.
+ * It then does: pop edi, pop esi, pop ebx, pop ebp, popf, ret.
+ *
+ * The "ret" pops the top-of-stack as the return address, so we place the
+ * entry function pointer there.  Below that we place task_exit() so that if
+ * entry() ever returns the task is cleanly terminated.
+ *
+ * Stack layout (high → low, ESP points to the lowest element):
+ *
+ *   task_exit   <- if entry() returns (below entry on the stack)
+ *   entry       <- popped by "ret" in task_switch
+ *   eflags=0x202<- popf  (IF=1, bit 1 always 1)
+ *   ebp=0
+ *   ebx=0
+ *   esi=0
+ *   edi=0       <- initial ESP
+ * ------------------------------------------------------------------------- */
+static void init_task_stack(task_t *t, void (*entry)(void))
+{
+    uint32_t *sp = (uint32_t *)(t->stack + TASK_STACK_SIZE);
+
+    *--sp = (uint32_t)(uintptr_t)task_exit;   /* fallback if entry() returns */
+    *--sp = (uint32_t)(uintptr_t)entry;       /* return address for ret      */
+    *--sp = 0x00000202u;                      /* EFLAGS: IF=1, reserved=1    */
+    *--sp = 0;                                /* ebp                         */
+    *--sp = 0;                                /* ebx                         */
+    *--sp = 0;                                /* esi                         */
+    *--sp = 0;                                /* edi                         */
+
+    t->esp = (uint32_t)(uintptr_t)sp;
+}
+
+/* -------------------------------------------------------------------------
+ * Public API
+ * ------------------------------------------------------------------------- */
+
+void tasking_init(void)
+{
+    /* task_pool[0] represents the current execution context (idle/kernel). */
+    task_pool[0].esp   = 0;         /* filled in by task_switch on first yield */
+    task_pool[0].stack = NULL;      /* uses the original boot stack             */
+    task_pool[0].state = TASK_RUNNING;
+    task_pool[0].name  = "idle";
+    task_pool[0].next  = &task_pool[0]; /* circular list of one for now        */
+
+    task_pool_count = 1;
+    current_task    = &task_pool[0];
+    tasking_active  = 1;
+}
+
+task_t *task_create(const char *name, void (*entry)(void))
+{
+    if (task_pool_count >= MAX_TASKS)
+        return NULL;
+
+    uint8_t *stack = (uint8_t *)kmalloc(TASK_STACK_SIZE);
+    if (!stack)
+        return NULL;
+
+    task_t *t = &task_pool[task_pool_count++];
+    t->stack  = stack;
+    t->state  = TASK_READY;
+    t->name   = name;
+
+    init_task_stack(t, entry);
+
+    /* Insert the new task into the circular list immediately after current. */
+    t->next            = current_task->next;
+    current_task->next = t;
+
+    return t;
+}
+
+task_t *task_current(void)
+{
+    return current_task;
+}
+
+task_t *task_get(int i)
+{
+    if (i < 0 || i >= task_pool_count)
+        return NULL;
+    return &task_pool[i];
+}
+
+int task_count(void)
+{
+    return task_pool_count;
+}
+
+/* -------------------------------------------------------------------------
+ * schedule – internal round-robin scheduler.
+ *
+ * Walks the circular task list looking for the next READY task.  If no other
+ * runnable task exists, returns without switching (the current task keeps
+ * running).
+ * ------------------------------------------------------------------------- */
+static void schedule(void)
+{
+    if (!tasking_active || task_pool_count < 2)
+        return;
+
+    task_t *next = current_task->next;
+
+    /* Walk up to task_pool_count steps looking for a runnable task. */
+    for (int i = 0; i < task_pool_count; i++) {
+        if (next->state == TASK_READY)
+            break;
+        next = next->next;
+    }
+
+    if (next == current_task || next->state != TASK_READY)
+        return;   /* nothing else to run */
+
+    task_t *prev = current_task;
+    if (prev->state == TASK_RUNNING)
+        prev->state = TASK_READY;
+
+    current_task        = next;
+    current_task->state = TASK_RUNNING;
+
+    task_switch(&prev->esp, current_task->esp);
+}
+
+void task_yield(void)
+{
+    if (!tasking_active)
+        return;
+    schedule();
+}
+
+void __attribute__((noreturn)) task_exit(void)
+{
+    disable_interrupts();
+    if (current_task)
+        current_task->state = TASK_DEAD;
+    enable_interrupts();
+
+    /* Keep rescheduling until another runnable task takes over. */
+    for (;;)
+        schedule();
+}
