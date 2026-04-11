@@ -100,6 +100,9 @@ extern void irq13();
 extern void irq14();
 extern void irq15();
 
+/* Syscall gate – int 0x80 (vector 128). */
+extern void isr128();
+
 // Initialisation function is publicly accessible.
 void init_descriptor_tables();
 

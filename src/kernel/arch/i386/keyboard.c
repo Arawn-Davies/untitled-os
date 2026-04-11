@@ -7,6 +7,7 @@
 #include <kernel/keyboard.h>
 #include <kernel/isr.h>
 #include <kernel/asm.h>
+#include <kernel/task.h>
 
 #define PS2_DATA_PORT   0x60
 #define PS2_STATUS_PORT 0x64
@@ -160,7 +161,9 @@ char keyboard_poll(void)
 
 char keyboard_getchar(void)
 {
-    while (buf_count() == 0)
-        asm volatile("pause"); /* spin-loop hint */
+    while (buf_count() == 0) {
+        task_yield();              /* cooperatively yield while waiting for input */
+        asm volatile("pause");    /* spin-loop hint to reduce bus traffic         */
+    }
     return buf_pop();
 }

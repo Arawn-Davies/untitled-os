@@ -17,6 +17,8 @@
 #include <kernel/keyboard.h>
 #include <kernel/ide.h>
 #include <kernel/shell.h>
+#include <kernel/task.h>
+#include <kernel/syscall.h>
 
 /*
  * Column at which " [ OK ]" is printed.  Labels shorter than this are padded
@@ -129,5 +131,26 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	kprint_ok(step);
 
 	t_writestring("\nAll subsystems ready.\n\n");
-	shell_run();
+
+	step = "Initializing multitasking";
+	t_writestring(step);
+	tasking_init();
+	task_create("shell", shell_run);
+	kprint_ok(step);
+
+	step = "Initializing syscalls (int 0x80)";
+	t_writestring(step);
+	syscall_init();
+	kprint_ok(step);
+
+	/*
+	 * Transfer control to the scheduler.  The shell task starts running and
+	 * the idle task (this context) resumes here whenever no other task is
+	 * runnable.  We simply keep yielding and halting between ticks so that
+	 * the CPU is not needlessly busy.
+	 */
+	for (;;) {
+		task_yield();
+		asm volatile("hlt");
+	}
 }
