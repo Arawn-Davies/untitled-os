@@ -11,6 +11,7 @@ size_t t_row;
 size_t t_column;
 uint8_t t_color;
 uint16_t *t_buffer;
+size_t t_height = VGA_HEIGHT;
 
 void t_putentryat(char c, uint8_t color, size_t x, size_t y);
 void t_scroll();
@@ -21,7 +22,7 @@ void terminal_initialize(void)
 	t_column = 0;
 	t_color = make_color(COLOR_WHITE, COLOR_BLACK);
 	t_buffer = VGA_MEMORY;
-	for (size_t y = 0; y < VGA_HEIGHT; y++)
+	for (size_t y = 0; y < t_height; y++)
 	{
 		for (size_t x = 0; x < VGA_WIDTH; x++)
 		{
@@ -76,7 +77,7 @@ void t_putchar(char c)
 	{
 		t_line_fill[t_row] = t_column - 1;
 		t_column = 0;
-		if (++t_row == VGA_HEIGHT)
+		if (++t_row == t_height)
 		{
 			t_scroll();
 		}
@@ -88,7 +89,7 @@ void t_putchar(char c)
 void t_scroll()
 {
 	t_row--;
-	for (size_t y = 0; y < VGA_HEIGHT - 1; y++)
+	for (size_t y = 0; y < t_height - 1; y++)
 	{
 		for (size_t x = 0; x < VGA_WIDTH; x++)
 		{
@@ -101,7 +102,7 @@ void t_scroll()
 
 	for (size_t x = 0; x < VGA_WIDTH; x++)
 	{
-		const size_t index = (VGA_HEIGHT - 1) * VGA_WIDTH + x;
+		const size_t index = (t_height - 1) * VGA_WIDTH + x;
 		t_buffer[index] = make_vgaentry(' ', t_color);
 	}
 }
@@ -163,4 +164,35 @@ void t_spinner_tick(uint32_t tick)
 	char c = frames[(tick / 12) % 4];
 	t_putentryat(c, make_color(COLOR_WHITE, COLOR_BLACK), VGA_WIDTH - 1, 0);
 	vesa_tty_spinner_tick(tick);
+}
+
+void terminal_set_rows(size_t rows)
+{
+	/* Only 25 and 50 are supported. */
+	if (rows != 25 && rows != 50)
+		return;
+
+	/*
+	 * Program CRTC register 9 (Max Scan Line).
+	 * 80x25: 16 scanlines per char → bits[4:0] = 15
+	 * 80x50:  8 scanlines per char → bits[4:0] =  7
+	 *
+	 * The CRTC address register for colour modes is at 0x3D4 and the
+	 * data register is at 0x3D5.
+	 */
+	uint8_t scanlines = (rows == 50) ? 7 : 15;
+
+	outb(0x3D4, 0x09);
+	outb(0x3D5, (uint8_t)((inb(0x3D5) & 0xE0) | scanlines));
+
+	/* Update cursor shape to span the bottom two lines of the new cell. */
+	uint8_t cursor_start = scanlines - 1;
+	uint8_t cursor_end   = scanlines;
+	outb(0x3D4, 0x0A);
+	outb(0x3D5, (uint8_t)((inb(0x3D5) & 0xC0) | cursor_start));
+	outb(0x3D4, 0x0B);
+	outb(0x3D5, (uint8_t)((inb(0x3D5) & 0xE0) | cursor_end));
+
+	t_height = rows;
+	terminal_initialize();
 }

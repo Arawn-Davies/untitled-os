@@ -7,10 +7,11 @@
 
 /* Scale factor applied to every glyph pixel.  2 makes each 8×8 glyph appear
    as a 16×16 cell on the framebuffer, which is far more readable at typical
-   VESA resolutions. */
-#define FONT_SCALE  2
-#define FONT_CELL_W (FONT8x8_CHAR_W * FONT_SCALE)
-#define FONT_CELL_H (FONT8x8_CHAR_H * FONT_SCALE)
+   VESA resolutions.  Can be changed at runtime via vesa_tty_set_scale(). */
+static uint32_t font_scale = 2;
+
+#define FONT_CELL_W (FONT8x8_CHAR_W * font_scale)
+#define FONT_CELL_H (FONT8x8_CHAR_H * font_scale)
 
 static bool     tty_ready = false;
 static uint32_t tty_fg;        /* foreground colour in framebuffer format */
@@ -57,7 +58,7 @@ bool vesa_tty_init(void)
 	KLOG("x");
 	KLOG_DEC(tty_rows);
 	KLOG(" chars, scale=");
-	KLOG_DEC(FONT_SCALE);
+	KLOG_DEC(font_scale);
 	KLOG(")\n");
 	return true;
 }
@@ -94,11 +95,11 @@ static void draw_char(char c, uint32_t col, uint32_t row)
 		uint8_t bits = glyph[y];
 		for (uint32_t x = 0; x < FONT8x8_CHAR_W; x++) {
 			uint32_t colour = (bits & (1u << x)) ? tty_fg : tty_bg;
-			/* Each source pixel becomes a FONT_SCALE × FONT_SCALE block. */
-			for (uint32_t sy = 0; sy < FONT_SCALE; sy++)
-				for (uint32_t sx = 0; sx < FONT_SCALE; sx++)
-					vesa_put_pixel(px + x * FONT_SCALE + sx,
-					               py + y * FONT_SCALE + sy, colour);
+			/* Each source pixel becomes a font_scale × font_scale block. */
+			for (uint32_t sy = 0; sy < font_scale; sy++)
+				for (uint32_t sx = 0; sx < font_scale; sx++)
+					vesa_put_pixel(px + x * font_scale + sx,
+					               py + y * font_scale + sy, colour);
 		}
 	}
 }
@@ -178,4 +179,22 @@ void vesa_tty_spinner_tick(uint32_t tick)
 	static const char frames[] = {'|', '/', '-', '\\'};
 	char c = frames[(tick / 12) % 4];
 	vesa_tty_put_at(c, tty_cols - 1, 0);
+}
+
+void vesa_tty_set_scale(uint32_t scale)
+{
+	if (!tty_ready)
+		return;
+	if (scale == 0)
+		scale = 1;
+
+	font_scale = scale;
+
+	const vesa_fb_t *fb = vesa_get_fb();
+	tty_cols = fb->width  / FONT_CELL_W;
+	tty_rows = fb->height / FONT_CELL_H;
+	tty_col  = 0;
+	tty_row  = 0;
+
+	vesa_clear(tty_bg);
 }
