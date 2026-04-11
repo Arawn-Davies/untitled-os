@@ -446,6 +446,62 @@ static void cmd_reboot(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * Command dispatch – enum + lookup table + switch/case/default.
+ *
+ * To add a new command: add a CMD_FOO entry to the enum, add a row to
+ * cmd_table[], add a case in shell_run().
+ * --------------------------------------------------------------------------- */
+
+typedef enum {
+    CMD_HELP,
+    CMD_CLEAR,
+    CMD_ECHO,
+    CMD_MEMINFO,
+    CMD_UPTIME,
+    CMD_TASKS,
+    CMD_LSDISKS,
+    CMD_LSPART,
+    CMD_READSECTOR,
+    CMD_SETMODE,
+    CMD_SHUTDOWN,
+    CMD_REBOOT,
+    CMD_KTEST,
+    CMD_UNKNOWN,
+} shell_cmd_t;
+
+typedef struct {
+    const char *name;
+    shell_cmd_t id;
+} cmd_entry_t;
+
+static const cmd_entry_t cmd_table[] = {
+    { "help",       CMD_HELP       },
+    { "clear",      CMD_CLEAR      },
+    { "echo",       CMD_ECHO       },
+    { "meminfo",    CMD_MEMINFO    },
+    { "uptime",     CMD_UPTIME     },
+    { "tasks",      CMD_TASKS      },
+    { "lsdisks",    CMD_LSDISKS    },
+    { "lspart",     CMD_LSPART     },
+    { "readsector", CMD_READSECTOR },
+    { "setmode",    CMD_SETMODE    },
+    { "shutdown",   CMD_SHUTDOWN   },
+    { "reboot",     CMD_REBOOT     },
+    { "ktest",      CMD_KTEST      },
+};
+
+#define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
+
+static shell_cmd_t shell_lookup(const char *name)
+{
+    for (int i = 0; i < CMD_TABLE_SIZE; i++) {
+        if (strcmp(cmd_table[i].name, name) == 0)
+            return cmd_table[i].id;
+    }
+    return CMD_UNKNOWN;
+}
+
+/* ---------------------------------------------------------------------------
  * shell_run – infinite REPL loop.  Never returns.
  * --------------------------------------------------------------------------- */
 void shell_run(void)
@@ -463,36 +519,25 @@ void shell_run(void)
         if (argc == 0)
             continue;
 
-        if (strcmp(argv[0], "help") == 0) {
-            cmd_help();
-        } else if (strcmp(argv[0], "clear") == 0) {
-            cmd_clear();
-        } else if (strcmp(argv[0], "echo") == 0) {
-            cmd_echo(argc, argv);
-        } else if (strcmp(argv[0], "meminfo") == 0) {
-            cmd_meminfo();
-        } else if (strcmp(argv[0], "uptime") == 0) {
-            cmd_uptime();
-        } else if (strcmp(argv[0], "tasks") == 0) {
-            cmd_tasks();
-        } else if (strcmp(argv[0], "lsdisks") == 0) {
-            cmd_lsdisks();
-        } else if (strcmp(argv[0], "lspart") == 0) {
-            cmd_lspart(argc, argv);
-        } else if (strcmp(argv[0], "readsector") == 0) {
-            cmd_readsector(argc, argv);
-        } else if (strcmp(argv[0], "setmode") == 0) {
-            cmd_setmode(argc, argv);
-        } else if (strcmp(argv[0], "shutdown") == 0) {
-            cmd_shutdown();
-        } else if (strcmp(argv[0], "reboot") == 0) {
-            cmd_reboot();
-        } else if (strcmp(argv[0], "ktest") == 0) {
-            ktest_run_all();
-        } else {
+        switch (shell_lookup(argv[0])) {
+        case CMD_HELP:       cmd_help();                break;
+        case CMD_CLEAR:      cmd_clear();               break;
+        case CMD_ECHO:       cmd_echo(argc, argv);      break;
+        case CMD_MEMINFO:    cmd_meminfo();             break;
+        case CMD_UPTIME:     cmd_uptime();              break;
+        case CMD_TASKS:      cmd_tasks();               break;
+        case CMD_LSDISKS:    cmd_lsdisks();             break;
+        case CMD_LSPART:     cmd_lspart(argc, argv);   break;
+        case CMD_READSECTOR: cmd_readsector(argc, argv); break;
+        case CMD_SETMODE:    cmd_setmode(argc, argv);  break;
+        case CMD_SHUTDOWN:   cmd_shutdown();            break;
+        case CMD_REBOOT:     cmd_reboot();              break;
+        case CMD_KTEST:      ktest_run_all();           break;
+        default:
             t_writestring("Unknown command: ");
             t_writestring(argv[0]);
             t_writestring("\n");
+            break;
         }
     }
 }
