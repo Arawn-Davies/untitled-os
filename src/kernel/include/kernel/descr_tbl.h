@@ -29,6 +29,31 @@ struct gdt_ptr_struct
 } __attribute__((packed));
 typedef struct gdt_ptr_struct gdt_ptr_t;
 
+/*
+ * i386 Task State Segment (minimal hardware TSS).
+ *
+ * The CPU reads ESP0/SS0 from the TSS on every Ring-3 → Ring-0 transition
+ * (int, irq, syscall) to know where to place the kernel stack.  Only these
+ * two fields plus iomap_base need to be valid for our purposes.
+ */
+typedef struct tss_struct {
+    uint32_t prev_tss;   /* previous TSS selector (unused, 0)          */
+    uint32_t esp0;       /* kernel stack pointer for Ring-0 entry       */
+    uint32_t ss0;        /* kernel stack segment  (0x10)                */
+    uint32_t esp1;       /* unused                                      */
+    uint32_t ss1;
+    uint32_t esp2;
+    uint32_t ss2;
+    uint32_t cr3;
+    uint32_t eip;
+    uint32_t eflags;
+    uint32_t eax, ecx, edx, ebx, esp, ebp, esi, edi;
+    uint32_t es, cs, ss, ds, fs, gs;
+    uint32_t ldt;
+    uint16_t trap;
+    uint16_t iomap_base; /* offset to I/O permission bitmap (set > TSS size = no bitmap) */
+} __attribute__((packed)) tss_t;
+
 // A struct describing an interrupt gate.
 struct idt_entry_struct
 {
@@ -105,5 +130,17 @@ extern void isr128();
 
 // Initialisation function is publicly accessible.
 void init_descriptor_tables();
+
+/*
+ * tss_set_kernel_stack – update the TSS ESP0 field.
+ *
+ * Called by the task switcher before entering (or returning to) a task so
+ * that Ring-3 → Ring-0 transitions (syscalls, IRQs) always land on the
+ * correct kernel stack.
+ *
+ * esp0 – address of the TOP of the task's kernel stack (i.e. the value
+ *         ESP should have after the CPU has pushed SS/ESP/EFLAGS/CS/EIP).
+ */
+void tss_set_kernel_stack(uint32_t esp0);
 
 #endif // DESCRIPTOR_TABLES_H

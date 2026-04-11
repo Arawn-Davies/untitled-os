@@ -28,7 +28,7 @@ static uint32_t next_extra_pt = 0;
 
 /* ISR 14 – Page-fault handler.
    CR2 holds the linear address that caused the fault. */
-static void page_fault_handler(registers_t regs)
+static void page_fault_handler(registers_t *regs)
 {
     uint32_t faulting_address;
     asm volatile("mov %%cr2, %0" : "=r"(faulting_address));
@@ -36,7 +36,7 @@ static void page_fault_handler(registers_t regs)
     t_writestring("Page fault at 0x");
     t_hex(faulting_address);
     t_writestring(" (err=0x");
-    t_hex(regs.err_code);
+    t_hex(regs->err_code);
     t_writestring(")\n");
 
     PANIC("Page fault");

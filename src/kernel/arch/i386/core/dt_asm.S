@@ -26,3 +26,15 @@ idt_flush:
         movl 4(%esp), %eax      /* Get the pointer to the IDT, passed as a parameter. */
         lidt (%eax)             /* Load the IDT pointer. */
         ret
+
+/*
+ * tss_flush – load the Task Register with the TSS selector.
+ *
+ * GDT[5] = TSS descriptor → selector = 5*8 = 0x28.
+ * ltr requires the descriptor to be marked as Available (type 0x9), not Busy.
+ */
+.global tss_flush
+tss_flush:
+        movw $0x28, %ax         /* TSS selector: GDT index 5, TI=0, RPL=0 */
+        ltr  %ax
+        ret

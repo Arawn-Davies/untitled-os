@@ -70,11 +70,11 @@ static void dump_registers(registers_t *regs)
 // INT 1 – Debug exception (single-step / hardware breakpoint)
 // ---------------------------------------------------------------------------
 
-static void debug_exception_handler(registers_t regs)
+static void debug_exception_handler(registers_t *regs)
 {
     t_writestring("[DEBUG] INT1 debug exception\n");
     Serial_WriteString("[DEBUG] INT1 debug exception\n");
-    dump_registers(&regs);
+    dump_registers(regs);
     // Trap — execution resumes at the next instruction automatically.
 }
 
@@ -82,11 +82,11 @@ static void debug_exception_handler(registers_t regs)
 // INT 3 – Breakpoint (software int3 / GDB software breakpoint)
 // ---------------------------------------------------------------------------
 
-static void breakpoint_handler(registers_t regs)
+static void breakpoint_handler(registers_t *regs)
 {
     t_writestring("[DEBUG] INT3 breakpoint hit\n");
     Serial_WriteString("[DEBUG] INT3 breakpoint hit\n");
-    dump_registers(&regs);
+    dump_registers(regs);
     // Trap — execution resumes after the int3 instruction automatically.
 }
 

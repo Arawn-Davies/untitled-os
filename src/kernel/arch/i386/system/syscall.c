@@ -9,10 +9,7 @@
  *   EAX = syscall number
  *   EBX = arg1, ECX = arg2, EDX = arg3, ESI = arg4, EDI = arg5
  *
- * Note: because isr_handler() receives registers_t by value, modifications to
- * EAX inside the handler are not visible to the caller.  Return values are
- * therefore not implemented in this initial version; they can be added later
- * by switching to a pointer-based handler signature.
+ * Return value: written to regs->eax so the caller sees it in EAX after iret.
  */
 
 #include <kernel/syscall.h>
@@ -20,9 +17,9 @@
 #include <kernel/task.h>
 #include <kernel/tty.h>
 
-static void syscall_dispatch(registers_t regs)
+static void syscall_dispatch(registers_t *regs)
 {
-    switch (regs.eax) {
+    switch (regs->eax) {
     case SYS_EXIT:
         task_exit();
         /* task_exit() does not return */
@@ -30,8 +27,8 @@ static void syscall_dispatch(registers_t regs)
 
     case SYS_WRITE:
         /* EBX = pointer to NUL-terminated string */
-        if (regs.ebx)
-            t_writestring((const char *)(uintptr_t)regs.ebx);
+        if (regs->ebx)
+            t_writestring((const char *)(uintptr_t)regs->ebx);
         break;
 
     case SYS_YIELD:

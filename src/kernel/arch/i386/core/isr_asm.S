@@ -96,7 +96,9 @@ isr_common_stub:
 	movw %ax, %fs
 	movw %ax, %gs
 
+	pushl %esp               /* push pointer to registers_t frame (arg to isr_handler) */
 	call isr_handler
+	addl $4, %esp            /* pop the pushed pointer */
 
 	popl %eax                    /* reload the original data segment descriptor */
 	movw %ax, %ds
@@ -127,7 +129,9 @@ irq_common_stub:
 	movw %ax, %fs
 	movw %ax, %gs
 
+	pushl %esp               /* push pointer to registers_t frame (arg to irq_handler) */
 	call irq_handler
+	addl $4, %esp            /* pop the pushed pointer */
 
 	popl %ebx                    /* reload the original data segment descriptor */
 	movw %bx, %ds

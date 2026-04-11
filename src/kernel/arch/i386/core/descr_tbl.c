@@ -9,18 +9,25 @@
 // Lets us access our ASM functions from our C code.
 extern void gdt_flush(uint32_t);
 extern void idt_flush(uint32_t);
+extern void tss_flush(void);
 
 // Internal function prototypes.
 static void init_gdt();
 static void gdt_set_gate(int32_t, uint32_t, uint32_t, uint8_t, uint8_t);
+static void tss_set_gate(int32_t num, uint32_t base, uint32_t limit);
 
 static void init_idt();
 static void idt_set_gate(uint8_t, uint32_t, uint16_t, uint8_t);
 
-gdt_entry_t	gdt_entries[5];
+/* GDT now has 6 entries: null, kernel code, kernel data,
+   user code, user data, TSS. */
+gdt_entry_t	gdt_entries[6];
 gdt_ptr_t	gdt_ptr;
 idt_entry_t	idt_entries[256];
 idt_ptr_t	idt_ptr;
+
+/* The single TSS for the system.  ESP0/SS0 are updated per task-switch. */
+static tss_t tss;
 
 // Initialisation routine - zeroes all the interrupt service routines,
 // initialises the GDT and IDT.
@@ -108,7 +115,7 @@ static void init_idt()
         idt_set_gate(47, (uint32_t)irq15, 0x08, 0x8E);
 
 	/* Syscall gate: int 0x80 (vector 128).
-	 * DPL=3 (0xEE) so user-mode code can invoke it when ring-3 is added. */
+	 * DPL=3 (0xEE) so user-mode code can invoke it. */
 	idt_set_gate(128, (uint32_t)isr128, 0x08, 0xEE);
 
 	idt_flush((uint32_t)&idt_ptr);
@@ -116,16 +123,18 @@ static void init_idt()
 
 static void init_gdt()
 {
-	gdt_ptr.limit = (sizeof(gdt_entry_t) * 5) - 1;
+	gdt_ptr.limit = (sizeof(gdt_entry_t) * 6) - 1;
 	gdt_ptr.base = (uint32_t)&gdt_entries;
 
-	gdt_set_gate(0, 0, 0, 0, 0);			// Null segment
-	gdt_set_gate(1, 0, 0xFFFFFFFF, 0x9A, 0xCF);	// Code segment
-	gdt_set_gate(2, 0, 0xFFFFFFFF, 0x92, 0xCF);	// Data segment
-	gdt_set_gate(3, 0, 0xFFFFFFFF, 0xFA, 0xCF);	// User mode code segment
-	gdt_set_gate(4, 0, 0xFFFFFFFF, 0xF2, 0xCF);	// User mode data segment
+	gdt_set_gate(0, 0, 0, 0, 0);                       /* Null segment           */
+	gdt_set_gate(1, 0, 0xFFFFFFFF, 0x9A, 0xCF);        /* Kernel code  (0x08)    */
+	gdt_set_gate(2, 0, 0xFFFFFFFF, 0x92, 0xCF);        /* Kernel data  (0x10)    */
+	gdt_set_gate(3, 0, 0xFFFFFFFF, 0xFA, 0xCF);        /* User code    (0x18)    */
+	gdt_set_gate(4, 0, 0xFFFFFFFF, 0xF2, 0xCF);        /* User data    (0x20)    */
+	tss_set_gate(5, (uint32_t)&tss, sizeof(tss) - 1);  /* TSS          (0x28)    */
 
 	gdt_flush((uint32_t)&gdt_ptr);
+	tss_flush();
 }
 
 // Set the value of one IDT entry.
@@ -136,9 +145,7 @@ static void idt_set_gate(uint8_t num, uint32_t base, uint16_t sel, uint8_t flags
 
 	idt_entries[num].sel		= sel;
 	idt_entries[num].always0	= 0;
-	// We must uncomment the OR below when we get to using user-mode.
-	// It sets the interrupt gate's privilege level to 3.
-	idt_entries[num].flags		= flags /* | 0x60 */;
+	idt_entries[num].flags		= flags;
 }
 
 // Set the value of one GDT entry.
@@ -153,4 +160,42 @@ static void gdt_set_gate(int32_t num, uint32_t base, uint32_t limit, uint8_t acc
 
 	gdt_entries[num].granularity	|= gran & 0xF0;
 	gdt_entries[num].access		= access;
+}
+
+/*
+ * tss_set_gate – write a TSS descriptor into a GDT slot.
+ *
+ * The TSS descriptor is a "system" descriptor (S bit clear).  For a
+ * 32-bit available TSS the access byte is 0x89 (P=1, DPL=0, type=0x9).
+ * Granularity is 0x00 (byte granularity; the TSS is only a few hundred
+ * bytes so we don't need 4 KiB granularity).
+ */
+static void tss_set_gate(int32_t num, uint32_t base, uint32_t limit)
+{
+	/* Zero the TSS itself before installing. */
+	memset(&tss, 0, sizeof(tss));
+
+	/* Kernel stack segment; ESP0 filled in by tss_set_kernel_stack(). */
+	tss.ss0       = 0x10;   /* kernel data segment */
+	tss.esp0      = 0;      /* updated before first Ring-3 entry   */
+	tss.iomap_base = sizeof(tss); /* no I/O permission bitmap */
+
+	/* Write the GDT descriptor for the TSS. */
+	gdt_entries[num].limit_low   = (uint16_t)(limit & 0xFFFF);
+	gdt_entries[num].base_low    = (uint16_t)(base  & 0xFFFF);
+	gdt_entries[num].base_middle = (uint8_t)((base  >> 16) & 0xFF);
+	gdt_entries[num].access      = 0x89;  /* P=1, DPL=0, 32-bit TSS available */
+	gdt_entries[num].granularity = (uint8_t)(((limit >> 16) & 0x0F));
+	gdt_entries[num].base_high   = (uint8_t)((base  >> 24) & 0xFF);
+}
+
+/*
+ * tss_set_kernel_stack – update the kernel-stack pointer in the TSS.
+ *
+ * Must be called before every Ring-3 → Ring-0 transition to ensure the
+ * CPU switches to the correct per-task kernel stack.
+ */
+void tss_set_kernel_stack(uint32_t esp0)
+{
+	tss.esp0 = esp0;
 }
