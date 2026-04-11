@@ -163,9 +163,13 @@ static int ata_probe_drive(int idx)
     outb(ATA_BASE + ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
     ata_400ns_delay();
 
-    /* If status reads 0x00, no drive is present on this position. */
+    /*
+     * If status reads 0x00 or 0xFF (floating bus — nothing driving the
+     * data lines), no drive is present.  Skip immediately rather than
+     * entering ata_wait_busy(), which would spin ATA_POLL_LIMIT times.
+     */
     uint8_t st = inb(ATA_BASE + ATA_REG_STATUS);
-    if (st == 0)
+    if (st == 0x00 || st == 0xFF)
         return 0;
 
     /* Wait for BSY to clear. */

@@ -16,6 +16,7 @@
 #include <kernel/shell.h>
 #include <kernel/keyboard.h>
 #include <kernel/tty.h>
+#include <kernel/serial.h>
 #include <kernel/timer.h>
 #include <kernel/heap.h>
 #include <kernel/vesa_tty.h>
@@ -541,6 +542,7 @@ void shell_run(void)
     char *argv[SHELL_MAX_ARGS];
 
     t_writestring("Makar kernel shell. Type 'help' for a list of commands.\n");
+    serial_write_str(SERIAL_DEBUG, "shell: prompt ready\n");
 
     while (1) {
         t_writestring(SHELL_PROMPT);
