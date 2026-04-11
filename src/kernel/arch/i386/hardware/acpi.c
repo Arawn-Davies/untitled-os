@@ -18,6 +18,7 @@
 #include <kernel/asm.h>
 #include <kernel/tty.h>
 #include <kernel/serial.h>
+#include <kernel/paging.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -221,6 +222,34 @@ static int scan_s5(const uint8_t *dsdt_data, uint32_t dsdt_len,
  * Public API
  * ------------------------------------------------------------------------- */
 
+/*
+ * acpi_map_table – ensure a physical ACPI table is accessible.
+ *
+ * Maps a minimum region large enough to read the SDT header, reads the
+ * `length` field, then maps the full table.  Returns the header pointer
+ * (usable immediately after this call) or NULL if phys_addr is 0.
+ *
+ * paging_map_region() is a no-op for ranges already covered by the initial
+ * 0–8 MiB identity map, so it is safe to call for any address.
+ */
+static const acpi_sdt_header_t *acpi_map_table(uint32_t phys_addr)
+{
+    if (phys_addr == 0)
+        return NULL;
+
+    /* Map the header first so we can read the length field safely. */
+    paging_map_region(phys_addr, sizeof(acpi_sdt_header_t));
+
+    const acpi_sdt_header_t *hdr =
+        (const acpi_sdt_header_t *)(uintptr_t)phys_addr;
+
+    /* Now map the complete table using the length from the header. */
+    if (hdr->length > sizeof(acpi_sdt_header_t))
+        paging_map_region(phys_addr, hdr->length);
+
+    return hdr;
+}
+
 int acpi_init(void)
 {
     const acpi_rsdp_t *rsdp = locate_rsdp();
@@ -230,9 +259,12 @@ int acpi_init(void)
     }
     KLOG("acpi: RSDP found\n");
 
-    /* Walk the RSDT to find the FADT (signature "FACP"). */
-    const acpi_sdt_header_t *rsdt =
-        (const acpi_sdt_header_t *)(uintptr_t)rsdp->rsdt_address;
+    /* Map and validate the RSDT. */
+    const acpi_sdt_header_t *rsdt = acpi_map_table(rsdp->rsdt_address);
+    if (!rsdt) {
+        KLOG("acpi: RSDT address is null\n");
+        return 0;
+    }
     if (!acpi_checksum(rsdt, rsdt->length)) {
         KLOG("acpi: RSDT checksum bad\n");
         return 0;
@@ -241,11 +273,23 @@ int acpi_init(void)
     const uint32_t *entry = (const uint32_t *)(rsdt + 1);
     uint32_t n_entries = (rsdt->length - sizeof(acpi_sdt_header_t)) / 4;
 
+    /* Find the FADT ("FACP") entry, mapping each candidate before reading it. */
     const acpi_fadt_t *fadt = NULL;
     for (uint32_t i = 0; i < n_entries; i++) {
+        uint32_t entry_phys = entry[i];
+        if (entry_phys == 0)
+            continue;
+
+        /* Map enough of this entry to read the 4-byte signature. */
+        paging_map_region(entry_phys, sizeof(acpi_sdt_header_t));
+
         const acpi_sdt_header_t *hdr =
-            (const acpi_sdt_header_t *)(uintptr_t)entry[i];
+            (const acpi_sdt_header_t *)(uintptr_t)entry_phys;
+
         if (memcmp(hdr->signature, "FACP", 4) == 0) {
+            /* Map the full FADT now that we know its address. */
+            if (hdr->length > sizeof(acpi_sdt_header_t))
+                paging_map_region(entry_phys, hdr->length);
             fadt = (const acpi_fadt_t *)hdr;
             break;
         }
@@ -266,15 +310,19 @@ int acpi_init(void)
     fadt_raw = (const uint8_t *)fadt;
     fadt_len = fadt->hdr.length;
 
-    /* Find DSDT and scan for \_S5_. */
-    const uint8_t *dsdt = (const uint8_t *)(uintptr_t)fadt->dsdt;
-    const acpi_sdt_header_t *dsdt_hdr = (const acpi_sdt_header_t *)dsdt;
+    /* Map and validate the DSDT, then scan for \_S5_. */
+    const acpi_sdt_header_t *dsdt_hdr = acpi_map_table(fadt->dsdt);
+    if (!dsdt_hdr) {
+        KLOG("acpi: DSDT address is null\n");
+        return 0;
+    }
     if (!acpi_checksum(dsdt_hdr, dsdt_hdr->length)) {
         KLOG("acpi: DSDT checksum bad\n");
         return 0;
     }
 
-    if (!scan_s5(dsdt, dsdt_hdr->length, &slp_typa, &slp_typb)) {
+    if (!scan_s5((const uint8_t *)dsdt_hdr, dsdt_hdr->length,
+                 &slp_typa, &slp_typb)) {
         KLOG("acpi: _S5_ not found in DSDT\n");
         return 0;
     }
