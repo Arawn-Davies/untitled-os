@@ -9,9 +9,15 @@
 /* Current number of VGA text rows (25 or 50). */
 extern size_t t_height;
 
-/* Current cursor column (0-based).  Exported so boot-status helpers can
- * read the real cursor position without relying on strlen(label). */
+/* Current cursor position (0-based). */
+extern size_t t_row;
 extern size_t t_column;
+
+/*
+ * Write character c with the given colour attribute directly into the VGA
+ * buffer at cell (x, y) without moving the cursor.
+ */
+void t_putentryat(char c, uint8_t color, size_t x, size_t y);
 
 void terminal_initialize(void);
 void terminal_set_rows(size_t rows);
