@@ -9,6 +9,7 @@
 #include <kernel/tty.h>
 #include <kernel/serial.h>
 #include <kernel/asm.h>
+#include <string.h>
 
 isr_t interrupt_handlers[256];
 
@@ -20,27 +21,18 @@ void init_isr_handlers()
 void register_interrupt_handler(uint8_t n, isr_t handler)
 {
 	interrupt_handlers[n] = handler;
-	if (n >= IRQ0)
-	{
-		t_writestring("IRQ ");
-		t_dec(n - IRQ0);
+	if (n >= IRQ0) {
 		KLOG("register_interrupt_handler: IRQ ");
 		KLOG_DEC(n - IRQ0);
-	}
-	else
-	{
-		t_writestring("Interrupt ");
-		t_dec(n);
+	} else {
 		KLOG("register_interrupt_handler: INT ");
 		KLOG_DEC(n);
 	}
-	t_writestring(" Registered...\n");
 	KLOG(" registered\n");
 }
 
 void unregister_interrupt_handler(uint8_t n)
 {
-	t_writestring("Unregistering a handler...\n");
 	KLOG("unregister_interrupt_handler: INT ");
 	KLOG_DEC(n);
 	KLOG("\n");

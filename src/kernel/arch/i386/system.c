@@ -2,15 +2,7 @@
 #include <kernel/types.h>
 #include <kernel/tty.h>
 
-inline void io_wait()
-{
-    /* TODO: This is probably fragile. */
-    asm volatile ( "jmp 1f\n\t"
-                   "1:jmp 2f\n\t"
-                   "2:" );
-}
-
-//Halts the CPU, executes when there's an unrecoverable exception or some other error
+/* halt() — spin with interrupts disabled after an unrecoverable fault. */
 inline void halt()
 {
 	asm volatile ("hlt");

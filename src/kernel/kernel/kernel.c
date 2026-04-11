@@ -15,6 +15,7 @@
 
 #include <kernel/paging.h>
 #include <kernel/keyboard.h>
+#include <kernel/ata.h>
 #include <kernel/shell.h>
 
 /*
@@ -119,6 +120,11 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	t_writestring(step);
 	keyboard_init();
 	KLOG("keyboard: PS/2 IRQ1 handler registered\n");
+	kprint_ok(step);
+
+	step = "Detecting ATA drives";
+	t_writestring(step);
+	ata_init();
 	kprint_ok(step);
 
 	t_writestring("\nAll subsystems ready.\n\n");

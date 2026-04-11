@@ -1,58 +1,41 @@
-#include <kernel/types.h>
-//#include <kernel/system.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
-#include <string.h>
 #include <kernel/asm.h>
 #include <kernel/serial.h>
 
-#define COM1 0x3f8
-#define COM2 0x2f8
-#define COM3 0x3e8
-#define COM4 0x2e8
+/* Active port — set by init_serial(); all helpers use this. */
+static int PORT = COM1;
 
-int PORT;
-
-enum ComPorts
-{
-	COMPort1 = 0x3f8,
-	COMPort2 = 0x2f8,
-	COMPort3 = 0x3e8,
-	COMPort4 = 0x2e8
-};
-
-int serialReceived() {
-   return inb(COM1 + 5) & 1;
-}
- 
-char Serial_ReadChar() {
-   while (serialReceived() == 0);
-   return inb(COM1);
+int serialReceived(void) {
+    return inb(PORT + 5) & 1;
 }
 
-int isTransmitEmpty() {
-   return inb(COM1 + 5) & 0x20;
+char Serial_ReadChar(void) {
+    while (serialReceived() == 0);
+    return inb(PORT);
 }
 
-//Writes a character over a serial connection
+int isTransmitEmpty(void) {
+    return inb(PORT + 5) & 0x20;
+}
+
+/* Write a single character over the active serial port. */
 void Serial_WriteChar(char a) {
-   while (isTransmitEmpty() == 0);
-   outb(COM1,a);
+    while (isTransmitEmpty() == 0);
+    outb(PORT, a);
 }
 
-//Prints a string over a serial connection
+/* Write a NUL-terminated string over the active serial port. */
 void Serial_WriteString(string a)
 {
-    while (*a != 0)
-    {
+    while (*a != '\0') {
         Serial_WriteChar(*a);
-        a = a + 1;
+        a++;
     }
 }
 
-// Prints an unsigned 32-bit integer in decimal over a serial connection
+/* Write an unsigned 32-bit integer in decimal over the active serial port. */
 void Serial_WriteDec(uint32_t n)
 {
     char buf[11]; /* max uint32 is 4294967295 (10 digits) + NUL */
@@ -69,7 +52,7 @@ void Serial_WriteDec(uint32_t n)
     Serial_WriteString(&buf[i]);
 }
 
-// Prints an unsigned 32-bit integer in hexadecimal (0xXXXXXXXX) over serial
+/* Write an unsigned 32-bit integer in hexadecimal (0xXXXXXXXX) over serial. */
 void Serial_WriteHex(uint32_t n)
 {
     static const char hexdigits[] = "0123456789ABCDEF";
@@ -84,18 +67,16 @@ void Serial_WriteHex(uint32_t n)
     Serial_WriteString(buf);
 }
 
-//Initialises the serial connection
-void init_serial(int ComPort) 
+/* Initialise the given COM port at 38400 8N1 with FIFOs enabled. */
+void init_serial(int ComPort)
 {
-	printf("Serial init start\n");
-	PORT = ComPort;
-	outb(PORT + 1, 0x00);    // Disable all interrupts
-	outb(PORT + 3, 0x80);    // Enable DLAB (set baud rate divisor)
-	outb(PORT + 0, 0x03);    // Set divisor to 3 (lo byte) 38400 baud
-	outb(PORT + 1, 0x00);    //                  (hi byte)
-	outb(PORT + 3, 0x03);    // 8 bits, no parity, one stop bit
-	outb(PORT + 2, 0xC7);    // Enable FIFO, clear them, with 14-byte threshold
-	outb(PORT + 4, 0x0B);    // IRQs enabled, RTS/DSR set
-	printf("Serial init done!\n");
-	Serial_WriteString("Serial init done!\n");
+    PORT = ComPort;
+    outb(PORT + 1, 0x00); /* Disable all interrupts        */
+    outb(PORT + 3, 0x80); /* Enable DLAB (set baud divisor) */
+    outb(PORT + 0, 0x03); /* Divisor lo: 3 → 38400 baud    */
+    outb(PORT + 1, 0x00); /* Divisor hi                    */
+    outb(PORT + 3, 0x03); /* 8 bits, no parity, 1 stop bit */
+    outb(PORT + 2, 0xC7); /* Enable FIFO, 14-byte threshold */
+    outb(PORT + 4, 0x0B); /* IRQs enabled, RTS/DSR set     */
+    Serial_WriteString("serial: COM1 ready\n");
 }
