@@ -5,9 +5,9 @@ is active, that the VESA TTY was successfully initialised.
 
 This group is entered with execution stopped inside timer_callback (left
 there by the hardware_state group).  State variables are read directly from
-the stopped inferior; no further `continue` is issued because after boot the
-kernel blocks in shell_run() → keyboard_getchar() waiting for PS/2 input, so
-there is no autonomous terminal output to intercept.
+the stopped inferior; no further `continue` is issued because the kernel
+is in debug_idle() which loops on HLT — there is no autonomous output to
+intercept.
 
 If no framebuffer was provided by the bootloader (e.g. headless CI) the
 group still passes — what matters is that the driver handled the absence

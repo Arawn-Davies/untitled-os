@@ -78,11 +78,25 @@ def check_multiboot2_magic():
 
 
 def _shutdown_qemu():
-    """Ask QEMU to quit via the GDB monitor interface."""
+    """Ask QEMU to quit, then disconnect the GDB remote session.
+
+    After 'monitor quit' QEMU exits and closes its GDB stub socket.  If GDB
+    is still connected when 'quit' is subsequently issued, it tries to send
+    final RSP packets to the now-dead socket and hangs indefinitely.  Calling
+    'disconnect' first puts GDB into the "no remote target" state so that
+    'quit' can exit immediately without touching the network.
+    """
     try:
         gdb.execute('monitor quit')
     except gdb.error:
-        pass  # not fatal – the CI script will kill QEMU if needed
+        pass  # QEMU may close the socket before ACKing – that's fine
+
+    # Disconnect cleanly so the subsequent 'quit' does not try to send
+    # packets to the dead GDB stub socket (which would cause a hang).
+    try:
+        gdb.execute('disconnect')
+    except gdb.error:
+        pass
 
 
 def main():
