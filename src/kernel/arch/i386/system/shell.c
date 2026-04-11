@@ -16,6 +16,8 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/ide.h>
 #include <kernel/task.h>
+#include <kernel/acpi.h>
+#include <kernel/ktest.h>
 
 #include <string.h>
 #include <stddef.h>
@@ -113,7 +115,9 @@ static void cmd_help(void)
     t_writestring("  lspart <drv>           - list MBR partitions on a drive\n");
     t_writestring("  readsector <drv> <lba> - hex-dump one sector\n");
     t_writestring("  setmode <25|50>        - switch between 80x25 and 80x50\n");
-    t_writestring("  shutdown               - halt the system\n");
+    t_writestring("  shutdown               - power off the system (ACPI S5)\n");
+    t_writestring("  reboot                 - reboot the system (ACPI/KBC)\n");
+    t_writestring("  ktest                  - run in-kernel unit tests\n");
 }
 
 static void cmd_clear(void)
@@ -433,10 +437,12 @@ static void cmd_setmode(int argc, char **argv)
 
 static void cmd_shutdown(void)
 {
-    t_writestring("System halted. It is now safe to turn off your computer.\n");
-    asm volatile ("cli");
-    for (;;)
-        asm volatile ("hlt");
+    acpi_shutdown(); /* never returns */
+}
+
+static void cmd_reboot(void)
+{
+    acpi_reboot(); /* never returns */
 }
 
 /* ---------------------------------------------------------------------------
@@ -479,6 +485,10 @@ void shell_run(void)
             cmd_setmode(argc, argv);
         } else if (strcmp(argv[0], "shutdown") == 0) {
             cmd_shutdown();
+        } else if (strcmp(argv[0], "reboot") == 0) {
+            cmd_reboot();
+        } else if (strcmp(argv[0], "ktest") == 0) {
+            ktest_run_all();
         } else {
             t_writestring("Unknown command: ");
             t_writestring(argv[0]);

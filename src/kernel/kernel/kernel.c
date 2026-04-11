@@ -19,6 +19,7 @@
 #include <kernel/shell.h>
 #include <kernel/task.h>
 #include <kernel/syscall.h>
+#include <kernel/acpi.h>
 
 /*
  * Column at which " [ OK ]" is printed.  Labels shorter than this are padded
@@ -141,6 +142,11 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	step = "Initializing syscalls (int 0x80)";
 	t_writestring(step);
 	syscall_init();
+	kprint_ok(step);
+
+	step = "Initializing ACPI";
+	t_writestring(step);
+	acpi_init();
 	kprint_ok(step);
 
 	/*
