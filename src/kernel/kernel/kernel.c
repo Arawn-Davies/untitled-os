@@ -50,10 +50,10 @@ static void kprint_ok(void)
 
 	/* Mirror to the VESA framebuffer if it is active. */
 	if (vesa_tty_is_ready()) {
+		uint32_t vcol = vesa_tty_get_cols() - 6;
 		vesa_tty_setcolor(0x00FF00, 0x000000);
 		for (uint32_t i = 0; i < 6; i++)
-			vesa_tty_put_at(ok[i], (uint32_t)(BOOT_OK_COL + i),
-			                vesa_tty_get_row());
+			vesa_tty_put_at(ok[i], vcol + i, vesa_tty_get_row());
 		vesa_tty_setcolor(0xFFFFFF, 0x000000);
 	}
 

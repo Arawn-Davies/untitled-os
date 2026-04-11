@@ -17,6 +17,9 @@ bool vesa_tty_is_ready(void);
 /* Returns the current cursor row (in character cells). */
 uint32_t vesa_tty_get_row(void);
 
+/* Returns the total number of character columns on the VESA display. */
+uint32_t vesa_tty_get_cols(void);
+
 /*
  * Render a single character to the framebuffer at the current cursor
  * position, advancing the cursor.  Handles '\n', '\r', and '\b'.
