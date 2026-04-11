@@ -39,6 +39,7 @@ echo "==> Starting QEMU in background (serial → PTY, GDB stub on :1234)..."
 qemu-system-"$ARCH" \
     -cdrom makar.iso \
     -drive file="$DISK_IMAGE",format=raw,media=disk,if=ide,index=0 \
+    -boot d \
     -serial pty \
     -display none \
     -no-reboot \
