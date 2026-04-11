@@ -61,7 +61,7 @@ def run():
     if missing:
         for fn in missing:
             print('FAIL: checkpoint not reached: ' + fn, flush=True)
-        return False
+        return len(hit), len(CHECKPOINTS)
 
     print('GROUP PASS: ' + NAME, flush=True)
-    return True
+    return len(CHECKPOINTS), len(CHECKPOINTS)

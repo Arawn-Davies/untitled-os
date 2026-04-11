@@ -8,7 +8,10 @@ The runner:
      with -s -S before this script is run).
   2. Verifies the Multiboot 2 magic value in %eax at _start.
   3. Runs each test group in order.  Groups are defined in tests/groups/ and
-     each exposes a NAME string and a run() → bool function.
+     each exposes a NAME string and a run() → (passed: int, total: int) function.
+  4. Prints a final RESULTS line with the aggregate pass rate.
+  5. Sends 'monitor quit' to the QEMU monitor to shut down the VM, then exits
+     GDB with code 0 (all passed) or 1 (any failure).
 
 Test groups
 -----------
@@ -17,7 +20,7 @@ Test groups
   vesa              – VESA framebuffer driver state and TTY output-path check
 
 Adding a new group: create tests/groups/<name>.py with NAME and run(), then
-import it here and append it to GROUPS.
+import it here and append it to GROUPS.  run() must return (passed, total).
 """
 
 import os
@@ -46,14 +49,17 @@ GROUPS = [
 
 
 def check_multiboot2_magic():
-    """Break at _start and verify %eax contains the Multiboot 2 magic value."""
+    """Break at _start and verify %eax contains the Multiboot 2 magic value.
+
+    Returns (passed, total) where total is always 1.
+    """
     mb2_bp = gdb.Breakpoint('_start', internal=True)
     mb2_bp.silent = True
     try:
         gdb.execute('continue')
     except gdb.error as exc:
         print('GDB error reaching _start: ' + str(exc), flush=True)
-        return False
+        return 0, 1
 
     eax = int(gdb.parse_and_eval('$eax')) & 0xFFFFFFFF
     print('EAX at _start: 0x{:08X}'.format(eax), flush=True)
@@ -65,10 +71,18 @@ def check_multiboot2_magic():
                 MULTIBOOT2_MAGIC, eax),
             flush=True,
         )
-        return False
+        return 0, 1
 
     print('PASS: Multiboot 2 magic verified (0x{:08X})'.format(eax), flush=True)
-    return True
+    return 1, 1
+
+
+def _shutdown_qemu():
+    """Ask QEMU to quit via the GDB monitor interface."""
+    try:
+        gdb.execute('monitor quit')
+    except gdb.error:
+        pass  # not fatal – the CI script will kill QEMU if needed
 
 
 def main():
@@ -76,19 +90,43 @@ def main():
     gdb.execute('set confirm off')
     gdb.execute('target remote :1234')
 
-    if not check_multiboot2_magic():
+    total_passed = 0
+    total_tests = 0
+    all_passed = True
+
+    mb2_passed, mb2_total = check_multiboot2_magic()
+    total_passed += mb2_passed
+    total_tests += mb2_total
+
+    if mb2_passed < mb2_total:
+        all_passed = False
+        print('RESULTS: {}/{} tests passed'.format(total_passed, total_tests),
+              flush=True)
+        _shutdown_qemu()
         gdb.execute('quit 1')
         return
 
     for group in GROUPS:
         print('--- Running group: {} ---'.format(group.NAME), flush=True)
-        if not group.run():
+        g_passed, g_total = group.run()
+        total_passed += g_passed
+        total_tests += g_total
+        if g_passed < g_total:
             print('GROUP FAIL: ' + group.NAME, flush=True)
-            gdb.execute('quit 1')
-            return
+            all_passed = False
+            # Stop here: later groups depend on CPU state left by earlier ones.
+            break
 
-    print('ALL GROUPS PASSED', flush=True)
-    gdb.execute('quit 0')
+    print('RESULTS: {}/{} tests passed'.format(total_passed, total_tests),
+          flush=True)
+
+    _shutdown_qemu()
+
+    if all_passed:
+        print('ALL GROUPS PASSED', flush=True)
+        gdb.execute('quit 0')
+    else:
+        gdb.execute('quit 1')
 
 
 main()

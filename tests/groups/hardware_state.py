@@ -18,23 +18,28 @@ NAME = 'Hardware State'
 
 
 def run():
+    passed = 0
+    total = 3
+
     # --- CR0.PG -----------------------------------------------------------
     cr0 = int(gdb.parse_and_eval('$cr0')) & 0xFFFFFFFF
     if cr0 & 0x80000000:
         print('PASS: CR0.PG is set (paging enabled, CR0=0x{:08X})'.format(cr0),
               flush=True)
+        passed += 1
     else:
         print('FAIL: CR0.PG not set (CR0=0x{:08X})'.format(cr0), flush=True)
-        return False
+        return passed, total
 
     # --- CR3 --------------------------------------------------------------
     cr3 = int(gdb.parse_and_eval('$cr3')) & 0xFFFFFFFF
     if cr3 != 0:
         print('PASS: CR3 is non-zero (page directory at 0x{:08X})'.format(cr3),
               flush=True)
+        passed += 1
     else:
         print('FAIL: CR3 is zero (page directory not loaded)', flush=True)
-        return False
+        return passed, total
 
     # --- Timer callback ---------------------------------------------------
     # Continuing from kernel_post_boot entry causes ksleep(50) to run,
@@ -62,7 +67,8 @@ def run():
 
     if not timer_hit[0]:
         print('FAIL: timer_callback never fired (PIT not running?)', flush=True)
-        return False
+        return passed, total
 
+    passed += 1
     print('GROUP PASS: ' + NAME, flush=True)
-    return True
+    return passed, total
