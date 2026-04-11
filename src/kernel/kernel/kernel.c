@@ -15,6 +15,7 @@
 
 #include <kernel/paging.h>
 #include <kernel/keyboard.h>
+#include <kernel/ide.h>
 #include <kernel/shell.h>
 
 /*
@@ -119,6 +120,12 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	t_writestring(step);
 	keyboard_init();
 	KLOG("keyboard: PS/2 IRQ1 handler registered\n");
+	kprint_ok(step);
+
+	step = "Initializing IDE controller";
+	t_writestring(step);
+	ide_init();
+	KLOG("ide: ATA PIO scan complete\n");
 	kprint_ok(step);
 
 	t_writestring("\nAll subsystems ready.\n\n");
