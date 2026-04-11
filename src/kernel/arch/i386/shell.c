@@ -108,6 +108,7 @@ static void cmd_help(void)
     t_writestring("  meminfo                - print heap used/free\n");
     t_writestring("  uptime                 - ticks since boot\n");
     t_writestring("  lsdisks                - list detected ATA drives\n");
+    t_writestring("  lspart <drv>           - list MBR partitions on a drive\n");
     t_writestring("  readsector <drv> <lba> - hex-dump one sector\n");
     t_writestring("  shutdown               - halt the system\n");
 }
@@ -298,6 +299,8 @@ void shell_run(void)
             cmd_uptime();
         } else if (strcmp(argv[0], "lsdisks") == 0) {
             cmd_lsdisks();
+        } else if (strcmp(argv[0], "lspart") == 0) {
+            cmd_lspart(argc, argv);
         } else if (strcmp(argv[0], "readsector") == 0) {
             cmd_readsector(argc, argv);
         } else if (strcmp(argv[0], "shutdown") == 0) {
