@@ -1,8 +1,5 @@
 SYSTEM_HEADER_PROJECTS="src/libc src/kernel"
-PROJECTS="src/libc src/kernel"
-# Future: add src/userspace once Ring-3 programs are ready to build
-# SYSTEM_HEADER_PROJECTS="src/libc src/kernel src/userspace"
-# PROJECTS="src/libc src/kernel src/userspace"
+PROJECTS="src/libc src/kernel src/userspace"
 
 export MAKE=${MAKE:-make}
 export HOST=${HOST:-$(./src/default-host.sh)}

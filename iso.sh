@@ -5,6 +5,13 @@ set -e
 mkdir -p isodir/boot/grub/i386-pc
 
 cp sysroot/boot/makar.kernel isodir/boot/makar.kernel
+
+# Copy userspace utility binaries if the build installed any.
+if [ -d sysroot/boot/apps ] && [ -n "$(ls -A sysroot/boot/apps 2>/dev/null)" ]; then
+    mkdir -p isodir/boot/apps
+    cp sysroot/boot/apps/* isodir/boot/apps/
+fi
+
 cat > isodir/boot/grub/grub.cfg << EOF
 set default=0
 set timeout=0
