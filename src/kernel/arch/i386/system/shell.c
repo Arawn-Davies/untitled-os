@@ -122,6 +122,10 @@ typedef enum {
     CMD_CD,
     CMD_MKDIR,
     CMD_MKFS,
+    /* ISO9660 commands */
+    CMD_ISOLS,
+    /* Installer */
+    CMD_INSTALL,
     CMD_UNKNOWN,
 } shell_cmd_t;
 
@@ -154,6 +158,10 @@ static const cmd_entry_t cmd_table[] = {
     { "cd",         CMD_CD         },
     { "mkdir",      CMD_MKDIR      },
     { "mkfs",       CMD_MKFS       },
+    /* ISO9660 commands */
+    { "isols",      CMD_ISOLS      },
+    /* Installer */
+    { "install",    CMD_INSTALL    },
 };
 
 #define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
@@ -241,6 +249,10 @@ void shell_run(void)
         case CMD_CD:         cmd_cd(argc, argv);          break;
         case CMD_MKDIR:      cmd_mkdir(argc, argv);       break;
         case CMD_MKFS:       cmd_mkfs(argc, argv);        break;
+        /* ISO9660 commands */
+        case CMD_ISOLS:      cmd_isols(argc, argv);       break;
+        /* Installer */
+        case CMD_INSTALL:    cmd_install();               break;
         default:
             /* Medli-style error: red text, matching CommandConsole.cs */
             t_setcolor(SHELL_ERROR_COLOR_VGA);

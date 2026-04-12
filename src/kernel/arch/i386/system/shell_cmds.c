@@ -14,6 +14,8 @@
 #include <kernel/ide.h>
 #include <kernel/partition.h>
 #include <kernel/fat32.h>
+#include <kernel/iso9660.h>
+#include <kernel/installer.h>
 #include <kernel/task.h>
 #include <kernel/acpi.h>
 
@@ -771,4 +773,35 @@ void cmd_mkfs(int argc, char **argv)
     t_putchar(' ');
     t_dec((uint32_t)part_num);
     t_putchar('\n');
+}
+
+/* ---------------------------------------------------------------------------
+ * ISO9660 commands
+ * --------------------------------------------------------------------------- */
+
+/* isols <drive> [path] — list a directory on an ISO9660 CD-ROM. */
+void cmd_isols(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: isols <drive> [path]\n");
+        return;
+    }
+
+    uint8_t drive = (uint8_t)parse_uint(argv[1]);
+    const char *path = (argc >= 3) ? argv[2] : "/";
+
+    int err = iso9660_ls(drive, path);
+    if (err == -2)
+        t_writestring("isols: path not found or not ISO9660\n");
+    else if (err)
+        t_writestring("isols: I/O error\n");
+}
+
+/* ---------------------------------------------------------------------------
+ * Installer command
+ * --------------------------------------------------------------------------- */
+
+void cmd_install(void)
+{
+    installer_run();
 }

@@ -54,4 +54,14 @@ int ide_write_sectors(uint8_t drive_num, uint32_t lba, uint8_t count,
  */
 const ide_drive_t *ide_get_drive(uint8_t drive_num);
 
+/*
+ * ide_read_atapi_sectors – read 'count' 2048-byte CD-ROM sectors starting
+ * at 'lba' from an ATAPI drive into 'buf'.
+ *
+ * Returns 0 on success, -1 on invalid/absent drive, -2 if drive is not
+ * ATAPI, or a positive value on a drive-level error.
+ */
+int ide_read_atapi_sectors(uint8_t drive_num, uint32_t lba,
+                           uint16_t count, void *buf);
+
 #endif /* _KERNEL_IDE_H */

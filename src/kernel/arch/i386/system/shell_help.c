@@ -33,6 +33,10 @@ void cmd_help(void)
     t_writestring("  cd <path>                    - change directory\n");
     t_writestring("  cat <file>                   - print file contents\n");
     t_writestring("  mkdir <path>                 - create directory\n");
+    t_writestring("ISO9660:\n");
+    t_writestring("  isols <drv> [path]           - list directory on an ISO9660 CD-ROM\n");
+    t_writestring("Installer:\n");
+    t_writestring("  install                      - install Makar OS to a hard drive\n");
 }
 
 void cmd_version(void)

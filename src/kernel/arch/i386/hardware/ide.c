@@ -49,7 +49,12 @@
 #define ATA_CMD_WRITE_PIO   0x30  /* Write sectors (LBA28, PIO)  */
 #define ATA_CMD_CACHE_FLUSH 0xE7  /* Flush write cache           */
 #define ATA_CMD_IDENTIFY    0xEC  /* Identify ATA device         */
+#define ATA_CMD_PACKET      0xA0  /* ATAPI PACKET command        */
 #define ATAPI_CMD_IDENTIFY  0xA1  /* Identify ATAPI device       */
+#define ATAPI_CMD_READ12    0xA8  /* ATAPI READ(12) command      */
+
+/* CD-ROM sector size (2048 bytes per ISO9660 logical sector). */
+#define ATAPI_CD_SECTOR_SIZE  2048
 
 /* -------------------------------------------------------------------------
  * Drive-select byte components for the HDDEVSEL register
@@ -338,4 +343,99 @@ const ide_drive_t *ide_get_drive(uint8_t drive_num)
     if (drive_num >= IDE_MAX_DRIVES)
         return NULL;
     return &drives[drive_num];
+}
+
+/* -------------------------------------------------------------------------
+ * atapi_read_one – read one 2048-byte CD-ROM sector from an ATAPI drive
+ * using PIO polling and a READ(12) command packet.
+ * ---------------------------------------------------------------------- */
+static int atapi_read_one(uint8_t ch, uint8_t dr, uint32_t lba, uint8_t *buf)
+{
+    uint8_t pkt[12];
+
+    /* Select drive. */
+    ide_write(ch, ATA_REG_HDDEVSEL,
+              (dr == 0) ? ATA_SEL_MASTER : ATA_SEL_SLAVE);
+    ide_400ns_delay(ch);
+
+    /* Configure for PIO data transfer; set byte-count limit to 2048. */
+    ide_write(ch, ATA_REG_FEATURES, 0x00);  /* PIO mode, no DMA          */
+    ide_write(ch, ATA_REG_LBA1,     0x00);  /* byte count low  (2048&FF) */
+    ide_write(ch, ATA_REG_LBA2,     0x08);  /* byte count high (2048>>8) */
+
+    /* Issue the PACKET command. */
+    ide_write(ch, ATA_REG_COMMAND, ATA_CMD_PACKET);
+    ide_400ns_delay(ch);
+
+    /* Wait for DRQ — device is ready to accept the 12-byte command packet. */
+    if (ide_poll(ch, 1))
+        return 1;
+
+    /* Build a READ(12) command packet (big-endian LBA, 1 sector). */
+    pkt[0]  = ATAPI_CMD_READ12;
+    pkt[1]  = 0x00;
+    pkt[2]  = (uint8_t)(lba >> 24);
+    pkt[3]  = (uint8_t)(lba >> 16);
+    pkt[4]  = (uint8_t)(lba >>  8);
+    pkt[5]  = (uint8_t)(lba);
+    pkt[6]  = 0x00;
+    pkt[7]  = 0x00;
+    pkt[8]  = 0x00;
+    pkt[9]  = 0x01;   /* transfer length: 1 sector */
+    pkt[10] = 0x00;
+    pkt[11] = 0x00;
+
+    /* Send the packet to the data port as six 16-bit writes. */
+    for (int i = 0; i < 6; i++) {
+        uint16_t w = (uint16_t)pkt[i * 2]
+                   | ((uint16_t)pkt[i * 2 + 1] << 8);
+        outw(channels[ch].base + ATA_REG_DATA, w);
+    }
+
+    /* Wait for DRQ — data is ready to be read. */
+    if (ide_poll(ch, 1))
+        return 1;
+
+    /* Read 2048 bytes as 1024 16-bit words. */
+    uint16_t *wbuf = (uint16_t *)(void *)buf;
+    for (int i = 0; i < (int)(ATAPI_CD_SECTOR_SIZE / 2); i++)
+        wbuf[i] = inw(channels[ch].base + ATA_REG_DATA);
+
+    /* Wait for the drive to return to idle. */
+    ide_poll(ch, 0);
+
+    return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * ide_read_atapi_sectors – read 'count' 2048-byte CD-ROM sectors starting
+ * at 'lba' from an ATAPI drive into 'buf'.
+ *
+ * Returns 0 on success, -1 on invalid args, -2 if drive is not ATAPI,
+ * positive on drive error.
+ * ---------------------------------------------------------------------- */
+int ide_read_atapi_sectors(uint8_t drive_num, uint32_t lba,
+                           uint16_t count, void *buf)
+{
+    if (drive_num >= IDE_MAX_DRIVES || !drives[drive_num].present)
+        return -1;
+
+    if (drives[drive_num].type != IDE_TYPE_ATAPI)
+        return -2;
+
+    if (count == 0)
+        return 0;
+
+    uint8_t  ch = drives[drive_num].channel;
+    uint8_t  dr = drives[drive_num].drive;
+    uint8_t *p  = (uint8_t *)buf;
+
+    for (uint16_t i = 0; i < count; i++) {
+        int err = atapi_read_one(ch, dr, lba + (uint32_t)i, p);
+        if (err)
+            return err;
+        p += ATAPI_CD_SECTOR_SIZE;
+    }
+
+    return 0;
 }
