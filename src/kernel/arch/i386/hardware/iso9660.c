@@ -5,11 +5,13 @@
  *   - Primary Volume Descriptor parsing (sector 16)
  *   - Directory record traversal and path resolution
  *   - File content reading via ide_read_atapi_sectors()
+ *   - Rock Ridge RRIP "NM" entries for long filenames (IEEE P1282)
  *
- * File identifiers are matched case-insensitively.  The ";1" ISO9660
- * version suffix is stripped before comparison.  Rock Ridge and Joliet
- * extensions are not required; the plain ISO9660 level-1 layout produced
- * by grub-mkrescue is fully supported.
+ * File identifiers are matched case-insensitively.  When a Rock Ridge
+ * alternate name ("NM" System Use entry) is present it is preferred over
+ * the truncated ISO9660 Level-1 8.3 identifier in the PVD, allowing names
+ * like "makar.kernel" and "part_msdos.mod" to be resolved correctly.  The
+ * ";1" ISO9660 version suffix is stripped before comparison of plain names.
  *
  * All sector buffers are declared at file scope to avoid large stack frames.
  */
@@ -36,6 +38,11 @@
 /* ISO9660 directory record: flags byte bit definitions. */
 #define ISO_FLAG_DIR          0x02u   /* entry is a sub-directory */
 
+/* Rock Ridge RRIP NM entry flag bits (IEEE P1282 §4.1.4). */
+#define NM_FLAG_CONTINUE      0x01u   /* name continues in next NM entry     */
+#define NM_FLAG_CURRENT       0x02u   /* name refers to "." (current dir)    */
+#define NM_FLAG_PARENT        0x04u   /* name refers to ".." (parent dir)    */
+
 /*
  * Maximum length of a single path component we handle.
  * ISO9660 level 1 allows 8+3 characters; level 2 allows up to 207.
@@ -58,6 +65,87 @@ static uint32_t iso_rd32le(const uint8_t *b)
           | ((uint32_t)b[1] <<  8)
           | ((uint32_t)b[2] << 16)
           | ((uint32_t)b[3] << 24);
+}
+
+/* -------------------------------------------------------------------------
+ * rr_get_name – extract the Rock Ridge Alternate Name ("NM") from the
+ * System Use Area of a directory record.
+ *
+ * Rock Ridge (IEEE P1282) stores the real POSIX filename in one or more
+ * "NM" System Use entries that follow the padded ISO9660 file identifier.
+ * grub-mkrescue always generates Rock Ridge data, so we prefer these names
+ * over the truncated 8.3 Level-1 identifiers in the PVD.
+ *
+ * rec   : pointer to the start of the directory record in the sector buffer
+ * buf   : output buffer for the assembled name (NUL-terminated)
+ * bufsz : capacity of buf (including the NUL)
+ *
+ * Returns the length of the name placed in buf, or 0 if no usable NM entry
+ * was found.
+ * ---------------------------------------------------------------------- */
+static int rr_get_name(const uint8_t *rec, char *buf, int bufsz)
+{
+    uint8_t rec_len  = rec[0];
+    uint8_t name_len = rec[32];
+
+    /*
+     * System Use Area starts immediately after the file identifier, padded
+     * to an even byte boundary within the record.
+     * Identifier starts at byte 33; its length is name_len.
+     * If (33 + name_len) is odd, one pad byte is inserted to reach an even
+     * offset before the System Use entries begin.
+     */
+    int su_off = 33 + (int)name_len;
+    if (su_off & 1)      /* odd → insert 1 pad byte to reach even offset */
+        su_off++;
+
+    int out_len = 0;
+    if (bufsz > 0)
+        buf[0] = '\0';
+
+    while (su_off + 4 <= (int)rec_len) {
+        uint8_t su_len = rec[su_off + 2];
+        if (su_len < 4)
+            break;
+
+        if (rec[su_off] == 'N' && rec[su_off + 1] == 'M') {
+            /*
+             * NM entry layout (RRIP 1.12 §4.1.4):
+             *   bytes 0-1 : signature "NM"
+             *   byte  2   : length (including these 5 header bytes)
+             *   byte  3   : version (must be 1)
+             *   byte  4   : flags
+             *   bytes 5.. : name fragment
+             *
+             * Flag bits:
+             *   0x01 = CONTINUE  – more NM entries follow
+             *   0x02 = CURRENT   – name is "."
+             *   0x04 = PARENT    – name is ".."
+             */
+            uint8_t flags  = rec[su_off + 4];
+            int     nm_len = (int)su_len - 5;
+
+            /* Skip "." and ".." synthetic entries. */
+            if ((flags & (NM_FLAG_CURRENT | NM_FLAG_PARENT)) == 0u && nm_len > 0) {
+                const char *nm = (const char *)(rec + su_off + 5);
+                int copy = nm_len;
+                if (copy > bufsz - out_len - 1)
+                    copy = bufsz - out_len - 1;
+                if (copy > 0) {
+                    memcpy(buf + out_len, nm, (size_t)copy);
+                    out_len += copy;
+                    buf[out_len] = '\0';
+                }
+                /* If the CONTINUE flag is clear the name is complete. */
+                if (!(flags & NM_FLAG_CONTINUE))
+                    return out_len;
+            }
+        }
+
+        su_off += (int)su_len;
+    }
+
+    return out_len;  /* 0 → no NM entry found */
 }
 
 /* -------------------------------------------------------------------------
@@ -172,7 +260,22 @@ static int dir_find(uint8_t drive,
                 continue;
             }
 
-            if (iso_namecmp(ident, (int)name_len, name) == 0) {
+            /*
+             * Prefer the Rock Ridge alternate name (stored in NM System Use
+             * entries) over the ISO9660 Level-1 8.3 identifier.  This lets
+             * us match names like "makar.kernel" or "part_msdos.mod" that
+             * would otherwise be truncated in the PVD.
+             */
+            char rr_name[ISO_MAX_COMPONENT_LEN + 1];
+            int  rr_len = rr_get_name(s_sector + pos, rr_name, (int)sizeof(rr_name));
+
+            int matched;
+            if (rr_len > 0)
+                matched = (iso_namecmp(rr_name, rr_len, name) == 0);
+            else
+                matched = (iso_namecmp(ident, (int)name_len, name) == 0);
+
+            if (matched) {
                 *out_lba   = iso_rd32le(s_sector + pos + 2);
                 *out_size  = iso_rd32le(s_sector + pos + 10);
                 *out_isdir = (s_sector[pos + 25] & ISO_FLAG_DIR) ? 1 : 0;
@@ -350,18 +453,30 @@ int iso9660_ls(uint8_t drive, const char *path)
                 continue;
             }
 
-            /* Print the name, stripping the ";N" version suffix and
-               a trailing dot. */
-            int nlen = (int)name_len;
-            if (nlen >= 2 && ident[nlen - 2] == ';')
-                nlen -= 2;
-            if (nlen > 0 && ident[nlen - 1] == '.')
-                nlen--;
+            /*
+             * Prefer the Rock Ridge alternate name for display; fall back to
+             * the ISO9660 identifier (stripping ";N" suffix and trailing dot).
+             */
+            char rr_name[ISO_MAX_COMPONENT_LEN + 1];
+            int  rr_len = rr_get_name(s_sector + pos, rr_name, (int)sizeof(rr_name));
 
             if (flags & ISO_FLAG_DIR)
                 t_putchar('[');
-            for (int i = 0; i < nlen; i++)
-                t_putchar(ident[i]);
+
+            if (rr_len > 0) {
+                for (int i = 0; i < rr_len; i++)
+                    t_putchar(rr_name[i]);
+            } else {
+                /* Strip ";N" version suffix and trailing dot. */
+                int nlen = (int)name_len;
+                if (nlen >= 2 && ident[nlen - 2] == ';')
+                    nlen -= 2;
+                if (nlen > 0 && ident[nlen - 1] == '.')
+                    nlen--;
+                for (int i = 0; i < nlen; i++)
+                    t_putchar(ident[i]);
+            }
+
             if (flags & ISO_FLAG_DIR) {
                 t_putchar(']');
             } else {
