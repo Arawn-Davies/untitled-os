@@ -13,6 +13,7 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/ide.h>
 #include <kernel/partition.h>
+#include <kernel/fat32.h>
 #include <kernel/task.h>
 #include <kernel/acpi.h>
 
@@ -512,4 +513,241 @@ void cmd_shutdown(void)
 void cmd_reboot(void)
 {
     acpi_reboot(); /* never returns */
+}
+
+/* ---------------------------------------------------------------------------
+ * FAT32 filesystem commands
+ * --------------------------------------------------------------------------- */
+
+/* Shared static partition table used by mount/mkfs (avoids stack pressure). */
+static disk_parts_t s_fat_parts;
+
+/*
+ * mount <drive> <part>
+ *
+ * Probe the partition table on <drive> and mount partition number <part>
+ * (0-based) as a FAT32 volume.
+ */
+void cmd_mount(int argc, char **argv)
+{
+    if (argc < 3) {
+        t_writestring("Usage: mount <drive> <part>\n");
+        return;
+    }
+
+    uint8_t drive    = (uint8_t)parse_uint(argv[1]);
+    int     part_idx = (int)parse_uint(argv[2]);
+
+    int err = part_probe(drive, &s_fat_parts);
+    if (err) {
+        t_writestring("mount: drive not accessible\n");
+        return;
+    }
+
+    if (part_idx < 0 || part_idx >= s_fat_parts.count) {
+        t_writestring("mount: invalid partition index\n");
+        t_writestring("       (use lspart ");
+        t_dec(drive);
+        t_writestring(" to list partitions)\n");
+        return;
+    }
+
+    uint32_t lba = s_fat_parts.parts[part_idx].lba_start;
+
+    err = fat32_mount(drive, lba);
+    if (err) {
+        t_writestring("mount: not a valid FAT32 volume (error ");
+        t_dec((uint32_t)(-err));
+        t_writestring(")\n");
+        return;
+    }
+
+    t_writestring("Mounted FAT32  drive ");
+    t_dec(drive);
+    t_writestring("  partition ");
+    t_dec((uint32_t)part_idx);
+    t_writestring("  LBA ");
+    t_dec(lba);
+    t_writestring("\ncwd: ");
+    t_writestring(fat32_getcwd());
+    t_putchar('\n');
+}
+
+/* umount — unmount the current FAT32 volume. */
+void cmd_umount(void)
+{
+    if (!fat32_mounted()) {
+        t_writestring("umount: no volume mounted\n");
+        return;
+    }
+    fat32_unmount();
+    t_writestring("Volume unmounted.\n");
+}
+
+/* ls [path] — list directory. */
+void cmd_ls(int argc, char **argv)
+{
+    if (!fat32_mounted()) {
+        t_writestring("ls: no volume mounted  (use: mount <drive> <part>)\n");
+        return;
+    }
+
+    const char *path = (argc >= 2) ? argv[1] : NULL;
+
+    if (path) {
+        t_writestring(path);
+        t_writestring(":\n");
+    } else {
+        t_writestring(fat32_getcwd());
+        t_writestring(":\n");
+    }
+
+    int err = fat32_ls(path);
+    if (err)
+        t_writestring("ls: path not found\n");
+}
+
+/* cat <file> — read and display a file (up to 64 KiB). */
+void cmd_cat(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: cat <file>\n");
+        return;
+    }
+    if (!fat32_mounted()) {
+        t_writestring("cat: no volume mounted\n");
+        return;
+    }
+
+    /* Cap display at 64 KiB. */
+    enum { CAT_MAX = 64u * 1024u };
+
+    uint8_t *buf = (uint8_t *)kmalloc(CAT_MAX);
+    if (!buf) {
+        t_writestring("cat: out of memory\n");
+        return;
+    }
+
+    uint32_t bytes_read = 0;
+    int err = fat32_read_file(argv[1], buf, CAT_MAX, &bytes_read);
+    if (err) {
+        t_writestring("cat: file not found\n");
+        kfree(buf);
+        return;
+    }
+
+    t_write((const char *)buf, bytes_read);
+    if (bytes_read > 0 && buf[bytes_read - 1] != '\n')
+        t_putchar('\n');
+
+    kfree(buf);
+}
+
+/* cd <path> — change working directory. */
+void cmd_cd(int argc, char **argv)
+{
+    if (argc < 2) {
+        if (fat32_mounted())
+            t_writestring(fat32_getcwd());
+        else
+            t_writestring("(no volume mounted)");
+        t_putchar('\n');
+        return;
+    }
+    if (!fat32_mounted()) {
+        t_writestring("cd: no volume mounted\n");
+        return;
+    }
+
+    int err = fat32_cd(argv[1]);
+    if (err)
+        t_writestring("cd: directory not found\n");
+    else {
+        t_writestring(fat32_getcwd());
+        t_putchar('\n');
+    }
+}
+
+/* mkdir <path> — create a directory. */
+void cmd_mkdir(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: mkdir <path>\n");
+        return;
+    }
+    if (!fat32_mounted()) {
+        t_writestring("mkdir: no volume mounted\n");
+        return;
+    }
+
+    int err = fat32_mkdir(argv[1]);
+    switch (err) {
+    case  0: t_writestring("Directory created.\n");          break;
+    case -1: t_writestring("mkdir: path error\n");           break;
+    case -2: t_writestring("mkdir: I/O error\n");            break;
+    case -4: t_writestring("mkdir: disk full\n");            break;
+    case -6: t_writestring("mkdir: already exists\n");       break;
+    default:
+        t_writestring("mkdir: error ");
+        t_dec((uint32_t)(-err));
+        t_putchar('\n');
+        break;
+    }
+}
+
+/*
+ * mkfs <drive> <part>
+ *
+ * Format partition <part> on <drive> as FAT32.
+ * The partition must already exist in the partition table (use mkpart first).
+ */
+void cmd_mkfs(int argc, char **argv)
+{
+    if (argc < 3) {
+        t_writestring("Usage: mkfs <drive> <part>\n");
+        return;
+    }
+
+    uint8_t drive    = (uint8_t)parse_uint(argv[1]);
+    int     part_idx = (int)parse_uint(argv[2]);
+
+    int err = part_probe(drive, &s_fat_parts);
+    if (err) {
+        t_writestring("mkfs: drive not accessible\n");
+        return;
+    }
+
+    if (part_idx < 0 || part_idx >= s_fat_parts.count) {
+        t_writestring("mkfs: invalid partition index\n");
+        return;
+    }
+
+    uint32_t lba     = s_fat_parts.parts[part_idx].lba_start;
+    uint32_t sectors = s_fat_parts.parts[part_idx].lba_count;
+
+    t_writestring("Formatting drive ");
+    t_dec(drive);
+    t_writestring(" partition ");
+    t_dec((uint32_t)part_idx);
+    t_writestring(" (");
+    t_dec(sectors / 2048u);
+    t_writestring(" MiB) as FAT32...\n");
+
+    err = fat32_mkfs(drive, lba, sectors);
+    if (err == -6) {
+        t_writestring("mkfs: partition too small for FAT32 (need >= 32 MiB)\n");
+        return;
+    }
+    if (err) {
+        t_writestring("mkfs: I/O error (");
+        t_dec((uint32_t)(-err));
+        t_writestring(")\n");
+        return;
+    }
+
+    t_writestring("Done.  Mount with: mount ");
+    t_dec(drive);
+    t_putchar(' ');
+    t_dec((uint32_t)part_idx);
+    t_putchar('\n');
 }

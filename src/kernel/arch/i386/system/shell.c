@@ -112,6 +112,14 @@ typedef enum {
     CMD_SHUTDOWN,
     CMD_REBOOT,
     CMD_KTEST,
+    /* FAT32 commands */
+    CMD_MOUNT,
+    CMD_UMOUNT,
+    CMD_LS,
+    CMD_CAT,
+    CMD_CD,
+    CMD_MKDIR,
+    CMD_MKFS,
     CMD_UNKNOWN,
 } shell_cmd_t;
 
@@ -136,6 +144,14 @@ static const cmd_entry_t cmd_table[] = {
     { "shutdown",   CMD_SHUTDOWN   },
     { "reboot",     CMD_REBOOT     },
     { "ktest",      CMD_KTEST      },
+    /* FAT32 commands */
+    { "mount",      CMD_MOUNT      },
+    { "umount",     CMD_UMOUNT     },
+    { "ls",         CMD_LS         },
+    { "cat",        CMD_CAT        },
+    { "cd",         CMD_CD         },
+    { "mkdir",      CMD_MKDIR      },
+    { "mkfs",       CMD_MKFS       },
 };
 
 #define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
@@ -185,6 +201,14 @@ void shell_run(void)
         case CMD_SHUTDOWN:   cmd_shutdown();              break;
         case CMD_REBOOT:     cmd_reboot();               break;
         case CMD_KTEST:      ktest_run_all();            break;
+        /* FAT32 commands */
+        case CMD_MOUNT:      cmd_mount(argc, argv);       break;
+        case CMD_UMOUNT:     cmd_umount();                break;
+        case CMD_LS:         cmd_ls(argc, argv);          break;
+        case CMD_CAT:        cmd_cat(argc, argv);         break;
+        case CMD_CD:         cmd_cd(argc, argv);          break;
+        case CMD_MKDIR:      cmd_mkdir(argc, argv);       break;
+        case CMD_MKFS:       cmd_mkfs(argc, argv);        break;
         default:
             t_writestring("Unknown command: ");
             t_writestring(argv[0]);

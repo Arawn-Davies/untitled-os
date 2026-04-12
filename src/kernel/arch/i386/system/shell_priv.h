@@ -38,4 +38,13 @@ void cmd_setmode(int argc, char **argv);
 void cmd_shutdown(void);
 void cmd_reboot(void);
 
+/* FAT32 commands */
+void cmd_mount(int argc, char **argv);
+void cmd_umount(void);
+void cmd_ls(int argc, char **argv);
+void cmd_cat(int argc, char **argv);
+void cmd_cd(int argc, char **argv);
+void cmd_mkdir(int argc, char **argv);
+void cmd_mkfs(int argc, char **argv);
+
 #endif /* SHELL_PRIV_H */
