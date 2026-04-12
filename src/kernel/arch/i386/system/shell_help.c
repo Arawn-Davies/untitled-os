@@ -1,0 +1,36 @@
+/*
+ * shell_help.c -- help and version built-in commands.
+ */
+
+#include "shell_priv.h"
+
+#include <kernel/tty.h>
+
+void cmd_help(void)
+{
+    t_writestring(COPYRIGHT "\n");
+    t_writestring("Commands:\n");
+    t_writestring("  help                         - list commands\n");
+    t_writestring("  clear                        - clear the terminal\n");
+    t_writestring("  echo [args..]                - print arguments\n");
+    t_writestring("  meminfo                      - print heap used/free\n");
+    t_writestring("  uptime                       - ticks since boot\n");
+    t_writestring("  version                      - show build info and copyright\n");
+    t_writestring("  tasks                        - list kernel tasks\n");
+    t_writestring("  lsdisks                      - list detected ATA drives\n");
+    t_writestring("  lspart <drv>                 - list partitions (MBR or GPT)\n");
+    t_writestring("  mkpart <drv> <mbr|gpt>       - create a partition table\n");
+    t_writestring("  readsector <drv> <lba>       - hex-dump one sector\n");
+    t_writestring("  setmode <25|50>              - switch between 80x25 and 80x50\n");
+    t_writestring("  shutdown                     - power off the system (ACPI S5)\n");
+    t_writestring("  reboot                       - reboot the system (ACPI/KBC)\n");
+    t_writestring("  ktest                        - run in-kernel unit tests\n");
+}
+
+void cmd_version(void)
+{
+    t_writestring("Makar Kernel\n");
+    t_writestring(COPYRIGHT "\n");
+    t_writestring("Build date: " BUILD_DATE "\n");
+    t_writestring("Build time: " BUILD_TIME "\n");
+}
