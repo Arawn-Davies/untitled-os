@@ -17,7 +17,7 @@ jobs:
     # Use the prebuilt i686-elf cross-compiler image from Docker Hub.
     # This eliminates the toolchain download on every run.
     container:
-      image: yourdockerhubusername/gcc-cross-i686-elf:fast
+      image: arawn780/gcc-cross-i686-elf:fast
 
     steps:
       - name: Checkout
