@@ -66,4 +66,16 @@ void cmd_cd(int argc, char **argv);
 void cmd_mkdir(int argc, char **argv);
 void cmd_mkfs(int argc, char **argv);
 
+/* ISO9660 commands */
+void cmd_isols(int argc, char **argv);
+
+/* Installer */
+void cmd_install(void);
+
+/* VICS text editor */
+void cmd_vics(int argc, char **argv);
+
+/* Eject */
+void cmd_eject(int argc, char **argv);
+
 #endif /* SHELL_PRIV_H */

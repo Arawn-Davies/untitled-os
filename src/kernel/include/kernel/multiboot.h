@@ -8,6 +8,7 @@
 
 /* Multiboot 2 tag types. */
 #define MULTIBOOT2_TAG_TYPE_END          0
+#define MULTIBOOT2_TAG_TYPE_BOOTDEV      5
 #define MULTIBOOT2_TAG_TYPE_MMAP         6
 #define MULTIBOOT2_TAG_TYPE_FRAMEBUFFER  8
 
@@ -41,6 +42,16 @@ typedef struct
 	uint32_t type;
 	uint32_t reserved;
 } __attribute__((packed)) multiboot2_mmap_entry_t;
+
+/* Boot device tag (type 5). */
+typedef struct
+{
+	uint32_t type;     /* = MULTIBOOT2_TAG_TYPE_BOOTDEV */
+	uint32_t size;
+	uint32_t biosdev;  /* BIOS drive number (0x80 = first HDD, 0xE0 = CD-ROM) */
+	uint32_t slice;    /* MBR sub-partition (0xFFFFFFFF if not applicable) */
+	uint32_t part;     /* Sub-sub-partition (0xFFFFFFFF if not applicable) */
+} __attribute__((packed)) multiboot2_tag_bootdev_t;
 
 /* Memory-map tag (type 6). */
 typedef struct

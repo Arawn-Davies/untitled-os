@@ -25,14 +25,17 @@ void cmd_help(void)
     t_writestring("  shutdown                     - power off the system (ACPI S5)\n");
     t_writestring("  reboot                       - reboot the system (ACPI/KBC)\n");
     t_writestring("  ktest                        - run in-kernel unit tests\n");
-    t_writestring("FAT32:\n");
-    t_writestring("  mkfs <drv> <part#>           - format partition as FAT32 (part# from lspart)\n");
-    t_writestring("  mount <drv> <part#>          - mount a FAT32 partition (part# from lspart)\n");
-    t_writestring("  umount                       - unmount the current volume\n");
-    t_writestring("  ls [path]                    - list directory\n");
+    t_writestring("Filesystem (universal VFS: /hd for HDD, /cdrom for CD-ROM):\n");
+    t_writestring("  mkfs <drv> <part#>           - format partition as FAT32\n");
+    t_writestring("  mount <drv> <part#>          - mount FAT32 partition at /hd/\n");
+    t_writestring("  umount                       - unmount the FAT32 volume\n");
+    t_writestring("  ls [path]                    - list directory (/hd/.. or /cdrom/..)\n");
     t_writestring("  cd <path>                    - change directory\n");
     t_writestring("  cat <file>                   - print file contents\n");
-    t_writestring("  mkdir <path>                 - create directory\n");
+    t_writestring("  mkdir <path>                 - create directory (FAT32 only)\n");
+    t_writestring("  isols <drv> [path]           - list directory on an ISO9660 CD-ROM\n");
+    t_writestring("Installer:\n");
+    t_writestring("  install                      - install Makar OS to a hard drive\n");
 }
 
 void cmd_version(void)

@@ -14,8 +14,12 @@
 #include <kernel/ide.h>
 #include <kernel/partition.h>
 #include <kernel/fat32.h>
+#include <kernel/vfs.h>
+#include <kernel/iso9660.h>
+#include <kernel/installer.h>
 #include <kernel/task.h>
 #include <kernel/acpi.h>
+#include <kernel/vics.h>
 
 #include <string.h>
 #include <stdint.h>
@@ -532,7 +536,7 @@ static disk_parts_t s_cmd_parts;
  * mount <drive> <part>
  *
  * Probe the partition table on <drive> and mount partition number <part>
- * (1-based, matching lspart output) as a FAT32 volume.
+ * (1-based, matching lspart output) as a FAT32 volume accessible at /hd/.
  */
 void cmd_mount(int argc, char **argv)
 {
@@ -574,6 +578,8 @@ void cmd_mount(int argc, char **argv)
         return;
     }
 
+    vfs_notify_hd_mounted();
+
     t_writestring("Mounted FAT32  drive ");
     t_dec(drive);
     t_writestring("  partition ");
@@ -581,7 +587,7 @@ void cmd_mount(int argc, char **argv)
     t_writestring("  LBA ");
     t_dec(lba);
     t_writestring("\ncwd: ");
-    t_writestring(fat32_getcwd());
+    t_writestring(vfs_getcwd());
     t_putchar('\n');
 }
 
@@ -593,106 +599,54 @@ void cmd_umount(void)
         return;
     }
     fat32_unmount();
+    vfs_notify_hd_unmounted();
     t_writestring("Volume unmounted.\n");
 }
 
-/* ls [path] — list directory. */
+/* ls [path] — list directory via the VFS (supports /hd/… and /cdrom/…). */
 void cmd_ls(int argc, char **argv)
 {
-    if (!fat32_mounted()) {
-        t_writestring("ls: no volume mounted  (use: mount <drive> <part>)\n");
-        return;
-    }
-
     const char *path = (argc >= 2) ? argv[1] : NULL;
 
-    if (path) {
-        t_writestring(path);
-        t_writestring(":\n");
-    } else {
-        t_writestring(fat32_getcwd());
-        t_writestring(":\n");
-    }
+    t_writestring(path ? path : vfs_getcwd());
+    t_writestring(":\n");
 
-    int err = fat32_ls(path);
-    if (err)
-        t_writestring("ls: path not found\n");
+    vfs_ls(path);
 }
 
-/* cat <file> — read and display a file (up to 64 KiB). */
+/* cat <file> — read and display a file via the VFS (supports /hd/… and /cdrom/…). */
 void cmd_cat(int argc, char **argv)
 {
     if (argc < 2) {
         t_writestring("Usage: cat <file>\n");
         return;
     }
-    if (!fat32_mounted()) {
-        t_writestring("cat: no volume mounted\n");
-        return;
-    }
-
-    /* Cap display at 64 KiB. */
-    enum { CAT_MAX = 64u * 1024u };
-
-    uint8_t *buf = (uint8_t *)kmalloc(CAT_MAX);
-    if (!buf) {
-        t_writestring("cat: out of memory\n");
-        return;
-    }
-
-    uint32_t bytes_read = 0;
-    int err = fat32_read_file(argv[1], buf, CAT_MAX, &bytes_read);
-    if (err) {
-        t_writestring("cat: file not found\n");
-        kfree(buf);
-        return;
-    }
-
-    t_write((const char *)buf, bytes_read);
-    if (bytes_read > 0 && buf[bytes_read - 1] != '\n')
-        t_putchar('\n');
-
-    kfree(buf);
+    vfs_cat(argv[1]);
 }
 
-/* cd <path> — change working directory. */
+/* cd <path> — change working directory via the VFS. */
 void cmd_cd(int argc, char **argv)
 {
     if (argc < 2) {
-        if (fat32_mounted())
-            t_writestring(fat32_getcwd());
-        else
-            t_writestring("(no volume mounted)");
+        t_writestring(vfs_getcwd());
         t_putchar('\n');
         return;
     }
-    if (!fat32_mounted()) {
-        t_writestring("cd: no volume mounted\n");
-        return;
-    }
-
-    int err = fat32_cd(argv[1]);
-    if (err)
-        t_writestring("cd: directory not found\n");
-    else {
-        t_writestring(fat32_getcwd());
+    if (vfs_cd(argv[1]) == 0) {
+        t_writestring(vfs_getcwd());
         t_putchar('\n');
     }
 }
 
-/* mkdir <path> — create a directory. */
+/* mkdir <path> — create a directory via the VFS (FAT32 /hd/ only). */
 void cmd_mkdir(int argc, char **argv)
 {
     if (argc < 2) {
         t_writestring("Usage: mkdir <path>\n");
         return;
     }
-    if (!fat32_mounted()) {
-        t_writestring("mkdir: no volume mounted\n");
-        return;
-    }
 
-    int err = fat32_mkdir(argv[1]);
+    int err = vfs_mkdir(argv[1]);
     switch (err) {
     case  0: t_writestring("Directory created.\n");          break;
     case -1: t_writestring("mkdir: path error\n");           break;
@@ -700,9 +654,11 @@ void cmd_mkdir(int argc, char **argv)
     case -4: t_writestring("mkdir: disk full\n");            break;
     case -6: t_writestring("mkdir: already exists\n");       break;
     default:
-        t_writestring("mkdir: error ");
-        t_dec((uint32_t)(-err));
-        t_putchar('\n');
+        if (err < 0) {
+            t_writestring("mkdir: error ");
+            t_dec((uint32_t)(-err));
+            t_putchar('\n');
+        }
         break;
     }
 }
@@ -771,4 +727,141 @@ void cmd_mkfs(int argc, char **argv)
     t_putchar(' ');
     t_dec((uint32_t)part_num);
     t_putchar('\n');
+}
+
+/* ---------------------------------------------------------------------------
+ * ISO9660 commands
+ * --------------------------------------------------------------------------- */
+
+/* isols <drive> [path] — list a directory on an ISO9660 CD-ROM. */
+void cmd_isols(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: isols <drive> [path]\n");
+        return;
+    }
+
+    uint8_t drive = (uint8_t)parse_uint(argv[1]);
+    const char *path = (argc >= 3) ? argv[2] : "/";
+
+    int err = iso9660_ls(drive, path);
+    if (err == -2)
+        t_writestring("isols: path not found or not ISO9660\n");
+    else if (err)
+        t_writestring("isols: I/O error\n");
+}
+
+/* ---------------------------------------------------------------------------
+ * Installer command
+ * --------------------------------------------------------------------------- */
+
+void cmd_install(void)
+{
+    installer_run();
+}
+
+/* ---------------------------------------------------------------------------
+ * vics — interactive text editor
+ * --------------------------------------------------------------------------- */
+
+void cmd_vics(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: vics <filename>\n");
+        t_writestring("  Opens <filename> for editing. Creates the file on save if it does not exist.\n");
+        t_writestring("  Key bindings: Arrow keys navigate | Ctrl+S save | Ctrl+Q quit\n");
+        return;
+    }
+
+    /* Resolve a bare filename against the current working directory. */
+    const char *arg  = argv[1];
+    const char *cwd  = vfs_getcwd();
+
+    static char full_path[VFS_PATH_MAX];
+
+    if (arg[0] == '/') {
+        /* Absolute path — use as-is. */
+        strncpy(full_path, arg, VFS_PATH_MAX - 1);
+        full_path[VFS_PATH_MAX - 1] = '\0';
+    } else {
+        /* Relative path — prepend CWD. */
+        size_t cwd_len = strlen(cwd);
+        size_t arg_len = strlen(arg);
+        if (cwd_len + 1 + arg_len >= VFS_PATH_MAX) {
+            t_writestring("vics: path too long\n");
+            return;
+        }
+        size_t off = 0;
+        memcpy(full_path, cwd, cwd_len); off += cwd_len;
+        if (cwd[cwd_len - 1] != '/')
+            full_path[off++] = '/';
+        memcpy(full_path + off, arg, arg_len + 1);
+    }
+
+    vics_edit(full_path);
+}
+
+/* ---------------------------------------------------------------------------
+ * eject — unmount and eject a storage device.
+ *
+ * Usage:
+ *   eject hdd    — flush and unmount the FAT32 volume mounted at /hd
+ *   eject cdrom  — unmount /cdrom and send the ATAPI eject command so the
+ *                  tray opens (works in QEMU and on real drives with a
+ *                  software-controllable tray)
+ * --------------------------------------------------------------------------- */
+
+void cmd_eject(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: eject hdd|cdrom\n");
+        return;
+    }
+
+    const char *target = argv[1];
+
+    if (strcmp(target, "hdd") == 0) {
+        if (!fat32_mounted()) {
+            t_writestring("eject: no HDD volume is mounted\n");
+            return;
+        }
+        fat32_unmount();
+        vfs_notify_hd_unmounted();
+        t_writestring("HDD volume unmounted.\n");
+        return;
+    }
+
+    if (strcmp(target, "cdrom") == 0) {
+        /* Find the ATAPI drive that was registered by vfs_init(). */
+        int cd_drive = -1;
+        for (int i = 0; i < IDE_MAX_DRIVES; i++) {
+            const ide_drive_t *d = ide_get_drive((uint8_t)i);
+            if (d && d->present && d->type == IDE_TYPE_ATAPI) {
+                cd_drive = i;
+                break;
+            }
+        }
+
+        if (cd_drive < 0) {
+            t_writestring("eject: no CD-ROM drive detected\n");
+            return;
+        }
+
+        /* Deregister /cdrom in the VFS before sending the hardware command. */
+        vfs_notify_cdrom_ejected();
+
+        int err = ide_eject_atapi((uint8_t)cd_drive);
+        if (err) {
+            t_writestring("eject: ATAPI eject command failed (err ");
+            t_dec((uint32_t)err);
+            t_writestring(")\n");
+        } else {
+            t_writestring("CD-ROM ejected.\n");
+        }
+        return;
+    }
+
+    t_writestring("eject: unknown target '");
+    t_writestring(target);
+    t_writestring("' — use 'hdd' or 'cdrom'\n");
 }

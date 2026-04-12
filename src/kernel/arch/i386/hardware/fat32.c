@@ -11,7 +11,8 @@
  *   - Path navigation and cd
  *
  * Write features:
- *   - File create / overwrite (8.3 directory entry, LFN not written)
+ *   - File create / overwrite with LFN entries for long names; 8.3 basis
+ *     name (XXXXXX~1.EXT) written for compatibility
  *   - Directory create with . and .. entries
  *   - FAT update with FAT2 mirroring
  *   - FAT32 format via fat32_mkfs()
@@ -295,6 +296,275 @@ static void make_83_name(const char *src, uint8_t *dst)
 }
 
 /* -------------------------------------------------------------------------
+ * LFN helpers
+ * ---------------------------------------------------------------------- */
+
+/* LFN offsets of the 13 UTF-16LE characters within one LFN entry. */
+static const int s_lfn_char_off[13] = { 1,3,5,7,9, 14,16,18,20,22,24, 28,30 };
+
+/* Forward declaration — dir_add_entry is defined after the LFN block. */
+static uint32_t dir_add_entry(uint32_t dir_cluster, const uint8_t *short_name,
+                               uint8_t attr, uint32_t first_cluster,
+                               uint32_t file_size, uint32_t *out_off);
+
+/*
+ * Maximum LFN entries per file (FAT32 spec allows 20; 20 × 13 = 260 chars).
+ */
+#define MAX_LFN_ENTRIES 20
+
+/*
+ * lfn_needs_lfn – return 1 if 'name' cannot be stored losslessly as a plain
+ * 8.3 entry (base > 8 chars, extension > 3 chars, or contains lowercase).
+ */
+static int lfn_needs_lfn(const char *name)
+{
+    int dot = -1, len = 0;
+    for (; name[len]; len++)
+        if (name[len] == '.') dot = len;
+
+    int base_len = (dot >= 0) ? dot        : len;
+    int ext_len  = (dot >= 0) ? len - dot - 1 : 0;
+
+    if (base_len > 8 || ext_len > 3)
+        return 1;
+
+    for (int i = 0; name[i]; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if (c >= 'a' && c <= 'z')
+            return 1;           /* lowercase can't round-trip through 8.3 */
+        if (name[i] == '.' && i != dot)
+            return 1;           /* multiple dots */
+    }
+    return 0;
+}
+
+/*
+ * make_basis_name – generate the 8.3 "basis name" (numeric-tail form
+ * XXXXXX~1 + EXT, uppercase, space-padded) used as the short-name entry
+ * when LFN entries are written.
+ *
+ * dst must point to an 11-byte buffer (no NUL).
+ */
+static void make_basis_name(const char *src, uint8_t *dst)
+{
+    memset(dst, ' ', 11);
+
+    int dot = -1, len = 0;
+    for (; src[len]; len++)
+        if (src[len] == '.') dot = len;
+
+    /* Up to 6 chars of the basename, then "~1". */
+    int n = 0;
+    for (int i = 0; src[i] && (dot < 0 || i < dot) && n < 6; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 32u);
+        dst[n++] = c;
+    }
+    if (n < 8) dst[n++] = '~';
+    if (n < 8) dst[n++] = '1';
+
+    /* Up to 3 chars of the extension. */
+    if (dot >= 0) {
+        int e = 0;
+        for (int i = dot + 1; src[i] && e < 3; i++) {
+            unsigned char c = (unsigned char)src[i];
+            if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 32u);
+            dst[8 + e++] = c;
+        }
+    }
+}
+
+/*
+ * lfn_checksum – compute the 8-bit checksum of an 11-byte 8.3 directory-
+ * entry name as defined by the FAT32 LFN specification (MS-DOS 7 §13).
+ * Each step right-rotates the running sum by one bit, then adds the next
+ * name byte.
+ */
+static uint8_t lfn_checksum(const uint8_t *basis)
+{
+    uint8_t sum = 0;
+    for (int i = 0; i < 11; i++)
+        sum = (uint8_t)(((sum & 1u) ? 0x80u : 0u) + (sum >> 1) + basis[i]);
+    return sum;
+}
+
+/*
+ * dir_add_with_lfn – add a directory entry, prepending LFN entries when the
+ * name cannot fit losslessly in 8.3 format.
+ *
+ * When LFN is not needed the function is identical to dir_add_entry().
+ * When LFN IS needed it:
+ *   1. Generates an 8.3 basis name (XXXXXX~1.EXT).
+ *   2. Scans the directory for (n_lfn + 1) consecutive free slots.
+ *   3. Writes the LFN entries in reverse on-disk order (last chars first,
+ *      first entry marked with 0x40), followed by the 8.3 entry.
+ *
+ * Returns the LBA of the sector that contains the 8.3 entry, 0 on error.
+ * *out_off receives the byte offset of the 8.3 entry within that sector.
+ */
+static uint32_t dir_add_with_lfn(uint32_t       dir_cluster,
+                                  const char    *long_name,
+                                  uint8_t        attr,
+                                  uint32_t       first_cluster,
+                                  uint32_t       file_size,
+                                  uint32_t      *out_off)
+{
+    /* Fast path: name fits in 8.3, no LFN needed. */
+    if (!lfn_needs_lfn(long_name)) {
+        uint8_t sname[11];
+        make_83_name(long_name, sname);
+        return dir_add_entry(dir_cluster, sname, attr,
+                             first_cluster, file_size, out_off);
+    }
+
+    int name_len = (int)strlen(long_name);
+    int n_lfn    = (name_len + 12) / 13;   /* ceil(name_len / 13) */
+    int n_needed = n_lfn + 1;              /* LFN entries + 8.3 entry */
+
+    if (n_lfn > MAX_LFN_ENTRIES)
+        return 0;   /* name too long for FAT32 */
+
+    uint8_t basis[11];
+    make_basis_name(long_name, basis);
+    uint8_t cksum = lfn_checksum(basis);
+
+    /*
+     * Scan the directory cluster chain for a run of n_needed consecutive
+     * free slots (first byte 0x00 = end-of-dir, or 0xE5 = deleted).
+     * Record the (lba, slot-index) of each slot in the run.
+     */
+    uint32_t slot_lba[MAX_LFN_ENTRIES + 1];
+    int      slot_idx[MAX_LFN_ENTRIES + 1];
+    int      run_len = 0;
+    int      found   = 0;
+
+    for (uint32_t cluster = dir_cluster;
+         !found && cluster >= 2u && cluster < FAT32_BAD; )
+    {
+        uint32_t base_lba = clus_to_lba(cluster);
+
+        for (uint8_t s = 0; s < vol.spc && !found; s++) {
+            uint32_t lba = base_lba + (uint32_t)s;
+            if (ide_read_sectors(vol.drive, lba, 1, s_sec))
+                return 0;
+
+            for (int i = 0; i < 16 && !found; i++) {
+                uint8_t fb = s_sec[i * 32];
+                if (fb == 0x00u || fb == 0xE5u) {
+                    slot_lba[run_len] = lba;
+                    slot_idx[run_len] = i;
+                    run_len++;
+                    if (run_len >= n_needed)
+                        found = 1;
+                } else {
+                    run_len = 0;   /* non-free entry breaks the run */
+                }
+            }
+        }
+
+        if (found) break;
+
+        uint32_t next = fat_read(cluster);
+        if (next >= FAT32_BAD) {
+            /* Chain exhausted: allocate and zero a new cluster. */
+            uint32_t nc = fat_alloc(cluster);
+            if (!nc) return 0;
+            if (fat_flush()) return 0;
+
+            uint32_t new_lba = clus_to_lba(nc);
+            memset(s_sec, 0, 512);
+            for (uint8_t s2 = 0; s2 < vol.spc; s2++) {
+                if (ide_write_sectors(vol.drive, new_lba + s2, 1, s_sec))
+                    return 0;
+            }
+
+            /* All slots in the new cluster are free (0x00). */
+            run_len = 0;
+            int total_slots = (int)vol.spc * 16;
+            for (int i = 0; i < n_needed && i < total_slots; i++) {
+                slot_lba[run_len] = new_lba + (uint32_t)(i / 16);
+                slot_idx[run_len] = i % 16;
+                run_len++;
+            }
+            if (run_len >= n_needed)
+                found = 1;
+            break;
+        }
+        cluster = next;
+    }
+
+    if (!found)
+        return 0;
+
+    /*
+     * Write LFN entries.  On-disk order is: last-chars entry first
+     * (sequence n_lfn, flagged 0x40), down to sequence 1, then the 8.3.
+     *
+     * slot[0]         → LFN entry covering chars [(n_lfn-1)*13 .. end]
+     * slot[n_lfn - 1] → LFN entry covering chars [0 .. 12]
+     * slot[n_lfn]     → 8.3 entry
+     */
+    for (int k = 0; k < n_lfn; k++) {
+        int     seq      = n_lfn - k;   /* n_lfn, n_lfn-1, …, 1 */
+        uint8_t ord      = (uint8_t)seq;
+        if (k == 0)
+            ord |= 0x40u;               /* first on disk = last in name */
+
+        int char_base = (seq - 1) * 13; /* name[char_base .. char_base+12] */
+
+        uint32_t lba = slot_lba[k];
+        if (ide_read_sectors(vol.drive, lba, 1, s_sec))
+            return 0;
+
+        uint8_t *e = s_sec + slot_idx[k] * 32;
+        memset(e, 0, 32);
+        e[0]  = ord;
+        e[11] = ATTR_LFN;
+        e[12] = 0;       /* type */
+        e[13] = cksum;
+        /* bytes 26-27: cluster must be 0 in LFN entries */
+
+        for (int j = 0; j < 13; j++) {
+            int      ci  = char_base + j;
+            /*
+             * Encode as UTF-16LE.  long_name is installer-supplied ASCII,
+             * so the high byte is always 0 and the cast is safe.
+             */
+            uint16_t ucs = (ci < name_len)    ? (uint16_t)(unsigned char)long_name[ci]
+                         : (ci == name_len)   ? 0x0000u   /* NUL terminator */
+                         :                      0xFFFFu;  /* padding */
+            e[s_lfn_char_off[j]]     = (uint8_t)(ucs & 0xFFu);
+            e[s_lfn_char_off[j] + 1] = (uint8_t)(ucs >> 8);
+        }
+
+        if (ide_write_sectors(vol.drive, lba, 1, s_sec))
+            return 0;
+    }
+
+    /* Write the 8.3 entry in the final slot. */
+    {
+        int      k   = n_lfn;
+        uint32_t lba = slot_lba[k];
+        if (ide_read_sectors(vol.drive, lba, 1, s_sec))
+            return 0;
+
+        uint8_t *e = s_sec + slot_idx[k] * 32;
+        memset(e, 0, 32);
+        memcpy(e, basis, 11);
+        e[11] = attr;
+        wr16(e, 20, (uint16_t)(first_cluster >> 16));
+        wr16(e, 26, (uint16_t)(first_cluster & 0xFFFFu));
+        wr32(e, 28, file_size);
+
+        if (ide_write_sectors(vol.drive, lba, 1, s_sec))
+            return 0;
+        if (out_off)
+            *out_off = (uint32_t)(slot_idx[k] * 32u);
+        return lba;
+    }
+}
+
+/* -------------------------------------------------------------------------
  * Directory scanner
  *
  * Walks every sector in the cluster chain of dir_cluster.
@@ -306,9 +576,6 @@ static void make_83_name(const char *src, uint8_t *dst)
  * LFN entries are accumulated in s_lfn / s_lfn_valid across iterations.
  * The accumulation is reset at the start of each call.
  * ---------------------------------------------------------------------- */
-
-/* LFN offsets of the 13 UTF-16LE characters within one LFN entry. */
-static const int s_lfn_char_off[13] = { 1,3,5,7,9, 14,16,18,20,22,24, 28,30 };
 
 static int dir_scan(uint32_t dir_cluster, int mode,
                     const char *find_name, dirent_t *out)
@@ -800,10 +1067,8 @@ int fat32_mkdir(const char *path)
         return -2;
 
     /* Create the directory entry in the parent. */
-    uint8_t  sname[11];
     uint32_t ent_off;
-    make_83_name(basename, sname);
-    if (!dir_add_entry(parent_cluster, sname, ATTR_DIR, nc, 0u, &ent_off))
+    if (!dir_add_with_lfn(parent_cluster, basename, ATTR_DIR, nc, 0u, &ent_off))
         return -5;
 
     return 0;
@@ -923,11 +1188,9 @@ int fat32_write_file(const char *path, const void *buf, uint32_t size)
         if (ide_write_sectors(vol.drive, existing.ent_lba, 1, s_sec))
             return -2;
     } else {
-        uint8_t  sname[11];
         uint32_t ent_off;
-        make_83_name(basename, sname);
-        if (!dir_add_entry(parent_cluster, sname, ATTR_ARCH,
-                           first_cluster, size, &ent_off))
+        if (!dir_add_with_lfn(parent_cluster, basename, ATTR_ARCH,
+                              first_cluster, size, &ent_off))
             return -5;
     }
 
