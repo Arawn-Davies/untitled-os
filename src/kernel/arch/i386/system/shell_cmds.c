@@ -526,7 +526,7 @@ static disk_parts_t s_cmd_parts;
  * mount <drive> <part>
  *
  * Probe the partition table on <drive> and mount partition number <part>
- * (0-based) as a FAT32 volume.
+ * (1-based, matching lspart output) as a FAT32 volume.
  */
 void cmd_mount(int argc, char **argv)
 {
@@ -536,7 +536,7 @@ void cmd_mount(int argc, char **argv)
     }
 
     uint8_t drive    = (uint8_t)parse_uint(argv[1]);
-    int     part_idx = (int)parse_uint(argv[2]);
+    int     part_num = (int)parse_uint(argv[2]);  /* 1-based, matches lspart */
 
     int err = part_probe(drive, &s_cmd_parts);
     if (err) {
@@ -544,9 +544,15 @@ void cmd_mount(int argc, char **argv)
         return;
     }
 
+    int part_idx = part_num - 1;   /* convert to 0-based array index */
     if (part_idx < 0 || part_idx >= s_cmd_parts.count) {
-        t_writestring("mount: invalid partition index\n");
-        t_writestring("       (use lspart ");
+        t_writestring("mount: invalid partition number");
+        if (s_cmd_parts.count > 0) {
+            t_writestring(" (valid: 1–");
+            t_dec((uint32_t)s_cmd_parts.count);
+            t_putchar(')');
+        }
+        t_writestring("\n       (use lspart ");
         t_dec(drive);
         t_writestring(" to list partitions)\n");
         return;
@@ -565,7 +571,7 @@ void cmd_mount(int argc, char **argv)
     t_writestring("Mounted FAT32  drive ");
     t_dec(drive);
     t_writestring("  partition ");
-    t_dec((uint32_t)part_idx);
+    t_dec((uint32_t)part_num);
     t_writestring("  LBA ");
     t_dec(lba);
     t_writestring("\ncwd: ");
@@ -699,7 +705,7 @@ void cmd_mkdir(int argc, char **argv)
  * mkfs <drive> <part>
  *
  * Format partition <part> on <drive> as FAT32.
- * The partition must already exist in the partition table (use mkpart first).
+ * <part> is 1-based to match lspart output (use mkpart first).
  */
 void cmd_mkfs(int argc, char **argv)
 {
@@ -709,7 +715,7 @@ void cmd_mkfs(int argc, char **argv)
     }
 
     uint8_t drive    = (uint8_t)parse_uint(argv[1]);
-    int     part_idx = (int)parse_uint(argv[2]);
+    int     part_num = (int)parse_uint(argv[2]);  /* 1-based, matches lspart */
 
     int err = part_probe(drive, &s_cmd_parts);
     if (err) {
@@ -717,8 +723,17 @@ void cmd_mkfs(int argc, char **argv)
         return;
     }
 
+    int part_idx = part_num - 1;   /* convert to 0-based array index */
     if (part_idx < 0 || part_idx >= s_cmd_parts.count) {
-        t_writestring("mkfs: invalid partition index\n");
+        t_writestring("mkfs: invalid partition number");
+        if (s_cmd_parts.count > 0) {
+            t_writestring(" (valid: 1–");
+            t_dec((uint32_t)s_cmd_parts.count);
+            t_putchar(')');
+        }
+        t_writestring("\n      (use lspart ");
+        t_dec(drive);
+        t_writestring(" to list partitions)\n");
         return;
     }
 
@@ -728,7 +743,7 @@ void cmd_mkfs(int argc, char **argv)
     t_writestring("Formatting drive ");
     t_dec(drive);
     t_writestring(" partition ");
-    t_dec((uint32_t)part_idx);
+    t_dec((uint32_t)part_num);
     t_writestring(" (");
     t_dec(sectors / 2048u);
     t_writestring(" MiB) as FAT32...\n");
@@ -748,6 +763,6 @@ void cmd_mkfs(int argc, char **argv)
     t_writestring("Done.  Mount with: mount ");
     t_dec(drive);
     t_putchar(' ');
-    t_dec((uint32_t)part_idx);
+    t_dec((uint32_t)part_num);
     t_putchar('\n');
 }
