@@ -39,12 +39,23 @@ else
     # installer will write to sectors 1..N of the target HDD.
     # The prefix (/boot/grub) tells GRUB where to look for modules once it
     # has been loaded from the HDD's FAT32 partition.
+    #
+    # The embedded early config (-c) runs a 'search' before normal starts so
+    # that GRUB probes all partitions and sets root to whichever one contains
+    # /boot/grub/grub.cfg.  Without this, GRUB defaults to the raw disk
+    # device (hd0) instead of the FAT32 partition (hd0,msdos1) and never
+    # finds grub.cfg, dropping straight to the command prompt.
+    _embed_cfg=$(mktemp)
+    printf 'search --no-floppy --file --set=root /boot/grub/grub.cfg\n' \
+        > "$_embed_cfg"
     grub-mkimage \
         -O i386-pc \
         -o isodir/boot/grub/i386-pc/core.img \
         -p /boot/grub \
-        biosdisk part_msdos fat normal multiboot2 linux \
+        -c "$_embed_cfg" \
+        biosdisk part_msdos fat search search_fs_file normal multiboot2 linux \
         || echo "Warning: grub-mkimage failed; core.img will be missing." >&2
+    rm -f "$_embed_cfg"
 
     # GRUB modules copied to the ISO so the installer can transfer them to
     # the FAT32 partition.  Missing modules are non-fatal (skipped silently).
