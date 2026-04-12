@@ -453,7 +453,7 @@ void installer_run(void)
      * the boot sequence fully deterministic:
      *
      *   set root=(hd0,msdos1)   — FAT32 partition 1 of the first HDD
-     *   set timeout=0           — boot immediately, no countdown
+     *   set timeout=5           — 5-second countdown, then auto-boot
      *   multiboot2 …            — load the kernel from the fixed path
      *   boot                    — start it
      *
@@ -463,7 +463,7 @@ void installer_run(void)
      */
     static const char grub_cfg[] =
         "set default=0\n"
-        "set timeout=0\n"
+        "set timeout=5\n"
         "set root=(hd0,msdos1)\n"
         "\n"
         "menuentry \"Makar OS\" {\n"
