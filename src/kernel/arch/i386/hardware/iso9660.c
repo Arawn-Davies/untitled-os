@@ -36,6 +36,13 @@
 /* ISO9660 directory record: flags byte bit definitions. */
 #define ISO_FLAG_DIR          0x02u   /* entry is a sub-directory */
 
+/*
+ * Maximum length of a single path component we handle.
+ * ISO9660 level 1 allows 8+3 characters; level 2 allows up to 207.
+ * We use 220 to comfortably cover level 2 plus the ";N" suffix.
+ */
+#define ISO_MAX_COMPONENT_LEN  220
+
 /* -------------------------------------------------------------------------
  * Static sector buffer — never on the kernel stack (2048 bytes).
  * ---------------------------------------------------------------------- */
@@ -220,10 +227,10 @@ static int path_resolve(uint8_t drive, const char *path,
             return -2;
 
         /* Extract the next path component (up to the next '/' or end). */
-        char comp[222];
+        char comp[ISO_MAX_COMPONENT_LEN + 2];  /* +2: NUL + safety margin */
         int  clen = 0;
         while (*p && *p != '/') {
-            if (clen < 221)
+            if (clen < ISO_MAX_COMPONENT_LEN)
                 comp[clen++] = *p;
             p++;
         }

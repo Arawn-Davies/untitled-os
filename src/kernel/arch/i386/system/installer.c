@@ -316,7 +316,7 @@ void installer_run(void)
      */
     uint32_t core_sectors = (core_sz + 511u) / 512u;
 
-    if (core_sectors >= INST_PART_START_LBA) {
+    if (core_sectors + 1u > INST_PART_START_LBA) {
         t_writestring("Error: core.img too large for the embedding area.\n");
         kfree(file_buf);
         return;
@@ -410,8 +410,8 @@ void installer_run(void)
     size_t pflen = sizeof(grub_mod_dir) - 1u;  /* length without NUL */
 
     for (int i = 0; modules[i] != NULL; i++) {
-        char src[64];
-        char dst[64];
+        char src[128];
+        char dst[128];
         size_t mlen = strlen(modules[i]);
 
         if (pflen + mlen >= sizeof(src))
