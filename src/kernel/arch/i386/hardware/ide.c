@@ -169,8 +169,11 @@ void ide_init(void)
             ide_write(ch, ATA_REG_COMMAND, ATA_CMD_IDENTIFY);
             ide_400ns_delay(ch);
 
-            /* A zero status byte means no drive is present. */
-            if (ide_read(ch, ATA_REG_STATUS) == 0)
+            /* A status of 0x00 or 0xFF means no drive is present on this
+             * slot (0xFF = floating bus lines, common when a slave exists
+             * without a master on the same channel). */
+            uint8_t st0 = ide_read(ch, ATA_REG_STATUS);
+            if (st0 == 0x00u || st0 == 0xFFu)
                 continue;
 
             /* Wait for BSY to clear (with a timeout guard). */

@@ -19,6 +19,7 @@
 #include <kernel/installer.h>
 #include <kernel/task.h>
 #include <kernel/acpi.h>
+#include <kernel/vics.h>
 
 #include <string.h>
 #include <stdint.h>
@@ -757,4 +758,45 @@ void cmd_isols(int argc, char **argv)
 void cmd_install(void)
 {
     installer_run();
+}
+
+/* ---------------------------------------------------------------------------
+ * vics — interactive text editor
+ * --------------------------------------------------------------------------- */
+
+void cmd_vics(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: vics <filename>\n");
+        t_writestring("  Opens <filename> for editing. Creates the file on save if it does not exist.\n");
+        t_writestring("  Key bindings: Arrow keys navigate | Ctrl+S save | Ctrl+Q quit\n");
+        return;
+    }
+
+    /* Resolve a bare filename against the current working directory. */
+    const char *arg  = argv[1];
+    const char *cwd  = vfs_getcwd();
+
+    static char full_path[VFS_PATH_MAX];
+
+    if (arg[0] == '/') {
+        /* Absolute path — use as-is. */
+        strncpy(full_path, arg, VFS_PATH_MAX - 1);
+        full_path[VFS_PATH_MAX - 1] = '\0';
+    } else {
+        /* Relative path — prepend CWD. */
+        size_t cwd_len = strlen(cwd);
+        size_t arg_len = strlen(arg);
+        if (cwd_len + 1 + arg_len >= VFS_PATH_MAX) {
+            t_writestring("vics: path too long\n");
+            return;
+        }
+        size_t off = 0;
+        memcpy(full_path, cwd, cwd_len); off += cwd_len;
+        if (cwd[cwd_len - 1] != '/')
+            full_path[off++] = '/';
+        memcpy(full_path + off, arg, arg_len + 1);
+    }
+
+    vics_edit(full_path);
 }

@@ -280,42 +280,42 @@ static int try_mount_hdd(uint8_t drive)
 void vfs_auto_mount(void)
 {
     /*
-     * BIOS drive number ranges:
-     *   0x00–0x7F : floppy (not supported)
-     *   0x80–0xDF : hard disk  (0x80 = first HDD, 0x81 = second, …)
-     *   0xE0–0xFF : CD-ROM / ATAPI
+     * Always probe every ATA drive and mount the first FAT32 partition
+     * found, regardless of the boot device.  This ensures the HDD is
+     * mounted even when the system is booted from the CD-ROM.
+     *
+     * The BIOS boot-device number (set by vfs_set_boot_drive) is used only
+     * as a hint: if it points to a specific ATA drive, try that drive first
+     * so the most likely partition is mounted with priority.
      */
+    int hd_mounted = 0;
+
+    /* If biosdev identifies a specific HDD, try it first. */
     if (s_boot_biosdev >= 0x80u && s_boot_biosdev <= 0xDFu) {
-        /* Booted from HDD: mount the FAT32 partition on that drive. */
-        uint8_t drive = (uint8_t)(s_boot_biosdev - 0x80u);
-        if (!try_mount_hdd(drive)) {
-            t_writestring("Warning: boot HDD (drive ");
-            t_dec(drive);
-            t_writestring(") has no mountable FAT32 partition.\n");
-        }
-    } else if (s_boot_biosdev >= 0xE0u && s_boot_biosdev != 0xFFu) {
-        /* Booted from CD-ROM: ISO9660 already registered by vfs_init(). */
-        if (s_cdrom_drive >= 0) {
+        uint8_t hint_drive = (uint8_t)(s_boot_biosdev - 0x80u);
+        hd_mounted = try_mount_hdd(hint_drive);
+    }
+
+    /* Scan remaining drives in order (skip the hint drive if already tried). */
+    for (int i = 0; i < IDE_MAX_DRIVES && !hd_mounted; i++) {
+        /* Skip the hint drive — already tried above. */
+        if (s_boot_biosdev >= 0x80u && s_boot_biosdev <= 0xDFu &&
+            (uint8_t)i == (uint8_t)(s_boot_biosdev - 0x80u))
+            continue;
+
+        hd_mounted = try_mount_hdd((uint8_t)i);
+    }
+
+    /* Report CD-ROM status (always registered by vfs_init if present). */
+    if (s_cdrom_drive >= 0) {
+        t_writestring("CD-ROM detected, accessible at /cdrom\n");
+        /* If no HDD was mounted, navigate CWD to /cdrom. */
+        if (!hd_mounted)
             memcpy(s_cwd, "/cdrom", 7);   /* 7 includes the NUL terminator */
-            t_writestring("Boot device: CD-ROM. Filesystem accessible at /cdrom\n");
-        } else {
-            t_writestring("Warning: booted from CD but no ISO9660 volume found.\n");
-        }
-    } else {
-        /*
-         * Boot device unknown (tag absent or unrecognised BIOS number).
-         * Heuristic: try each ATA drive in order; mount the first FAT32
-         * partition found.  If nothing mounts, fall back to /cdrom if
-         * a CD-ROM is present.
-         */
-        int mounted = 0;
-        for (int i = 0; i < IDE_MAX_DRIVES && !mounted; i++) {
-            mounted = try_mount_hdd((uint8_t)i);
-        }
-        if (!mounted && s_cdrom_drive >= 0) {
-            memcpy(s_cwd, "/cdrom", 7);
-            t_writestring("Boot device: CD-ROM (fallback). Filesystem at /cdrom\n");
-        }
+    }
+
+    if (!hd_mounted && s_cdrom_drive < 0) {
+        /* Nothing mounted — leave CWD at "/" and let the user mount manually. */
     }
 }
 

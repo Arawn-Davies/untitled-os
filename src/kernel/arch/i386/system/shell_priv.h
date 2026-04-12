@@ -72,4 +72,7 @@ void cmd_isols(int argc, char **argv);
 /* Installer */
 void cmd_install(void);
 
+/* VICS text editor */
+void cmd_vics(int argc, char **argv);
+
 #endif /* SHELL_PRIV_H */

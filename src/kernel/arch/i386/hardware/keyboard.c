@@ -17,6 +17,8 @@
 #define SC_RSHIFT       0x36
 #define SC_LSHIFT_REL   (SC_LSHIFT | 0x80)
 #define SC_RSHIFT_REL   (SC_RSHIFT | 0x80)
+#define SC_LCTRL        0x1D   /* Left Ctrl key (press)                  */
+#define SC_LCTRL_REL    (SC_LCTRL | 0x80)
 #define SC_CAPSLOCK     0x3A
 #define SC_BACKSPACE    0x0E
 #define SC_ENTER        0x1C
@@ -92,6 +94,7 @@ static inline char buf_pop(void)
 
 static volatile int shift_pressed  = 0;
 static volatile int caps_lock_on   = 0;
+static volatile int ctrl_pressed   = 0;  /* set while left Ctrl is held    */
 static volatile int extended_key   = 0;  /* set when 0xE0 prefix is received */
 
 // ---------------------------------------------------------------------------
@@ -115,8 +118,10 @@ static void keyboard_irq_handler(registers_t regs)
     if (extended_key) {
         extended_key = 0;
         if (!(sc & 0x80)) {
-            if (sc == 0x48) { buf_push(KEY_ARROW_UP);   return; }
+            if (sc == 0x48) { buf_push(KEY_ARROW_UP);    return; }
             if (sc == 0x50) { buf_push(KEY_ARROW_DOWN);  return; }
+            if (sc == 0x4B) { buf_push(KEY_ARROW_LEFT);  return; }
+            if (sc == 0x4D) { buf_push(KEY_ARROW_RIGHT); return; }
             // All other extended keys are silently ignored for now.
         }
         return;
@@ -125,6 +130,10 @@ static void keyboard_irq_handler(registers_t regs)
     // Handle modifier key releases.
     if (sc == SC_LSHIFT_REL || sc == SC_RSHIFT_REL) {
         shift_pressed = 0;
+        return;
+    }
+    if (sc == SC_LCTRL_REL) {
+        ctrl_pressed = 0;
         return;
     }
 
@@ -136,6 +145,10 @@ static void keyboard_irq_handler(registers_t regs)
     // Handle modifier key presses.
     if (sc == SC_LSHIFT || sc == SC_RSHIFT) {
         shift_pressed = 1;
+        return;
+    }
+    if (sc == SC_LCTRL) {
+        ctrl_pressed = 1;
         return;
     }
 
@@ -156,9 +169,23 @@ static void keyboard_irq_handler(registers_t regs)
     int use_upper = is_letter ? (shift_pressed ^ caps_lock_on) : shift_pressed;
     char c = use_upper ? sc_ascii_upper[sc] : sc_ascii_lower[sc];
 
-    if (c != 0) {
-        buf_push(c);
+    if (c == 0) {
+        return;
     }
+
+    // When Ctrl is held and a letter key is pressed, generate a control
+    // character (Ctrl+E = 0x05, Ctrl+Q = 0x11, Ctrl+S = 0x13, etc.).
+    // Ctrl+A (0x01) through Ctrl+D (0x04) are skipped because those values
+    // are already reserved for the arrow-key sentinels.
+    if (ctrl_pressed && is_letter) {
+        char ctrl_code = (char)(lower_c - 'a' + 1);  /* Ctrl+A=1, …, Ctrl+Z=26 */
+        if (ctrl_code > 4) {   /* skip 0x01-0x04 (arrow key codes) */
+            buf_push(ctrl_code);
+        }
+        return;
+    }
+
+    buf_push(c);
 }
 
 // ---------------------------------------------------------------------------
