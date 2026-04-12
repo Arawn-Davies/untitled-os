@@ -11,6 +11,15 @@
  */
 #define KEY_ARROW_UP    '\x01'   /* PS/2 extended scan code E0 48 */
 #define KEY_ARROW_DOWN  '\x02'   /* PS/2 extended scan code E0 50 */
+#define KEY_ARROW_LEFT  '\x03'   /* PS/2 extended scan code E0 4B */
+#define KEY_ARROW_RIGHT '\x04'   /* PS/2 extended scan code E0 4D */
+
+/*
+ * Control characters generated when Ctrl is held with a letter key.
+ * Ctrl+S = 0x13, Ctrl+Q = 0x11 are used by the VICS text editor.
+ * Note: Ctrl+A (0x01) through Ctrl+D (0x04) overlap the arrow-key
+ * sentinels above and are therefore not generated.
+ */
 
 // Initialise the PS/2 keyboard driver and register the IRQ1 handler.
 void keyboard_init(void);

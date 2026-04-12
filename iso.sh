@@ -9,7 +9,10 @@ cat > isodir/boot/grub/grub.cfg << EOF
 set default=0
 set timeout=0
 
-menuentry "Makar" {
+# CD grub.cfg: boots the live CD image directly.
+# The HDD grub.cfg (written by the installer) uses "Makar OS" and
+# boots from the FAT32 partition — this title distinguishes the two.
+menuentry "Makar (Live CD)" {
 	multiboot2 /boot/makar.kernel
 }
 EOF

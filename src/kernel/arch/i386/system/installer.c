@@ -432,12 +432,21 @@ void installer_run(void)
      * ------------------------------------------------------------------ */
     t_writestring("Writing grub.cfg...\n");
 
+    /*
+     * HDD grub.cfg differs from the CD grub.cfg in two key ways:
+     *   1. set timeout=0  — boot immediately with no user interaction required.
+     *   2. Explicit 'boot' command inside the menuentry so the kernel loads
+     *      correctly even when GRUB is invoked manually from its command line.
+     * The CD grub.cfg uses the same multiboot2 path because the ISO9660 and
+     * the FAT32 partition share the same /boot/makar.kernel layout.
+     */
     static const char grub_cfg[] =
         "set default=0\n"
-        "set timeout=5\n"
+        "set timeout=0\n"
         "\n"
-        "menuentry \"Makar\" {\n"
+        "menuentry \"Makar OS\" {\n"
         "\tmultiboot2 /boot/makar.kernel\n"
+        "\tboot\n"
         "}\n";
 
     if (fat32_write_file("/boot/grub/grub.cfg",
