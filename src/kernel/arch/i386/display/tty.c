@@ -166,6 +166,20 @@ void t_spinner_tick(uint32_t tick)
 	vesa_tty_spinner_tick(tick);
 }
 
+void terminal_set_colorscheme(uint8_t color)
+{
+	t_row    = 0;
+	t_column = 0;
+	t_color  = color;
+	for (size_t y = 0; y < t_height; y++) {
+		for (size_t x = 0; x < VGA_WIDTH; x++) {
+			const size_t index = y * VGA_WIDTH + x;
+			t_buffer[index] = make_vgaentry(' ', t_color);
+		}
+	}
+	update_cursor(0, 0);
+}
+
 void terminal_set_rows(size_t rows)
 {
 	/* Only 25 and 50 are supported. */

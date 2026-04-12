@@ -44,6 +44,13 @@ void vesa_tty_put_at(char c, uint32_t col, uint32_t row);
 void vesa_tty_spinner_tick(uint32_t tick);
 
 /*
+ * vesa_tty_clear – reset the cursor to (0, 0) and fill the framebuffer with
+ * the current background colour without changing the fg/bg colour settings.
+ * Use this after vesa_tty_setcolor() to apply a colour-scheme change.
+ */
+void vesa_tty_clear(void);
+
+/*
  * Change the font scale factor.  scale=2 gives large glyphs (~25 lines at
  * 1024×768), scale=1 gives small glyphs (~50 lines at 1024×768).
  * Clears the screen and resets the cursor.

@@ -3,7 +3,7 @@
  *
  * Provides:
  *   shell_readline() - echoes input, handles backspace, ends on Enter
- *   shell_run()      - infinite prompt loop ("makar-sh> ")
+ *   shell_run()      - infinite prompt loop (Medli-style UX)
  *
  * Command implementations live in shell_cmds.c and shell_help.c.
  */
@@ -13,6 +13,8 @@
 #include <kernel/shell.h>
 #include <kernel/keyboard.h>
 #include <kernel/tty.h>
+#include <kernel/vesa_tty.h>
+#include <kernel/fat32.h>
 #include <kernel/ktest.h>
 
 #include <string.h>
@@ -166,6 +168,20 @@ static shell_cmd_t shell_lookup(const char *name)
 }
 
 /* ---------------------------------------------------------------------------
+ * shell_print_prompt – print the Medli-style interactive prompt.
+ *
+ * Format: username@hostname cwd~>
+ * The current working directory comes from the FAT32 driver when a volume
+ * is mounted, or falls back to "/" when nothing is mounted.
+ * --------------------------------------------------------------------------- */
+static void shell_print_prompt(void)
+{
+    t_writestring(SHELL_USERNAME "@" SHELL_HOSTNAME " ");
+    t_writestring(fat32_mounted() ? fat32_getcwd() : "/");
+    t_writestring("~> ");
+}
+
+/* ---------------------------------------------------------------------------
  * shell_run – infinite REPL loop.  Never returns.
  * --------------------------------------------------------------------------- */
 void shell_run(void)
@@ -173,12 +189,41 @@ void shell_run(void)
     static char buf[SHELL_MAX_INPUT];
     char *argv[SHELL_MAX_ARGS];
 
-    t_writestring("Makar kernel shell -- " COPYRIGHT
-                  " -- built " BUILD_DATE " " BUILD_TIME "\n");
+    /*
+     * Apply the Medli-compatible colour scheme: white text on blue background.
+     * This matches Medli's BeforeRun() which sets ConsoleColor.Blue background
+     * and ConsoleColor.White foreground before clearing the screen.
+     */
+    terminal_set_colorscheme(SHELL_COLOR_VGA);
+    if (vesa_tty_is_ready()) {
+        vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
+        vesa_tty_clear();
+    }
+
+    /*
+     * Makar ASCII-art logo + welcome banner — Medli style.
+     *
+     * The mountain graphic on the right mirrors Medli's logo decoration.
+     * Left side renders "MAKAR" in a diagonal-slash block font, the same
+     * aesthetic as Medli's "Medli" lettering.
+     */
+    t_writestring(" |\\/|   /\\  |< /\\  |~~\\        //\\\\\n");
+    t_writestring(" |  |  /  \\ || /  \\ |   |     //__\\\\\n");
+    t_writestring(" |  | / /\\ \\||/ /\\ \\|___|    //\\++/\\\\\n");
+    t_writestring(" |  |/_/  \\_\\|/_/  \\_\\      //__\\/__\\\\\n");
+    t_writestring("                              ~~~~~~~~~~\n");
+    t_writestring("\n");
+    t_writestring("Makar -- version " SHELL_VERSION
+                  ", build: " BUILD_DATE " " BUILD_TIME "\n");
+    t_writestring("The GCC/C++ sibling of Medli\n");
+    t_writestring(COPYRIGHT "\n");
+    t_writestring("Released under the BSD-3 Clause Clear license\n");
+    t_writestring("\n");
     t_writestring("Type 'help' for a list of commands.\n");
+    t_writestring("Welcome back, " SHELL_USERNAME "!\n\n");
 
     while (1) {
-        t_writestring(SHELL_PROMPT);
+        shell_print_prompt();
         shell_readline(buf, SHELL_MAX_INPUT);
 
         int argc = shell_parse(buf, argv, SHELL_MAX_ARGS);
@@ -210,9 +255,12 @@ void shell_run(void)
         case CMD_MKDIR:      cmd_mkdir(argc, argv);       break;
         case CMD_MKFS:       cmd_mkfs(argc, argv);        break;
         default:
-            t_writestring("Unknown command: ");
+            /* Medli-style error: red text, matching CommandConsole.cs */
+            t_setcolor(SHELL_ERROR_COLOR_VGA);
+            t_writestring("The command '");
             t_writestring(argv[0]);
-            t_writestring("\n");
+            t_writestring("' is not supported. Please type help for more information.\n\n");
+            t_setcolor(SHELL_COLOR_VGA);
             break;
         }
     }

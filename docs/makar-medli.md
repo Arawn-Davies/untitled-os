@@ -153,14 +153,15 @@ identically:
 |---|---|---|
 | Path separator `\` | ✅ implemented | planned |
 | Root volume `0:\` | ✅ implemented | planned (FAT32 driver) |
-| Command: `ls` / `dir` | ✅ implemented | planned (shell) |
-| Command: `cd` | ✅ implemented | planned (shell) |
+| Command: `ls` / `dir` | ✅ implemented | ✅ implemented |
+| Command: `cd` | ✅ implemented | ✅ implemented |
 | VICS text editor | ✅ implemented | planned (port) |
 | User login prompt | ✅ implemented | planned |
 | Serial console | ✅ implemented | ✅ implemented (read-only) |
 | Daemon/service model | ✅ implemented | planned |
-| Kernel version string | ✅ `KernelVersion` | planned |
-| Welcome / ASCII logo | ✅ implemented | planned |
+| Kernel version string | ✅ `KernelVersion` | ✅ `SHELL_VERSION` |
+| Shell prompt (`user@host cwd~>`) | ✅ implemented | ✅ implemented |
+| Welcome / ASCII logo | ✅ implemented | ✅ implemented |
 
 ---
 
