@@ -200,19 +200,6 @@ void shell_run(void)
         vesa_tty_clear();
     }
 
-    /*
-     * Makar ASCII-art logo + welcome banner — Medli style.
-     *
-     * Right side: the mountain from Medli's logo.
-     * Left side: "MAKAR" in the same diagonal-slash block font used by
-     * Medli for "Medli" — M=|\ /|, A=/\, K=|<, A=/\, R=|~~\.
-     */
-    t_writestring("  |\\  /|  /\\  |<  /\\  |~~\\        //\\\\\n");
-    t_writestring("  | \\/ | /  \\ ||  /  \\ |   |     //__\\\\\n");
-    t_writestring("  |    |/ /\\ \\||/ /\\ \\|___|    //\\++/\\\\\n");
-    t_writestring("  |    |/_/  \\_\\|/_/  \\_\\      //__\\/__\\\\\n");
-    t_writestring("                               ~~~~~~~~~~\n");
-    t_writestring("\n");
     t_writestring("Makar -- version " SHELL_VERSION
                   ", build: " BUILD_DATE " " BUILD_TIME "\n");
     t_writestring("The GCC/C++ sibling of Medli\n");
