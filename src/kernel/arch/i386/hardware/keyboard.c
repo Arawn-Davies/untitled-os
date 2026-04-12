@@ -90,8 +90,9 @@ static inline char buf_pop(void)
 // Modifier state
 // ---------------------------------------------------------------------------
 
-static volatile int shift_pressed = 0;
-static volatile int caps_lock_on  = 0;
+static volatile int shift_pressed  = 0;
+static volatile int caps_lock_on   = 0;
+static volatile int extended_key   = 0;  /* set when 0xE0 prefix is received */
 
 // ---------------------------------------------------------------------------
 // IRQ1 handler
@@ -102,6 +103,24 @@ static void keyboard_irq_handler(registers_t regs)
     (void)regs;
 
     uint8_t sc = inb(PS2_DATA_PORT);
+
+    // The 0xE0 prefix introduces an extended (two-byte) scan code.
+    // Set a flag and wait for the actual key code in the next interrupt.
+    if (sc == 0xE0) {
+        extended_key = 1;
+        return;
+    }
+
+    // Handle extended key-press (ignore extended key-release, bit 7 set).
+    if (extended_key) {
+        extended_key = 0;
+        if (!(sc & 0x80)) {
+            if (sc == 0x48) { buf_push(KEY_ARROW_UP);   return; }
+            if (sc == 0x50) { buf_push(KEY_ARROW_DOWN);  return; }
+            // All other extended keys are silently ignored for now.
+        }
+        return;
+    }
 
     // Handle modifier key releases.
     if (sc == SC_LSHIFT_REL || sc == SC_RSHIFT_REL) {

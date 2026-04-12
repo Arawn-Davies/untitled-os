@@ -11,6 +11,7 @@
 #include <kernel/iso9660.h>
 #include <kernel/partition.h>
 #include <kernel/fat32.h>
+#include <kernel/vfs.h>
 #include <kernel/heap.h>
 #include <kernel/tty.h>
 #include <kernel/keyboard.h>
@@ -448,6 +449,7 @@ void installer_run(void)
      * Step 12: Unmount and report success.
      * ------------------------------------------------------------------ */
     fat32_unmount();
+    vfs_notify_hd_unmounted();
     kfree(file_buf);
 
     t_writestring("\n=== Installation complete! ===\n");

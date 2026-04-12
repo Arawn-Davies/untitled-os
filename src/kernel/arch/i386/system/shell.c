@@ -14,22 +14,59 @@
 #include <kernel/keyboard.h>
 #include <kernel/tty.h>
 #include <kernel/vesa_tty.h>
-#include <kernel/fat32.h>
+#include <kernel/vfs.h>
 #include <kernel/ktest.h>
 
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
+ * Command history ring-buffer (SHELL_HISTORY_SIZE most-recent entries).
+ * --------------------------------------------------------------------------- */
+#define SHELL_HISTORY_SIZE 16
+
+static char s_history[SHELL_HISTORY_SIZE][SHELL_MAX_INPUT];
+static int  s_hist_count = 0;  /* valid entries (capped at SHELL_HISTORY_SIZE) */
+static int  s_hist_head  = 0;  /* index of the next write slot                 */
+
+static void history_push(const char *line)
+{
+    if (!line || !*line)
+        return;
+    strncpy(s_history[s_hist_head], line, SHELL_MAX_INPUT - 1);
+    s_history[s_hist_head][SHELL_MAX_INPUT - 1] = '\0';
+    s_hist_head = (s_hist_head + 1) % SHELL_HISTORY_SIZE;
+    if (s_hist_count < SHELL_HISTORY_SIZE)
+        s_hist_count++;
+}
+
+/* ago=0 → most-recent entry; returns NULL when out of range. */
+static const char *history_get(int ago)
+{
+    if (ago < 0 || ago >= s_hist_count)
+        return NULL;
+    int idx = ((s_hist_head - 1 - ago) % SHELL_HISTORY_SIZE
+               + SHELL_HISTORY_SIZE) % SHELL_HISTORY_SIZE;
+    return s_history[idx];
+}
+
+/* ---------------------------------------------------------------------------
  * shell_readline – read a line from the PS/2 keyboard into buf.
  *
  * Echoes every printable character to the VGA terminal.  Handles:
- *   '\b' – erase the previous character (if any).
- *   '\n' – end of line.
+ *   '\b'           – erase the previous character (if any).
+ *   '\n'           – end of line.
+ *   KEY_ARROW_UP   – recall older history entry.
+ *   KEY_ARROW_DOWN – recall newer history entry (or restore working line).
  * Always NUL-terminates buf.  Reads at most (max - 1) characters.
  * --------------------------------------------------------------------------- */
 void shell_readline(char *buf, size_t max)
 {
-    size_t len = 0;
+    size_t len      = 0;
+    int    hist_pos = -1;            /* -1 = not in history-navigation mode */
+    char   work[SHELL_MAX_INPUT];    /* in-progress line saved on first ↑   */
+
+    buf[0]  = '\0';
+    work[0] = '\0';
 
     while (1) {
         char c = keyboard_getchar();
@@ -42,17 +79,64 @@ void shell_readline(char *buf, size_t max)
         if (c == '\b') {
             if (len > 0) {
                 len--;
+                buf[len] = '\0';
                 t_backspace();
             }
+            hist_pos = -1;
             continue;
         }
 
-        /* Accept printable ASCII; silently drop anything else. */
+        /* ---- Arrow-key history navigation ---- */
+        if (c == KEY_ARROW_UP || c == KEY_ARROW_DOWN) {
+            int new_pos;
+
+            if (c == KEY_ARROW_UP) {
+                if (hist_pos < 0) {
+                    /* First ↑ press: save the in-progress line. */
+                    strncpy(work, buf, max - 1);
+                    work[max - 1] = '\0';
+                }
+                new_pos = (hist_pos < 0) ? 0 : hist_pos + 1;
+                if (new_pos >= s_hist_count)
+                    new_pos = s_hist_count - 1;
+            } else {
+                new_pos = hist_pos - 1;
+            }
+
+            const char *entry;
+            if (new_pos < 0) {
+                /* Went past the newest entry → restore the working line. */
+                entry    = work;
+                hist_pos = -1;
+            } else {
+                entry = history_get(new_pos);
+                if (!entry)
+                    continue;
+                hist_pos = new_pos;
+            }
+
+            /* Erase the current line on-screen. */
+            for (size_t i = 0; i < len; i++)
+                t_backspace();
+
+            /* Load and display the recalled line. */
+            strncpy(buf, entry, max - 1);
+            buf[max - 1] = '\0';
+            len = strlen(buf);
+            t_writestring(buf);
+            continue;
+        }
+
+        /* Accept printable ASCII; silently drop everything else. */
         if (c < 0x20 || c > 0x7E)
             continue;
 
+        /* Any typed character exits history-navigation mode. */
+        hist_pos = -1;
+
         if (len < max - 1) {
             buf[len++] = c;
+            buf[len]   = '\0';
             t_putchar(c);
         }
     }
@@ -176,16 +260,14 @@ static shell_cmd_t shell_lookup(const char *name)
 }
 
 /* ---------------------------------------------------------------------------
- * shell_print_prompt – print the Medli-style interactive prompt.
+ * shell_print_prompt – print the interactive prompt showing the VFS CWD.
  *
- * Format: username@hostname cwd~>
- * The current working directory comes from the FAT32 driver when a volume
- * is mounted, or falls back to "/" when nothing is mounted.
+ * Format:  root@makar /hd/boot~>
  * --------------------------------------------------------------------------- */
 static void shell_print_prompt(void)
 {
     t_writestring(SHELL_USERNAME "@" SHELL_HOSTNAME " ");
-    t_writestring(fat32_mounted() ? fat32_getcwd() : "/");
+    t_writestring(vfs_getcwd());
     t_writestring("~> ");
 }
 
@@ -217,9 +299,15 @@ void shell_run(void)
     t_writestring("Type 'help' for a list of commands.\n");
     t_writestring("Welcome back, " SHELL_USERNAME "!\n\n");
 
+    /* Initialise the VFS: probe for CD-ROM, set CWD to "/". */
+    vfs_init();
+
     while (1) {
         shell_print_prompt();
         shell_readline(buf, SHELL_MAX_INPUT);
+
+        /* Save the raw input line before shell_parse() tokenises it in-place. */
+        history_push(buf);
 
         int argc = shell_parse(buf, argv, SHELL_MAX_ARGS);
         if (argc == 0)
