@@ -6,3 +6,4 @@ sysroot
 *\**.pyc
 # compiled binary artifacts (no extension) that may appear in arch dirs
 src/kernel/arch/*/dt_asm
+tests/groups/__pycache__/*.pyc
