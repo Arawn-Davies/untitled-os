@@ -23,5 +23,10 @@ for _d in /usr/lib/grub/i386-pc /usr/share/grub/i386-pc; do
         break
     fi
 done
+if [ ! -f isodir/boot/grub/i386-pc/boot.img ]; then
+    echo "Warning: boot.img not found in standard GRUB directories" \
+         "(/usr/lib/grub/i386-pc, /usr/share/grub/i386-pc)." >&2
+    echo "The 'install' command will fail to read /boot/grub/i386-pc/boot.img." >&2
+fi
 
 grub-mkrescue -o makar.iso isodir

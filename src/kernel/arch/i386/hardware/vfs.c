@@ -125,7 +125,8 @@ static void path_resolve(const char *path, char *out)
     /* Relative: prepend CWD. */
     int clen = (int)strlen(s_cwd);
     int plen = (int)strlen(path);
-    if (clen + 1 + plen < (int)sizeof(tmp)) {
+    /* Need clen + '/' + plen + NUL bytes total. */
+    if (clen + 1 + plen + 1 <= (int)sizeof(tmp)) {
         memcpy(tmp, s_cwd, (size_t)clen);
         tmp[clen] = '/';
         memcpy(tmp + clen + 1, path, (size_t)(plen + 1));

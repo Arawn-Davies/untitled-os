@@ -44,8 +44,7 @@ static const char *history_get(int ago)
 {
     if (ago < 0 || ago >= s_hist_count)
         return NULL;
-    int idx = ((s_hist_head - 1 - ago) % SHELL_HISTORY_SIZE
-               + SHELL_HISTORY_SIZE) % SHELL_HISTORY_SIZE;
+    int idx = (s_hist_head - 1 - ago + SHELL_HISTORY_SIZE) % SHELL_HISTORY_SIZE;
     return s_history[idx];
 }
 
