@@ -442,3 +442,63 @@ int ide_read_atapi_sectors(uint8_t drive_num, uint32_t lba,
 
     return 0;
 }
+
+/* -------------------------------------------------------------------------
+ * ide_eject_atapi – send an ATAPI START/STOP UNIT command with the eject
+ * bit set, causing the CD-ROM tray to open (QEMU honours this; real drives
+ * that have a software-controllable tray will also open).
+ *
+ * Returns  0 on success.
+ * Returns -1 if drive_num is out of range or not present.
+ * Returns -2 if the drive is not ATAPI.
+ * Returns  1 on a protocol-level error (drive busy / error bit).
+ * ---------------------------------------------------------------------- */
+int ide_eject_atapi(uint8_t drive_num)
+{
+    if (drive_num >= IDE_MAX_DRIVES || !drives[drive_num].present)
+        return -1;
+
+    if (drives[drive_num].type != IDE_TYPE_ATAPI)
+        return -2;
+
+    uint8_t ch = drives[drive_num].channel;
+    uint8_t dr = drives[drive_num].drive;
+
+    /* Select drive and set byte-count limit to 0 (no data transfer). */
+    ide_write(ch, ATA_REG_HDDEVSEL,
+              (dr == 0) ? ATA_SEL_MASTER : ATA_SEL_SLAVE);
+    ide_400ns_delay(ch);
+
+    ide_write(ch, ATA_REG_FEATURES, 0x00);
+    ide_write(ch, ATA_REG_LBA1,     0x00);   /* byte-count low  */
+    ide_write(ch, ATA_REG_LBA2,     0x00);   /* byte-count high */
+
+    /* Issue the PACKET command. */
+    ide_write(ch, ATA_REG_COMMAND, ATA_CMD_PACKET);
+    ide_400ns_delay(ch);
+
+    /* Wait for DRQ — drive is ready to receive the 12-byte command packet. */
+    if (ide_poll(ch, 1))
+        return 1;
+
+    /*
+     * START/STOP UNIT packet:
+     *   byte 0  = 0x1B (START STOP UNIT opcode)
+     *   byte 4  = 0x02 (LoEj=1, Start=0 → eject / open tray)
+     *   all other bytes = 0x00
+     */
+    uint8_t pkt[12] = {0};
+    pkt[0] = 0x1Bu;   /* START STOP UNIT opcode */
+    pkt[4] = 0x02u;   /* LoEj=1, Start=0 → open tray */
+
+    for (int i = 0; i < 6; i++) {
+        uint16_t w = (uint16_t)pkt[i * 2]
+                   | ((uint16_t)pkt[i * 2 + 1] << 8);
+        outw(channels[ch].base + ATA_REG_DATA, w);
+    }
+
+    /* Wait for completion (no data phase). */
+    ide_poll(ch, 0);
+
+    return 0;
+}

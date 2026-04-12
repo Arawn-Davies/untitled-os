@@ -65,6 +65,13 @@ void vfs_auto_mount(void);
 void vfs_notify_hd_mounted(void);
 void vfs_notify_hd_unmounted(void);
 
+/*
+ * vfs_notify_cdrom_ejected – called after the ATAPI eject command succeeds.
+ * Clears the internal CD-ROM drive reference so /cdrom is no longer accessible,
+ * and resets the CWD to "/" if it was inside /cdrom.
+ */
+void vfs_notify_cdrom_ejected(void);
+
 /* -------------------------------------------------------------------------
  * Current working directory
  * ---------------------------------------------------------------------- */

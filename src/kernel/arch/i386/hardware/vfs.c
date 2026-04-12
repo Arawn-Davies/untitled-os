@@ -225,6 +225,20 @@ void vfs_notify_hd_unmounted(void)
     }
 }
 
+void vfs_notify_cdrom_ejected(void)
+{
+    /* Mark the CD-ROM as gone so /cdrom paths are no longer served. */
+    s_cdrom_drive = -1;
+
+    /* Reset CWD to "/" if it was somewhere under "/cdrom". */
+    if (s_cwd[1] == 'c' && s_cwd[2] == 'd' && s_cwd[3] == 'r' &&
+        s_cwd[4] == 'o' && s_cwd[5] == 'm' &&
+        (s_cwd[6] == '/' || s_cwd[6] == '\0')) {
+        s_cwd[0] = '/';
+        s_cwd[1] = '\0';
+    }
+}
+
 /* -------------------------------------------------------------------------
  * vfs_set_boot_drive / vfs_auto_mount
  * ---------------------------------------------------------------------- */

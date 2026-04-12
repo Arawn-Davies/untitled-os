@@ -64,4 +64,15 @@ const ide_drive_t *ide_get_drive(uint8_t drive_num);
 int ide_read_atapi_sectors(uint8_t drive_num, uint32_t lba,
                            uint16_t count, void *buf);
 
+/*
+ * ide_eject_atapi – send an ATAPI START/STOP UNIT command that opens the
+ * CD-ROM tray (eject).
+ *
+ * Returns  0 on success.
+ * Returns -1 if drive_num is out of range or not present.
+ * Returns -2 if the drive is not ATAPI.
+ * Returns  1 on a protocol-level error.
+ */
+int ide_eject_atapi(uint8_t drive_num);
+
 #endif /* _KERNEL_IDE_H */

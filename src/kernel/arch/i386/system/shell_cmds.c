@@ -800,3 +800,68 @@ void cmd_vics(int argc, char **argv)
 
     vics_edit(full_path);
 }
+
+/* ---------------------------------------------------------------------------
+ * eject — unmount and eject a storage device.
+ *
+ * Usage:
+ *   eject hdd    — flush and unmount the FAT32 volume mounted at /hd
+ *   eject cdrom  — unmount /cdrom and send the ATAPI eject command so the
+ *                  tray opens (works in QEMU and on real drives with a
+ *                  software-controllable tray)
+ * --------------------------------------------------------------------------- */
+
+void cmd_eject(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: eject hdd|cdrom\n");
+        return;
+    }
+
+    const char *target = argv[1];
+
+    if (strcmp(target, "hdd") == 0) {
+        if (!fat32_mounted()) {
+            t_writestring("eject: no HDD volume is mounted\n");
+            return;
+        }
+        fat32_unmount();
+        vfs_notify_hd_unmounted();
+        t_writestring("HDD volume unmounted.\n");
+        return;
+    }
+
+    if (strcmp(target, "cdrom") == 0) {
+        /* Find the ATAPI drive that was registered by vfs_init(). */
+        int cd_drive = -1;
+        for (int i = 0; i < IDE_MAX_DRIVES; i++) {
+            const ide_drive_t *d = ide_get_drive((uint8_t)i);
+            if (d && d->present && d->type == IDE_TYPE_ATAPI) {
+                cd_drive = i;
+                break;
+            }
+        }
+
+        if (cd_drive < 0) {
+            t_writestring("eject: no CD-ROM drive detected\n");
+            return;
+        }
+
+        /* Deregister /cdrom in the VFS before sending the hardware command. */
+        vfs_notify_cdrom_ejected();
+
+        int err = ide_eject_atapi((uint8_t)cd_drive);
+        if (err) {
+            t_writestring("eject: ATAPI eject command failed (err ");
+            t_dec((uint32_t)err);
+            t_writestring(")\n");
+        } else {
+            t_writestring("CD-ROM ejected.\n");
+        }
+        return;
+    }
+
+    t_writestring("eject: unknown target '");
+    t_writestring(target);
+    t_writestring("' — use 'hdd' or 'cdrom'\n");
+}

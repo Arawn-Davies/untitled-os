@@ -210,6 +210,7 @@ typedef enum {
     /* Installer */
     CMD_INSTALL,
     CMD_VICS,
+    CMD_EJECT,
     CMD_UNKNOWN,
 } shell_cmd_t;
 
@@ -247,6 +248,7 @@ static const cmd_entry_t cmd_table[] = {
     /* Installer */
     { "install",    CMD_INSTALL    },
     { "vics",       CMD_VICS       },
+    { "eject",      CMD_EJECT      },
 };
 
 #define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
@@ -345,6 +347,7 @@ void shell_run(void)
         /* Installer */
         case CMD_INSTALL:    cmd_install();               break;
         case CMD_VICS:       cmd_vics(argc, argv);        break;
+        case CMD_EJECT:      cmd_eject(argc, argv);       break;
         default:
             /* Medli-style error: red text, matching CommandConsole.cs */
             t_setcolor(SHELL_ERROR_COLOR_VGA);
