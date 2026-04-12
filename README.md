@@ -23,7 +23,14 @@ GRUB Multiboot 2.
 - PIT timer (50 Hz) + `ksleep`
 - INT 1 / INT 3 debug handlers (GDB-friendly)
 - PS/2 keyboard driver (IRQ 1, scan-code set 1, ring buffer)
-- Kernel shell (`help`, `clear`, `echo`, `meminfo`, `uptime`, `shutdown`)
+- ATA/IDE PIO driver (28-bit LBA, polling, read + write, 4 drives)
+- MBR partition table — read (`lspart`) + interactive creation (`mkpart mbr`),
+  MDFS type `0xFA` supported
+- GPT partition table — read + interactive creation (`mkpart gpt`) with
+  CRC32-signed headers, auto-generated UUIDs, and known type GUIDs
+  (FAT32 / EFI / Linux / MDFS)
+- Kernel shell (`help`, `clear`, `echo`, `meminfo`, `uptime`, `shutdown`,
+  `lsdisks`, `lspart`, `mkpart`, `readsector`)
 
 ## Documentation
 

@@ -107,9 +107,15 @@ Medli is practical.
   ASCII.
 - [x] **Shell** — minimal interactive command loop over the VGA/VESA terminal,
   matching Medli's command vocabulary.
+- [x] **ATA/IDE driver** — PIO-mode disk access (28-bit LBA, read/write,
+  `lsdisks` and `readsector` shell commands).
+- [x] **MBR partition support** — read and write MBR partition tables; `lspart`
+  and `mkpart mbr` shell commands; MDFS type `0xFA` recognised.
+- [x] **GPT partition support** — protective MBR detection, full GPT header and
+  entry parsing, `mkpart gpt` creation with CRC32-signed headers and
+  auto-generated unique partition GUIDs.
 - [ ] **FAT32 driver** — read/write access to FAT32 volumes; adopt Medli's
   filesystem layout (`Users\`, `Apps\`, `System\` etc.).
-- [ ] **ATA/IDE driver** — PIO-mode disk access to back the FAT32 driver.
 
 ### Medium-term
 

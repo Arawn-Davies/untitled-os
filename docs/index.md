@@ -29,6 +29,8 @@ roadmap.
 | [debug](kernel/debug.md) | INT 1 / INT 3 debug-exception handlers |
 | [multiboot](kernel/multiboot.md) | Multiboot 2 structure definitions |
 | [keyboard](kernel/keyboard.md) | PS/2 keyboard driver (IRQ 1, scan-code set 1, ring buffer) |
+| [ide](kernel/ide.md) | ATA/IDE PIO driver (28-bit LBA read/write) |
+| [partition](kernel/partition.md) | MBR and GPT partition table driver |
 | [shell](kernel/shell.md) | Minimal interactive kernel command shell |
 
 ## Standard library (libc)

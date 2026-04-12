@@ -7,6 +7,7 @@
 
 #include <kernel/ktest.h>
 #include <kernel/acpi.h>
+#include <kernel/partition.h>
 #include <kernel/tty.h>
 #include <string.h>
 
@@ -116,8 +117,49 @@ static void test_string(void)
 }
 
 /* ---------------------------------------------------------------------------
- * Public entry point
+ * Suite: partition helpers
+ *
+ * Tests the pure-logic helpers in partition.c that can run without hardware.
+ * part_type_name() and part_guid_type_name() both look up tables in BSS,
+ * so they work without any disk being present.
  * ------------------------------------------------------------------------- */
+
+static void test_partition(void)
+{
+    ktest_begin("partition");
+
+    /* MBR type name lookup */
+    KTEST_ASSERT(strcmp(part_type_name(PART_MBR_EMPTY),     "Empty")          == 0);
+    KTEST_ASSERT(strcmp(part_type_name(PART_MBR_FAT32_LBA), "FAT32 (LBA)")    == 0);
+    KTEST_ASSERT(strcmp(part_type_name(PART_MBR_FAT32_CHS), "FAT32 (CHS)")    == 0);
+    KTEST_ASSERT(strcmp(part_type_name(PART_MBR_GPT_PROT),  "GPT protective") == 0);
+    KTEST_ASSERT(strcmp(part_type_name(PART_MBR_EFI),       "EFI System")     == 0);
+    KTEST_ASSERT(strcmp(part_type_name(PART_MBR_MDFS),      "MDFS")           == 0);
+    KTEST_ASSERT(strcmp(part_type_name(PART_MBR_LINUX),     "Linux")          == 0);
+    /* Unknown type returns a non-empty string (not NULL). */
+    KTEST_ASSERT(part_type_name(0xAB) != 0);
+
+    /* GPT GUID type name lookup */
+    KTEST_ASSERT(strcmp(part_guid_type_name(PART_GUID_FAT32), "FAT32")      == 0);
+    KTEST_ASSERT(strcmp(part_guid_type_name(PART_GUID_EFI),   "EFI System") == 0);
+    KTEST_ASSERT(strcmp(part_guid_type_name(PART_GUID_LINUX), "Linux Data") == 0);
+    KTEST_ASSERT(strcmp(part_guid_type_name(PART_GUID_MDFS),  "MDFS")       == 0);
+
+    /* All-zero GUID is "Unused". */
+    static const uint8_t zero16[16] = {0};
+    KTEST_ASSERT(strcmp(part_guid_type_name(zero16), "Unused") == 0);
+
+    /* An unrecognised GUID returns a non-NULL string. */
+    static const uint8_t unknown[16] = {
+        0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE,
+        0xBA, 0xBE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01
+    };
+    KTEST_ASSERT(part_guid_type_name(unknown) != 0);
+
+    ktest_summary();
+}
+
+
 
 void ktest_run_all(void)
 {
@@ -129,6 +171,10 @@ void ktest_run_all(void)
     total_fail += ktest_fail_count;
 
     test_string();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_partition();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 
