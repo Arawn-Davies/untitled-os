@@ -299,6 +299,14 @@ static void make_83_name(const char *src, uint8_t *dst)
  * LFN helpers
  * ---------------------------------------------------------------------- */
 
+/* LFN offsets of the 13 UTF-16LE characters within one LFN entry. */
+static const int s_lfn_char_off[13] = { 1,3,5,7,9, 14,16,18,20,22,24, 28,30 };
+
+/* Forward declaration — dir_add_entry is defined after the LFN block. */
+static uint32_t dir_add_entry(uint32_t dir_cluster, const uint8_t *short_name,
+                               uint8_t attr, uint32_t first_cluster,
+                               uint32_t file_size, uint32_t *out_off);
+
 /*
  * Maximum LFN entries per file (FAT32 spec allows 20; 20 × 13 = 260 chars).
  */
@@ -568,9 +576,6 @@ static uint32_t dir_add_with_lfn(uint32_t       dir_cluster,
  * LFN entries are accumulated in s_lfn / s_lfn_valid across iterations.
  * The accumulation is reset at the start of each call.
  * ---------------------------------------------------------------------- */
-
-/* LFN offsets of the 13 UTF-16LE characters within one LFN entry. */
-static const int s_lfn_char_off[13] = { 1,3,5,7,9, 14,16,18,20,22,24, 28,30 };
 
 static int dir_scan(uint32_t dir_cluster, int mode,
                     const char *find_name, dirent_t *out)
