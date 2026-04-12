@@ -15,6 +15,7 @@
 #include <kernel/heap.h>
 #include <kernel/vesa_tty.h>
 #include <kernel/ide.h>
+#include <kernel/partition.h>
 #include <kernel/task.h>
 #include <kernel/acpi.h>
 #include <kernel/ktest.h>
@@ -105,19 +106,20 @@ static int shell_parse(char *line, char **argv, int max_args)
 static void cmd_help(void)
 {
     t_writestring("Commands:\n");
-    t_writestring("  help                   - list commands\n");
-    t_writestring("  clear                  - clear the terminal\n");
-    t_writestring("  echo [args..]          - print arguments\n");
-    t_writestring("  meminfo                - print heap used/free\n");
-    t_writestring("  uptime                 - ticks since boot\n");
-    t_writestring("  tasks                  - list kernel tasks\n");
-    t_writestring("  lsdisks                - list detected ATA drives\n");
-    t_writestring("  lspart <drv>           - list MBR partitions on a drive\n");
-    t_writestring("  readsector <drv> <lba> - hex-dump one sector\n");
-    t_writestring("  setmode <25|50>        - switch between 80x25 and 80x50\n");
-    t_writestring("  shutdown               - power off the system (ACPI S5)\n");
-    t_writestring("  reboot                 - reboot the system (ACPI/KBC)\n");
-    t_writestring("  ktest                  - run in-kernel unit tests\n");
+    t_writestring("  help                         - list commands\n");
+    t_writestring("  clear                        - clear the terminal\n");
+    t_writestring("  echo [args..]                - print arguments\n");
+    t_writestring("  meminfo                      - print heap used/free\n");
+    t_writestring("  uptime                       - ticks since boot\n");
+    t_writestring("  tasks                        - list kernel tasks\n");
+    t_writestring("  lsdisks                      - list detected ATA drives\n");
+    t_writestring("  lspart <drv>                 - list partitions (MBR or GPT)\n");
+    t_writestring("  mkpart <drv> <mbr|gpt>       - create a partition table\n");
+    t_writestring("  readsector <drv> <lba>       - hex-dump one sector\n");
+    t_writestring("  setmode <25|50>              - switch between 80x25 and 80x50\n");
+    t_writestring("  shutdown                     - power off the system (ACPI S5)\n");
+    t_writestring("  reboot                       - reboot the system (ACPI/KBC)\n");
+    t_writestring("  ktest                        - run in-kernel unit tests\n");
 }
 
 static void cmd_clear(void)
@@ -254,39 +256,73 @@ static uint32_t parse_uint(const char *s)
 }
 
 /* ---------------------------------------------------------------------------
- * Partition type descriptions (subset of well-known types).
+ * Shared partition table storage for lspart / mkpart.
+ * Stored as a static so it never lands on the kernel stack.
  * --------------------------------------------------------------------------- */
-static const char *part_type_name(uint8_t type)
+static disk_parts_t s_disk_parts;
+
+/* Print one probed disk_parts_t to the terminal. */
+static void disk_parts_print(const disk_parts_t *dp)
 {
-    switch (type) {
-    case 0x00: return "Empty";
-    case 0x01: return "FAT12";
-    case 0x04: return "FAT16 <32M";
-    case 0x05: return "Extended (CHS)";
-    case 0x06: return "FAT16";
-    case 0x07: return "NTFS/exFAT";
-    case 0x0B: return "FAT32 (CHS)";
-    case 0x0C: return "FAT32 (LBA)";
-    case 0x0E: return "FAT16 (LBA)";
-    case 0x0F: return "Extended (LBA)";
-    case 0x82: return "Linux swap";
-    case 0x83: return "Linux";
-    case 0x8E: return "Linux LVM";
-    case 0xEE: return "GPT protective";
-    case 0xEF: return "EFI System";
-    default:   return "Unknown";
+    static const char hex[] = "0123456789ABCDEF";
+
+    if (dp->scheme == PART_SCHEME_NONE) {
+        t_writestring("No partition table found on this drive.\n");
+        return;
+    }
+
+    t_writestring("Scheme: ");
+    t_writestring(dp->scheme == PART_SCHEME_GPT ? "GPT" : "MBR");
+    t_writestring("  total sectors: ");
+    t_dec(dp->total_sectors);
+    t_writestring("  (");
+    t_dec(dp->total_sectors / 2048);
+    t_writestring(" MiB)\n");
+
+    if (dp->count == 0) {
+        t_writestring("No partitions.\n");
+        return;
+    }
+
+    for (int i = 0; i < dp->count; i++) {
+        const part_info_t *p = &dp->parts[i];
+
+        t_writestring("  [");
+        t_dec((uint32_t)(i + 1));
+        t_writestring("] ");
+
+        if (dp->scheme == PART_SCHEME_MBR) {
+            t_writestring("type=0x");
+            t_putchar(hex[p->mbr_type >> 4]);
+            t_putchar(hex[p->mbr_type & 0xF]);
+            t_writestring(" (");
+            t_writestring(part_type_name(p->mbr_type));
+            t_writestring(")");
+        } else {
+            t_writestring(part_guid_type_name(p->type_guid));
+            if (p->name[0] != '\0') {
+                t_writestring("  \"");
+                t_writestring(p->name);
+                t_putchar('"');
+            }
+        }
+
+        t_writestring("  LBA=");
+        t_dec(p->lba_start);
+        t_writestring("  sectors=");
+        t_dec(p->lba_count);
+        t_writestring("  size=");
+        t_dec(p->lba_count / 2048);
+        t_writestring(" MiB");
+
+        if (dp->scheme == PART_SCHEME_MBR && p->bootable)
+            t_writestring("  [boot]");
+
+        t_putchar('\n');
     }
 }
 
-/* Read a 32-bit little-endian value from a byte buffer at the given offset. */
-static uint32_t read_le32(const uint8_t *buf, int offset)
-{
-    return (uint32_t)buf[offset]
-         | ((uint32_t)buf[offset + 1] << 8)
-         | ((uint32_t)buf[offset + 2] << 16)
-         | ((uint32_t)buf[offset + 3] << 24);
-}
-
+/* lspart <drive> — probe and display partition table (MBR or GPT). */
 static void cmd_lspart(int argc, char **argv)
 {
     if (argc < 2) {
@@ -295,79 +331,207 @@ static void cmd_lspart(int argc, char **argv)
     }
 
     uint8_t drive = (uint8_t)parse_uint(argv[1]);
-    const ide_drive_t *d = ide_get_drive(drive);
-    if (!d || !d->present) {
-        t_writestring("Error: drive not present.\n");
-        return;
-    }
-    if (d->type != IDE_TYPE_ATA) {
-        t_writestring("Error: drive is not ATA.\n");
-        return;
-    }
 
-    /* Read sector 0 (the MBR). */
-    uint8_t mbr[512];
-    int err = ide_read_sectors(drive, 0, 1, mbr);
+    int err = part_probe(drive, &s_disk_parts);
     if (err) {
-        t_writestring("Read error: ");
+        t_writestring("Error reading drive ");
+        t_dec(drive);
+        t_writestring(": ");
         t_dec((uint32_t)err);
         t_putchar('\n');
         return;
     }
 
-    /* Validate MBR signature (bytes 510-511 must be 0x55 0xAA). */
-    if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
-        t_writestring("No valid MBR found (missing 0x55AA signature).\n");
+    disk_parts_print(&s_disk_parts);
+}
+
+/* ---------------------------------------------------------------------------
+ * mkpart helpers
+ * --------------------------------------------------------------------------- */
+
+/* Static entries array for mkpart — avoids putting ~10 KB on the stack. */
+static part_info_t s_mkpart_entries[128];
+
+/* Map a type keyword to an MBR partition type byte.  Returns 0 on failure. */
+static uint8_t mkpart_mbr_type(const char *kw)
+{
+    if (strcmp(kw, "fat32") == 0) return PART_MBR_FAT32_LBA;
+    if (strcmp(kw, "mdfs")  == 0) return PART_MBR_MDFS;
+    if (strcmp(kw, "linux") == 0) return PART_MBR_LINUX;
+    if (strcmp(kw, "efi")   == 0) return PART_MBR_EFI;
+    return 0;
+}
+
+/* Map a type keyword to a GPT type GUID.  Returns 0 on success, -1 on error. */
+static int mkpart_gpt_type(const char *kw, uint8_t *out_guid)
+{
+    if (strcmp(kw, "fat32") == 0) { memcpy(out_guid, PART_GUID_FAT32, 16); return 0; }
+    if (strcmp(kw, "mdfs")  == 0) { memcpy(out_guid, PART_GUID_MDFS,  16); return 0; }
+    if (strcmp(kw, "linux") == 0) { memcpy(out_guid, PART_GUID_LINUX, 16); return 0; }
+    if (strcmp(kw, "efi")   == 0) { memcpy(out_guid, PART_GUID_EFI,   16); return 0; }
+    return -1;
+}
+
+/*
+ * mkpart <drive> <mbr|gpt>
+ *
+ * Interactive partition table creator.  Asks the user for partition count,
+ * type and size; then writes MBR or GPT structure to the chosen drive.
+ *
+ * Supported type keywords: fat32  mdfs  linux  efi
+ * Sizes are entered in MiB; they are converted to 512-byte sectors (*2048).
+ *
+ * MBR layout: first partition starts at LBA 2048 (1 MiB aligned).
+ * GPT layout: first usable LBA is 34; partitions aligned to LBA 2048.
+ */
+static void cmd_mkpart(int argc, char **argv)
+{
+    static char inbuf[64];
+
+    if (argc < 3) {
+        t_writestring("Usage: mkpart <drive> <mbr|gpt>\n");
         return;
     }
 
-    /*
-     * MBR partition table: four 16-byte entries starting at offset 0x1BE.
-     * Layout of each entry:
-     *   [0]    Status (0x80 = bootable)
-     *   [1-3]  CHS start (not used here)
-     *   [4]    Partition type
-     *   [5-7]  CHS end (not used here)
-     *   [8-11] LBA start (little-endian)
-     *   [12-15] Sector count (little-endian)
-     */
-    int found = 0;
-    for (int i = 0; i < 4; i++) {
-        int base = 0x1BE + i * 16;
-        uint8_t  status = mbr[base];
-        uint8_t  type   = mbr[base + 4];
-        uint32_t lba_start = read_le32(mbr, base + 8);
-        uint32_t sectors   = read_le32(mbr, base + 12);
+    uint8_t drive = (uint8_t)parse_uint(argv[1]);
 
-        if (type == 0x00)
-            continue;
-
-        found = 1;
-        t_writestring("  [");
-        t_dec((uint32_t)i + 1);
-        t_writestring("] type=0x");
-        /* Print hex type byte */
-        {
-            static const char hex[] = "0123456789ABCDEF";
-            t_putchar(hex[type >> 4]);
-            t_putchar(hex[type & 0xF]);
-        }
-        t_writestring(" (");
-        t_writestring(part_type_name(type));
-        t_writestring(")  LBA=");
-        t_dec(lba_start);
-        t_writestring("  sectors=");
-        t_dec(sectors);
-        t_writestring("  size=");
-        t_dec(sectors / 2048);
-        t_writestring(" MiB");
-        if (status == 0x80)
-            t_writestring("  [boot]");
-        t_putchar('\n');
+    const ide_drive_t *drv = ide_get_drive(drive);
+    if (!drv || !drv->present) {
+        t_writestring("Error: drive not present.\n");
+        return;
+    }
+    if (drv->type != IDE_TYPE_ATA) {
+        t_writestring("Error: drive is not ATA.\n");
+        return;
     }
 
-    if (!found)
-        t_writestring("No partitions found.\n");
+    int is_gpt = (strcmp(argv[2], "gpt") == 0);
+    int is_mbr = (strcmp(argv[2], "mbr") == 0);
+    if (!is_gpt && !is_mbr) {
+        t_writestring("Error: scheme must be 'mbr' or 'gpt'.\n");
+        return;
+    }
+
+    int max_parts = is_mbr ? 4 : 128;
+
+    /* ---------- ask partition count ---------- */
+    int num_parts = 0;
+    do {
+        t_writestring("Number of partitions (1–");
+        t_dec((uint32_t)max_parts);
+        t_writestring("): ");
+        shell_readline(inbuf, sizeof(inbuf));
+        num_parts = (int)parse_uint(inbuf);
+    } while (num_parts < 1 || num_parts > max_parts);
+
+    /*
+     * Available space for partitions.
+     * MBR: first partition at LBA 2048, last usable = disk_sectors − 1.
+     * GPT: first partition at LBA 2048 (first usable is 34, we align to 2048),
+     *      last usable LBA = disk_sectors − 34.
+     */
+    uint32_t disk_sectors = drv->size;
+    uint32_t next_lba     = 2048u;
+    uint32_t last_lba     = is_gpt ? disk_sectors - 34u : disk_sectors - 1u;
+
+    memset(s_mkpart_entries, 0, sizeof(s_mkpart_entries));
+
+    for (int i = 0; i < num_parts; i++) {
+        t_writestring("\nPartition ");
+        t_dec((uint32_t)(i + 1));
+        t_writestring(":\n");
+
+        /* ---------- type ---------- */
+        uint8_t  mbr_type = 0;
+        uint8_t  gpt_guid[16];
+        memset(gpt_guid, 0, 16);
+
+        while (1) {
+            t_writestring("  Type [fat32/mdfs/linux");
+            if (is_gpt) t_writestring("/efi");
+            t_writestring("]: ");
+            shell_readline(inbuf, sizeof(inbuf));
+
+            if (is_mbr) {
+                mbr_type = mkpart_mbr_type(inbuf);
+                if (mbr_type != 0) break;
+            } else {
+                if (mkpart_gpt_type(inbuf, gpt_guid) == 0) break;
+            }
+            t_writestring("  Unknown type — try again.\n");
+        }
+
+        /* ---------- size ---------- */
+        uint32_t avail_mib = (last_lba - next_lba + 1u) / 2048u;
+        /* Leave room for at least 1 MiB per remaining partition. */
+        if (avail_mib > (uint32_t)(num_parts - i))
+            avail_mib -= (uint32_t)(num_parts - i - 1);
+
+        uint32_t size_mib = 0;
+        while (size_mib < 1 || size_mib > avail_mib) {
+            t_writestring("  Size in MiB (1–");
+            t_dec(avail_mib);
+            t_writestring("): ");
+            shell_readline(inbuf, sizeof(inbuf));
+            size_mib = parse_uint(inbuf);
+        }
+
+        uint32_t lba_count = size_mib * 2048u;
+
+        /* ---------- optional name (GPT only) ---------- */
+        if (is_gpt) {
+            t_writestring("  Partition name (Enter for none): ");
+            shell_readline(inbuf, sizeof(inbuf));
+        }
+
+        /* ---------- fill in descriptor ---------- */
+        part_info_t *p = &s_mkpart_entries[i];
+        p->scheme    = is_gpt ? PART_SCHEME_GPT : PART_SCHEME_MBR;
+        p->mbr_type  = mbr_type;
+        p->bootable  = 0;
+        p->lba_start = next_lba;
+        p->lba_count = lba_count;
+        if (is_gpt) {
+            memcpy(p->type_guid, gpt_guid, 16);
+            /* part_guid left as zero; part_write_gpt() will generate one. */
+            /* Copy at most 36 characters of the partition name. */
+            for (int k = 0; k < 36 && inbuf[k] != '\0'; k++)
+                p->name[k] = inbuf[k];
+            p->name[36] = '\0';
+        }
+
+        next_lba += lba_count;
+        /* Align the start of the next partition to a 2048-sector boundary. */
+        if (next_lba % 2048u)
+            next_lba = (next_lba / 2048u + 1u) * 2048u;
+    }
+
+    /* ---------- write ---------- */
+    t_writestring("\nWriting ");
+    t_writestring(is_gpt ? "GPT" : "MBR");
+    t_writestring(" to drive ");
+    t_dec(drive);
+    t_writestring("...\n");
+
+    int err;
+    if (is_mbr)
+        err = part_write_mbr(drive, s_mkpart_entries, num_parts);
+    else
+        err = part_write_gpt(drive, s_mkpart_entries, num_parts);
+
+    if (err) {
+        t_writestring("Error writing partition table: ");
+        t_dec((uint32_t)err);
+        t_putchar('\n');
+        return;
+    }
+
+    t_writestring("Done.\n\n");
+
+    /* Verify by re-reading and displaying the result. */
+    err = part_probe(drive, &s_disk_parts);
+    if (err == 0)
+        disk_parts_print(&s_disk_parts);
 }
 
 static uint8_t sector_buf[512];
@@ -461,6 +625,7 @@ typedef enum {
     CMD_TASKS,
     CMD_LSDISKS,
     CMD_LSPART,
+    CMD_MKPART,
     CMD_READSECTOR,
     CMD_SETMODE,
     CMD_SHUTDOWN,
@@ -483,6 +648,7 @@ static const cmd_entry_t cmd_table[] = {
     { "tasks",      CMD_TASKS      },
     { "lsdisks",    CMD_LSDISKS    },
     { "lspart",     CMD_LSPART     },
+    { "mkpart",     CMD_MKPART     },
     { "readsector", CMD_READSECTOR },
     { "setmode",    CMD_SETMODE    },
     { "shutdown",   CMD_SHUTDOWN   },
@@ -528,6 +694,7 @@ void shell_run(void)
         case CMD_TASKS:      cmd_tasks();               break;
         case CMD_LSDISKS:    cmd_lsdisks();             break;
         case CMD_LSPART:     cmd_lspart(argc, argv);   break;
+        case CMD_MKPART:     cmd_mkpart(argc, argv);   break;
         case CMD_READSECTOR: cmd_readsector(argc, argv); break;
         case CMD_SETMODE:    cmd_setmode(argc, argv);  break;
         case CMD_SHUTDOWN:   cmd_shutdown();            break;
