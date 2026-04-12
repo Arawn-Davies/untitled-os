@@ -526,14 +526,11 @@ static uint32_t dir_add_entry(uint32_t        dir_cluster,
                               uint32_t        file_size,
                               uint32_t       *out_off)
 {
-    uint32_t last_cluster = dir_cluster;
-
     for (uint32_t cluster = dir_cluster;
          cluster >= 2u && cluster < FAT32_BAD;
          )
     {
-        last_cluster    = cluster;
-        uint32_t lba    = clus_to_lba(cluster);
+        uint32_t lba = clus_to_lba(cluster);
 
         for (uint8_t s = 0; s < vol.spc; s++) {
             uint32_t sect = lba + s;
@@ -591,7 +588,6 @@ static uint32_t dir_add_entry(uint32_t        dir_cluster,
         cluster = next;
     }
 
-    (void)last_cluster;
     return 0;
 }
 

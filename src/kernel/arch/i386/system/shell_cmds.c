@@ -520,7 +520,7 @@ void cmd_reboot(void)
  * --------------------------------------------------------------------------- */
 
 /* Shared static partition table used by mount/mkfs (avoids stack pressure). */
-static disk_parts_t s_fat_parts;
+static disk_parts_t s_cmd_parts;
 
 /*
  * mount <drive> <part>
@@ -538,13 +538,13 @@ void cmd_mount(int argc, char **argv)
     uint8_t drive    = (uint8_t)parse_uint(argv[1]);
     int     part_idx = (int)parse_uint(argv[2]);
 
-    int err = part_probe(drive, &s_fat_parts);
+    int err = part_probe(drive, &s_cmd_parts);
     if (err) {
         t_writestring("mount: drive not accessible\n");
         return;
     }
 
-    if (part_idx < 0 || part_idx >= s_fat_parts.count) {
+    if (part_idx < 0 || part_idx >= s_cmd_parts.count) {
         t_writestring("mount: invalid partition index\n");
         t_writestring("       (use lspart ");
         t_dec(drive);
@@ -552,7 +552,7 @@ void cmd_mount(int argc, char **argv)
         return;
     }
 
-    uint32_t lba = s_fat_parts.parts[part_idx].lba_start;
+    uint32_t lba = s_cmd_parts.parts[part_idx].lba_start;
 
     err = fat32_mount(drive, lba);
     if (err) {
@@ -711,19 +711,19 @@ void cmd_mkfs(int argc, char **argv)
     uint8_t drive    = (uint8_t)parse_uint(argv[1]);
     int     part_idx = (int)parse_uint(argv[2]);
 
-    int err = part_probe(drive, &s_fat_parts);
+    int err = part_probe(drive, &s_cmd_parts);
     if (err) {
         t_writestring("mkfs: drive not accessible\n");
         return;
     }
 
-    if (part_idx < 0 || part_idx >= s_fat_parts.count) {
+    if (part_idx < 0 || part_idx >= s_cmd_parts.count) {
         t_writestring("mkfs: invalid partition index\n");
         return;
     }
 
-    uint32_t lba     = s_fat_parts.parts[part_idx].lba_start;
-    uint32_t sectors = s_fat_parts.parts[part_idx].lba_count;
+    uint32_t lba     = s_cmd_parts.parts[part_idx].lba_start;
+    uint32_t sectors = s_cmd_parts.parts[part_idx].lba_count;
 
     t_writestring("Formatting drive ");
     t_dec(drive);
