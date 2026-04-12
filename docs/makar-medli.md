@@ -114,8 +114,9 @@ Medli is practical.
 - [x] **GPT partition support** — protective MBR detection, full GPT header and
   entry parsing, `mkpart gpt` creation with CRC32-signed headers and
   auto-generated unique partition GUIDs.
-- [ ] **FAT32 driver** — read/write access to FAT32 volumes; adopt Medli's
-  filesystem layout (`Users\`, `Apps\`, `System\` etc.).
+- [x] **FAT32 driver** — read/write access to FAT32 volumes; `mount`, `umount`,
+  `ls`, `cat`, `cd`, `mkdir`, `mkfs` shell commands; adopts Medli's filesystem
+  layout (`Users\`, `Apps\`, `System\` etc.).
 
 ### Medium-term
 
