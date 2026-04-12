@@ -300,6 +300,8 @@ void shell_run(void)
 
     /* Initialise the VFS: probe for CD-ROM, set CWD to "/". */
     vfs_init();
+    /* Auto-mount the appropriate filesystem based on the boot device. */
+    vfs_auto_mount();
 
     while (1) {
         shell_print_prompt();

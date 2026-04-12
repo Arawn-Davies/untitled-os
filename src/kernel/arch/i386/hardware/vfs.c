@@ -19,6 +19,7 @@
 #include <kernel/fat32.h>
 #include <kernel/iso9660.h>
 #include <kernel/ide.h>
+#include <kernel/partition.h>
 #include <kernel/tty.h>
 #include <kernel/heap.h>
 #include <string.h>
@@ -30,6 +31,7 @@
 
 static char s_cwd[VFS_PATH_MAX];   /* current working directory  */
 static int  s_cdrom_drive = -1;    /* IDE drive index of CD-ROM, -1 = none */
+static uint32_t s_boot_biosdev = 0xFFu; /* BIOS drive we booted from (0xFF = unknown) */
 
 /* -------------------------------------------------------------------------
  * Filesystem identifiers returned by vfs_route()
@@ -220,6 +222,100 @@ void vfs_notify_hd_unmounted(void)
         (s_cwd[3] == '/' || s_cwd[3] == '\0')) {
         s_cwd[0] = '/';
         s_cwd[1] = '\0';
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * vfs_set_boot_drive / vfs_auto_mount
+ * ---------------------------------------------------------------------- */
+
+void vfs_set_boot_drive(uint32_t biosdev)
+{
+    s_boot_biosdev = biosdev;
+}
+
+/* Static partition table used by vfs_auto_mount (avoids large stack alloc). */
+static disk_parts_t s_auto_parts;
+
+/*
+ * try_mount_hdd – probe 'drive' for a FAT32 partition and mount the first one.
+ * Returns 1 on success, 0 on failure.
+ */
+static int try_mount_hdd(uint8_t drive)
+{
+    const ide_drive_t *d = ide_get_drive(drive);
+    if (!d || !d->present || d->type != IDE_TYPE_ATA)
+        return 0;
+
+    if (part_probe(drive, &s_auto_parts) != 0)
+        return 0;
+
+    for (int i = 0; i < s_auto_parts.count; i++) {
+        const part_info_t *p = &s_auto_parts.parts[i];
+        int is_fat32 = 0;
+
+        if (s_auto_parts.scheme == PART_SCHEME_MBR) {
+            is_fat32 = (p->mbr_type == PART_MBR_FAT32_CHS ||
+                        p->mbr_type == PART_MBR_FAT32_LBA);
+        } else if (s_auto_parts.scheme == PART_SCHEME_GPT) {
+            is_fat32 = (memcmp(p->type_guid, PART_GUID_FAT32, 16) == 0);
+        }
+
+        if (!is_fat32)
+            continue;
+
+        if (fat32_mount(drive, p->lba_start) == 0) {
+            vfs_notify_hd_mounted();
+            t_writestring("Auto-mounted FAT32 (drive ");
+            t_dec(drive);
+            t_writestring(", partition ");
+            t_dec((uint32_t)(i + 1));
+            t_writestring(") at /hd\n");
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void vfs_auto_mount(void)
+{
+    /*
+     * BIOS drive number ranges:
+     *   0x00–0x7F : floppy (not supported)
+     *   0x80–0xDF : hard disk  (0x80 = first HDD, 0x81 = second, …)
+     *   0xE0–0xFF : CD-ROM / ATAPI
+     */
+    if (s_boot_biosdev >= 0x80u && s_boot_biosdev <= 0xDFu) {
+        /* Booted from HDD: mount the FAT32 partition on that drive. */
+        uint8_t drive = (uint8_t)(s_boot_biosdev - 0x80u);
+        if (!try_mount_hdd(drive)) {
+            t_writestring("Warning: boot HDD (drive ");
+            t_dec(drive);
+            t_writestring(") has no mountable FAT32 partition.\n");
+        }
+    } else if (s_boot_biosdev >= 0xE0u) {
+        /* Booted from CD-ROM: ISO9660 already registered by vfs_init(). */
+        if (s_cdrom_drive >= 0) {
+            memcpy(s_cwd, "/cdrom", 7);   /* 7 includes the NUL terminator */
+            t_writestring("Boot device: CD-ROM. Filesystem accessible at /cdrom\n");
+        } else {
+            t_writestring("Warning: booted from CD but no ISO9660 volume found.\n");
+        }
+    } else {
+        /*
+         * Boot device unknown (tag absent or unrecognised BIOS number).
+         * Heuristic: try each ATA drive in order; mount the first FAT32
+         * partition found.  If nothing mounts, fall back to /cdrom if
+         * a CD-ROM is present.
+         */
+        int mounted = 0;
+        for (int i = 0; i < IDE_MAX_DRIVES && !mounted; i++) {
+            mounted = try_mount_hdd((uint8_t)i);
+        }
+        if (!mounted && s_cdrom_drive >= 0) {
+            memcpy(s_cwd, "/cdrom", 7);
+            t_writestring("Boot device: CD-ROM (fallback). Filesystem at /cdrom\n");
+        }
     }
 }
 

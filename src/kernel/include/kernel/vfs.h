@@ -29,6 +29,29 @@
  */
 void vfs_init(void);
 
+/*
+ * vfs_set_boot_drive – record the BIOS drive number GRUB booted from.
+ *
+ * Must be called (once) before vfs_auto_mount().  The value comes from the
+ * Multiboot 2 boot device tag (tag type 5).  Pass 0xFF if the tag is absent.
+ *
+ * BIOS numbering: 0x00–0x7F floppy, 0x80–0xDF HDD, 0xE0–0xFF CD-ROM.
+ */
+void vfs_set_boot_drive(uint32_t biosdev);
+
+/*
+ * vfs_auto_mount – automatically mount the appropriate filesystem.
+ *
+ * Must be called after both vfs_init() and ide_init().
+ *
+ * - BIOS HDD (0x80–0xDF): mounts the first FAT32 partition found on the
+ *   corresponding ATA drive as /hd and navigates there.
+ * - BIOS CD-ROM (0xE0–0xFF): the ISO9660 drive is already accessible at
+ *   /cdrom (registered by vfs_init); navigates CWD there.
+ * - Unknown (0xFF): tries HDD drives first, then falls back silently.
+ */
+void vfs_auto_mount(void);
+
 /* -------------------------------------------------------------------------
  * State notifications (called by mount/umount commands)
  * ---------------------------------------------------------------------- */

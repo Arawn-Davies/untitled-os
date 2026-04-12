@@ -16,6 +16,7 @@
 #include <kernel/paging.h>
 #include <kernel/keyboard.h>
 #include <kernel/ide.h>
+#include <kernel/vfs.h>
 #include <kernel/shell.h>
 #include <kernel/task.h>
 #include <kernel/syscall.h>
@@ -116,6 +117,32 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	kprint_ok();
 	ide_init();
 	KLOG("ide: ATA PIO scan complete\n");
+
+	/* Parse the Multiboot 2 boot device tag and inform the VFS layer so
+	 * that vfs_auto_mount() can mount the right filesystem automatically. */
+	{
+		uint32_t biosdev = 0xFFu;   /* 0xFF = unknown */
+
+		if (magic == MULTIBOOT2_BOOTLOADER_MAGIC) {
+			uint8_t *tag_ptr = (uint8_t *)mbi + sizeof(multiboot2_info_t);
+			uint8_t *info_end = (uint8_t *)mbi + mbi->total_size;
+
+			while (tag_ptr < info_end) {
+				multiboot2_tag_t *tag = (multiboot2_tag_t *)tag_ptr;
+				if (tag->type == MULTIBOOT2_TAG_TYPE_END)
+					break;
+				if (tag->type == MULTIBOOT2_TAG_TYPE_BOOTDEV) {
+					multiboot2_tag_bootdev_t *bd =
+						(multiboot2_tag_bootdev_t *)tag;
+					biosdev = bd->biosdev;
+					break;
+				}
+				tag_ptr += (tag->size + 7u) & ~7u;
+			}
+		}
+
+		vfs_set_boot_drive(biosdev);
+	}
 
 	t_writestring("\nAll subsystems ready.\n\n");
 
