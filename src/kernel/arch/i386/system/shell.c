@@ -209,11 +209,11 @@ void shell_run(void)
      */
 
 
-t_writestring("___  ___      _              		");
-t_writestring("|  \/  |     | |             	   //\\");
-t_writestring("| .  . | __ _| | ____ _ _ __ 	  //__\\");
-t_writestring("| |\/| |/ _` | |/ / _` | '__|	 //\++/\\");
-t_writestring("| |  | | (_| |   < (_| | |   	//__\/__\\");
+t_writestring("___  ___      _              		\n");
+t_writestring("|  \/  |     | |             	   //\\\n");
+t_writestring("| .  . | __ _| | ____ _ _ __ 	  //__\\\n");
+t_writestring("| |\/| |/ _` | |/ / _` | '__|	 //\++/\\\n");
+t_writestring("| |  | | (_| |   < (_| | |   	//__\/__\\\n");
 t_writestring("\_|  |_/\__,_|_|\_\__,_|_|   	~~~~~~~~~~\n");
                              
                              
