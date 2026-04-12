@@ -53,34 +53,34 @@ int is_registered(uint8_t n)
 }
 
 // This gets called from our ASM interrupt handler stub.
-void isr_handler(registers_t regs)
+void isr_handler(registers_t *regs)
 {
-	if(interrupt_handlers[regs.int_no] != 0)
+	if(interrupt_handlers[regs->int_no] != 0)
 	{
-		isr_t handler = interrupt_handlers[regs.int_no];
+		isr_t handler = interrupt_handlers[regs->int_no];
 		handler(regs);
 	}
 	else
 	{
 		t_writestring("Unhandled Interrupt: ");
-		t_dec(regs.int_no);
+		t_dec(regs->int_no);
 		t_putchar('\n');
 		PANIC("Unhandled Interrupt");
 	}
 }
 
 // This gets called from our ASM interrupt handler stub.
-void irq_handler(registers_t regs)
+void irq_handler(registers_t *regs)
 {
-	if(interrupt_handlers[regs.int_no] != 0)
+	if(interrupt_handlers[regs->int_no] != 0)
 	{
-		isr_t handler = interrupt_handlers[regs.int_no];
+		isr_t handler = interrupt_handlers[regs->int_no];
 		handler(regs);
 	}
 
 	// Send an EOI (end of interrupt) signal to the PICS.
 	// If this interrupt involved the slave
-	if (regs.int_no >= 40)
+	if (regs->int_no >= 40)
 	{
 		// Send reset signal to slave.
 		outb(0xA0, 0x20);

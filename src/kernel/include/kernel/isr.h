@@ -30,8 +30,11 @@ typedef struct registers
 
 // Enables registration of callbacks for interrupts or IRQs.
 // For IRQs, to ease confusion, use the #defines above as the
-// first parameter
-typedef void (*isr_t)(registers_t);
+// first parameter.
+//
+// Handlers receive a pointer to the interrupt frame so they can modify
+// registers (e.g. set EAX as a syscall return value) before iret.
+typedef void (*isr_t)(registers_t *);
 void register_interrupt_handler(uint8_t n, isr_t handler);
 void unregister_interrupt_handler(uint8_t n);
 int is_registered(uint8_t n);

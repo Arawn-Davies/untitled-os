@@ -68,6 +68,16 @@ bool vesa_tty_is_ready(void)
 	return tty_ready;
 }
 
+uint32_t vesa_tty_get_row(void)
+{
+	return tty_row;
+}
+
+uint32_t vesa_tty_get_cols(void)
+{
+	return tty_cols;
+}
+
 void vesa_tty_setcolor(uint32_t fg_rgb, uint32_t bg_rgb)
 {
 	tty_fg = compose_colour(

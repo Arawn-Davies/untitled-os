@@ -19,129 +19,118 @@
 #include <kernel/shell.h>
 #include <kernel/task.h>
 #include <kernel/syscall.h>
+#include <kernel/acpi.h>
 
 /*
- * Column at which " [ OK ]" is printed.  Labels shorter than this are padded
- * with spaces so the brackets are tab-aligned on every boot line.
+ * Column at which "[ OK ]" starts, counting from 0.
+ * "[ OK ]" is 6 characters wide, so it occupies columns 74–79 on an
+ * 80-column VGA display, flush with the right edge.
  */
-#define BOOT_OK_COL 55
+#define BOOT_OK_COL (VGA_WIDTH - 6)
 
 /*
- * kprint_ok – finish a boot-step line with dot padding and a green "[ OK ]".
+ * kprint_ok – stamp a green "[ OK ]" at the right edge of the current line.
  *
- * Call AFTER writing the step label (without a newline) and AFTER the
- * corresponding init function returns.
+ * Call immediately after t_writestring() for the step label and BEFORE the
+ * corresponding init function.  This ensures the badge is always on the same
+ * row as the step text regardless of any output the init function produces.
  *
- * label   – the same string that was just printed; used to measure its length
- *           so the dots can be padded to BOOT_OK_COL.
+ * The badge is written directly into the VGA buffer (and VESA framebuffer if
+ * active) at (t_row, BOOT_OK_COL) without moving the cursor, then a newline
+ * is emitted so subsequent init output begins on a fresh line.
  */
-static void kprint_ok(const char *label)
+static void kprint_ok(void)
 {
-	/* Measure label length without relying on a libc strlen prototype. */
-	size_t len = 0;
-	while (label[len])
-		len++;
+	static const char ok[] = "[ OK ]";
+	uint8_t green = make_color(COLOR_LIGHT_GREEN, COLOR_BLACK);
 
-	/* Pad with spaces to reach BOOT_OK_COL (skip if label overruns). */
-	for (size_t i = len; i < BOOT_OK_COL; i++)
-		t_putchar(' ');
+	/* Write directly into the VGA buffer at the fixed column on this row. */
+	for (size_t i = 0; i < 6; i++)
+		t_putentryat(ok[i], green, BOOT_OK_COL + i, t_row);
 
-	/* Switch to bright green on both VGA and VESA (if active). */
-	t_setcolor(make_color(COLOR_LIGHT_GREEN, COLOR_BLACK));
-	if (vesa_tty_is_ready())
+	/* Mirror to the VESA framebuffer if it is active. */
+	if (vesa_tty_is_ready()) {
+		uint32_t vcol = vesa_tty_get_cols() - 6;
 		vesa_tty_setcolor(0x00FF00, 0x000000);
-
-	t_writestring(" [ OK ]");
-
-	/* Restore white-on-black. */
-	t_setcolor(make_color(COLOR_WHITE, COLOR_BLACK));
-	if (vesa_tty_is_ready())
+		for (uint32_t i = 0; i < 6; i++)
+			vesa_tty_put_at(ok[i], vcol + i, vesa_tty_get_row());
 		vesa_tty_setcolor(0xFFFFFF, 0x000000);
+	}
 
+	/* Advance the cursor so init output starts on the next line. */
 	t_putchar('\n');
 }
 
 void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 {
-	const char *step;
-
 	terminal_initialize();
 	t_writestring("Makar kernel starting...\n");
 
-	step = "Initializing serial COM1";
-	t_writestring(step);
+	t_writestring("Initializing serial COM1");
+	kprint_ok();
 	init_serial(COM1);
 	KLOG("serial: COM1 ready\n");
-	kprint_ok(step);
 
-	step = "Loading descriptor tables";
-	t_writestring(step);
+	t_writestring("Loading descriptor tables");
+	kprint_ok();
 	init_descriptor_tables();
 	KLOG("gdt/idt: descriptor tables loaded\n");
-	kprint_ok(step);
 
-	step = "Installing exception handlers";
-	t_writestring(step);
+	t_writestring("Installing exception handlers");
+	kprint_ok();
 	init_debug_handlers();
 	KLOG("debug: exception handlers registered\n");
-	kprint_ok(step);
 
-	step = "Initializing physical memory";
-	t_writestring(step);
+	t_writestring("Initializing physical memory");
+	kprint_ok();
 	pmm_init(magic, mbi);
-	kprint_ok(step);
 
-	step = "Enabling paging";
-	t_writestring(step);
+	t_writestring("Enabling paging (256 MiB, 4 MiB large pages)");
+	kprint_ok();
 	paging_init();
 	KLOG("paging: init complete\n");
-	kprint_ok(step);
 
-	step = "Initializing heap";
-	t_writestring(step);
+	t_writestring("Initializing heap");
+	kprint_ok();
 	heap_init();
-	kprint_ok(step);
 
-	step = "Initializing VESA framebuffer";
-	t_writestring(step);
+	t_writestring("Initializing VESA framebuffer");
+	kprint_ok();
 	vesa_init(mbi);
-	kprint_ok(step);
 
-	step = "Initializing VESA terminal";
-	t_writestring(step);
+	t_writestring("Initializing VESA terminal");
+	kprint_ok();
 	vesa_tty_init();
-	kprint_ok(step);
 
-	step = "Starting timer (50 Hz)";
-	t_writestring(step);
+	t_writestring("Starting timer (50 Hz)");
+	kprint_ok();
 	init_timer(50);
 	KLOG("timer: 50 Hz PIT started\n");
-	kprint_ok(step);
 
-	step = "Registering PS/2 keyboard";
-	t_writestring(step);
+	t_writestring("Registering PS/2 keyboard");
+	kprint_ok();
 	keyboard_init();
 	KLOG("keyboard: PS/2 IRQ1 handler registered\n");
-	kprint_ok(step);
 
-	step = "Initializing IDE controller";
-	t_writestring(step);
+	t_writestring("Initializing IDE controller");
+	kprint_ok();
 	ide_init();
 	KLOG("ide: ATA PIO scan complete\n");
-	kprint_ok(step);
 
 	t_writestring("\nAll subsystems ready.\n\n");
 
-	step = "Initializing multitasking";
-	t_writestring(step);
+	t_writestring("Initializing multitasking");
+	kprint_ok();
 	tasking_init();
 	task_create("shell", shell_run);
-	kprint_ok(step);
 
-	step = "Initializing syscalls (int 0x80)";
-	t_writestring(step);
+	t_writestring("Initializing syscalls (int 0x80)");
+	kprint_ok();
 	syscall_init();
-	kprint_ok(step);
+
+	t_writestring("Initializing ACPI");
+	kprint_ok();
+	acpi_init();
 
 	/*
 	 * Transfer control to the scheduler.  The shell task starts running and

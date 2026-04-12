@@ -1,19 +1,39 @@
 # timer — PIT timer driver and `ksleep`
 
 **Header:** `kernel/include/kernel/timer.h`  
-**Source:** `kernel/arch/i386/timer.c`
+**Source:** `kernel/arch/i386/hardware/timer.c`
 
 Programs the Intel 8253/8254 Programmable Interval Timer (PIT) channel 0 to
 fire IRQ 0 at a configurable frequency, and provides a busy-wait sleep
 function built on the resulting tick counter.
 
+**OSDev reference:** [Programmable Interval Timer (PIT)](https://wiki.osdev.org/PIT)
+
+---
+
+## PIT I/O ports
+
+| Port | Direction | Description |
+|---|---|---|
+| `0x40` | R/W | Channel 0 data — divisor (lo byte then hi byte). |
+| `0x41` | R/W | Channel 1 data (unused; historically DRAM refresh). |
+| `0x42` | R/W | Channel 2 data (unused; drives PC speaker). |
+| `0x43` | Write | Mode/Command register. |
+
 ---
 
 ## How it works
 
-The PIT's input clock runs at **1 193 180 Hz**.  To achieve a desired
-frequency `f`, a 16-bit divisor `1193180 / f` is written to PIT channel 0
-(I/O port `0x40`).  The PIT then fires IRQ 0 every `divisor` clock cycles.
+The PIT's input clock runs at **1 193 180 Hz** (derived from the original
+IBM PC 14.318 MHz crystal divided by 12).  To achieve a desired frequency `f`,
+a 16-bit divisor `1193180 / f` is written to PIT channel 0 (port `0x40`).
+The PIT then fires IRQ 0 every `divisor` clock cycles.
+
+The command byte `0x36` written to port `0x43` selects:
+- Channel 0 (bits 7–6 = `00`)
+- Lo-byte then hi-byte access (bits 5–4 = `11`)
+- Mode 3: square-wave generator (bits 3–1 = `011`)
+- Binary counting (bit 0 = `0`)
 
 At boot Makar calls `init_timer(50)`, giving a tick rate of **50 Hz** (one
 tick every 20 ms).
@@ -35,14 +55,15 @@ Configure PIT channel 0 to interrupt at `frequency` Hz and enable CPU
 interrupts.
 
 1. Registers `timer_callback` on `IRQ0`.
-2. Computes the divisor and writes it to port `0x43` (command) then `0x40`
-   (lo byte, hi byte).
-3. Calls `enable_interrupts()` — this is the point at which hardware interrupts
+2. Computes the 16-bit divisor (`1193180 / frequency`).
+3. Writes command byte `0x36` to port `0x43`.
+4. Writes the divisor to port `0x40` (lo byte first, then hi byte).
+5. Calls `enable_interrupts()` — this is the point at which hardware interrupts
    first become active in the boot sequence.
 
 | Parameter | Description |
 |---|---|
-| `frequency` | Desired interrupt rate in Hz. Must divide evenly into 1 193 180 or the rate will be approximate. |
+| `frequency` | Desired interrupt rate in Hz. Must divide evenly into 1 193 180 or the rate will be approximate. Maximum is 1 193 180 Hz (divisor = 1); minimum is ~18 Hz (divisor = 65535). |
 
 ### `timer_get_ticks`
 

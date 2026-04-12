@@ -16,6 +16,8 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/ide.h>
 #include <kernel/task.h>
+#include <kernel/acpi.h>
+#include <kernel/ktest.h>
 
 #include <string.h>
 #include <stddef.h>
@@ -113,7 +115,9 @@ static void cmd_help(void)
     t_writestring("  lspart <drv>           - list MBR partitions on a drive\n");
     t_writestring("  readsector <drv> <lba> - hex-dump one sector\n");
     t_writestring("  setmode <25|50>        - switch between 80x25 and 80x50\n");
-    t_writestring("  shutdown               - halt the system\n");
+    t_writestring("  shutdown               - power off the system (ACPI S5)\n");
+    t_writestring("  reboot                 - reboot the system (ACPI/KBC)\n");
+    t_writestring("  ktest                  - run in-kernel unit tests\n");
 }
 
 static void cmd_clear(void)
@@ -433,10 +437,68 @@ static void cmd_setmode(int argc, char **argv)
 
 static void cmd_shutdown(void)
 {
-    t_writestring("System halted. It is now safe to turn off your computer.\n");
-    asm volatile ("cli");
-    for (;;)
-        asm volatile ("hlt");
+    acpi_shutdown(); /* never returns */
+}
+
+static void cmd_reboot(void)
+{
+    acpi_reboot(); /* never returns */
+}
+
+/* ---------------------------------------------------------------------------
+ * Command dispatch – enum + lookup table + switch/case/default.
+ *
+ * To add a new command: add a CMD_FOO entry to the enum, add a row to
+ * cmd_table[], add a case in shell_run().
+ * --------------------------------------------------------------------------- */
+
+typedef enum {
+    CMD_HELP,
+    CMD_CLEAR,
+    CMD_ECHO,
+    CMD_MEMINFO,
+    CMD_UPTIME,
+    CMD_TASKS,
+    CMD_LSDISKS,
+    CMD_LSPART,
+    CMD_READSECTOR,
+    CMD_SETMODE,
+    CMD_SHUTDOWN,
+    CMD_REBOOT,
+    CMD_KTEST,
+    CMD_UNKNOWN,
+} shell_cmd_t;
+
+typedef struct {
+    const char *name;
+    shell_cmd_t id;
+} cmd_entry_t;
+
+static const cmd_entry_t cmd_table[] = {
+    { "help",       CMD_HELP       },
+    { "clear",      CMD_CLEAR      },
+    { "echo",       CMD_ECHO       },
+    { "meminfo",    CMD_MEMINFO    },
+    { "uptime",     CMD_UPTIME     },
+    { "tasks",      CMD_TASKS      },
+    { "lsdisks",    CMD_LSDISKS    },
+    { "lspart",     CMD_LSPART     },
+    { "readsector", CMD_READSECTOR },
+    { "setmode",    CMD_SETMODE    },
+    { "shutdown",   CMD_SHUTDOWN   },
+    { "reboot",     CMD_REBOOT     },
+    { "ktest",      CMD_KTEST      },
+};
+
+#define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
+
+static shell_cmd_t shell_lookup(const char *name)
+{
+    for (int i = 0; i < CMD_TABLE_SIZE; i++) {
+        if (strcmp(cmd_table[i].name, name) == 0)
+            return cmd_table[i].id;
+    }
+    return CMD_UNKNOWN;
 }
 
 /* ---------------------------------------------------------------------------
@@ -457,32 +519,25 @@ void shell_run(void)
         if (argc == 0)
             continue;
 
-        if (strcmp(argv[0], "help") == 0) {
-            cmd_help();
-        } else if (strcmp(argv[0], "clear") == 0) {
-            cmd_clear();
-        } else if (strcmp(argv[0], "echo") == 0) {
-            cmd_echo(argc, argv);
-        } else if (strcmp(argv[0], "meminfo") == 0) {
-            cmd_meminfo();
-        } else if (strcmp(argv[0], "uptime") == 0) {
-            cmd_uptime();
-        } else if (strcmp(argv[0], "tasks") == 0) {
-            cmd_tasks();
-        } else if (strcmp(argv[0], "lsdisks") == 0) {
-            cmd_lsdisks();
-        } else if (strcmp(argv[0], "lspart") == 0) {
-            cmd_lspart(argc, argv);
-        } else if (strcmp(argv[0], "readsector") == 0) {
-            cmd_readsector(argc, argv);
-        } else if (strcmp(argv[0], "setmode") == 0) {
-            cmd_setmode(argc, argv);
-        } else if (strcmp(argv[0], "shutdown") == 0) {
-            cmd_shutdown();
-        } else {
+        switch (shell_lookup(argv[0])) {
+        case CMD_HELP:       cmd_help();                break;
+        case CMD_CLEAR:      cmd_clear();               break;
+        case CMD_ECHO:       cmd_echo(argc, argv);      break;
+        case CMD_MEMINFO:    cmd_meminfo();             break;
+        case CMD_UPTIME:     cmd_uptime();              break;
+        case CMD_TASKS:      cmd_tasks();               break;
+        case CMD_LSDISKS:    cmd_lsdisks();             break;
+        case CMD_LSPART:     cmd_lspart(argc, argv);   break;
+        case CMD_READSECTOR: cmd_readsector(argc, argv); break;
+        case CMD_SETMODE:    cmd_setmode(argc, argv);  break;
+        case CMD_SHUTDOWN:   cmd_shutdown();            break;
+        case CMD_REBOOT:     cmd_reboot();              break;
+        case CMD_KTEST:      ktest_run_all();           break;
+        default:
             t_writestring("Unknown command: ");
             t_writestring(argv[0]);
             t_writestring("\n");
+            break;
         }
     }
 }
