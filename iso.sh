@@ -50,7 +50,7 @@ else
     # finds grub.cfg, dropping straight to the command prompt.
     _embed_cfg=$(mktemp)
     trap 'rm -f "$_embed_cfg"' EXIT
-    printf 'search --no-floppy --file --set=root /boot/grub/grub.cfg\n' \
+    printf 'search --no-floppy --file --set=root /boot/grub/grub.cfg\nnormal\n' \
         > "$_embed_cfg"
     grub-mkimage \
         -O i386-pc \
