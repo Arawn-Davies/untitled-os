@@ -204,14 +204,20 @@ void shell_run(void)
      * Makar ASCII-art logo + welcome banner — Medli style.
      *
      * The mountain graphic on the right mirrors Medli's logo decoration.
-     * Left side renders "MAKAR" in a diagonal-slash block font, the same
+     * Left side renders "Makar" in a diagonal-slash block font, the same
      * aesthetic as Medli's "Medli" lettering.
      */
-    t_writestring(" |\\/|   /\\  |< /\\  |~~\\        //\\\\\n");
-    t_writestring(" |  |  /  \\ || /  \\ |   |     //__\\\\\n");
-    t_writestring(" |  | / /\\ \\||/ /\\ \\|___|    //\\++/\\\\\n");
-    t_writestring(" |  |/_/  \\_\\|/_/  \\_\\      //__\\/__\\\\\n");
-    t_writestring("                              ~~~~~~~~~~\n");
+
+
+t_writestring("___  ___      _              		");
+t_writestring("|  \/  |     | |             	   //\\");
+t_writestring("| .  . | __ _| | ____ _ _ __ 	  //__\\");
+t_writestring("| |\/| |/ _` | |/ / _` | '__|	 //\++/\\");
+t_writestring("| |  | | (_| |   < (_| | |   	//__\/__\\");
+t_writestring("\_|  |_/\__,_|_|\_\__,_|_|   	~~~~~~~~~~\n");
+                             
+                             
+	
     t_writestring("\n");
     t_writestring("Makar -- version " SHELL_VERSION
                   ", build: " BUILD_DATE " " BUILD_TIME "\n");
