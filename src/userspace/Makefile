@@ -35,19 +35,26 @@ LDFLAGS:=$(LDFLAGS) -nostdlib -T $(ARCHDIR)/linker.ld
 
 CRT0_OBJ=$(ARCHDIR)/crt0.o
 
+# Binaries are placed in bin/ to avoid a name collision with the source
+# subdirectories (e.g. echo/ vs the output file "echo").
+BINDIR=bin
+
 # -----------------------------------------------------------------------
 # List of utility programs to build.  Add new entries here and in the
 # per-binary rules below when adding more utilities.
 # -----------------------------------------------------------------------
 BINS=\
-echo \
-true \
-false \
+$(BINDIR)/echo \
+$(BINDIR)/true \
+$(BINDIR)/false \
 
 .PHONY: all clean install install-headers
 .SUFFIXES: .o .c .S
 
-all: $(BINS)
+all: $(BINDIR) $(BINS)
+
+$(BINDIR):
+	mkdir -p $(BINDIR)
 
 # -----------------------------------------------------------------------
 # crt0 — shared ELF entry stub
@@ -61,19 +68,19 @@ $(CRT0_OBJ): $(ARCHDIR)/crt0.S
 echo/echo.o: echo/echo.c
 	$(CC) -MD -c $< -o $@ $(CFLAGS) $(CPPFLAGS)
 
-echo: echo/echo.o $(CRT0_OBJ)
+$(BINDIR)/echo: echo/echo.o $(CRT0_OBJ)
 	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $(CRT0_OBJ) $<
 
 true/true.o: true/true.c
 	$(CC) -MD -c $< -o $@ $(CFLAGS) $(CPPFLAGS)
 
-true: true/true.o $(CRT0_OBJ)
+$(BINDIR)/true: true/true.o $(CRT0_OBJ)
 	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $(CRT0_OBJ) $<
 
 false/false.o: false/false.c
 	$(CC) -MD -c $< -o $@ $(CFLAGS) $(CPPFLAGS)
 
-false: false/false.o $(CRT0_OBJ)
+$(BINDIR)/false: false/false.o $(CRT0_OBJ)
 	$(CC) -o $@ $(CFLAGS) $(LDFLAGS) $(CRT0_OBJ) $<
 
 # -----------------------------------------------------------------------
@@ -90,6 +97,7 @@ install-headers:
 # -----------------------------------------------------------------------
 clean:
 	rm -f $(BINS)
+	rm -rf $(BINDIR)
 	rm -f $(CRT0_OBJ) echo/echo.o true/true.o false/false.o
 	rm -f $(ARCHDIR)/*.d echo/*.d true/*.d false/*.d
 
