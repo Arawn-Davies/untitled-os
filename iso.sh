@@ -46,6 +46,7 @@ else
     # device (hd0) instead of the FAT32 partition (hd0,msdos1) and never
     # finds grub.cfg, dropping straight to the command prompt.
     _embed_cfg=$(mktemp)
+    trap 'rm -f "$_embed_cfg"' EXIT
     printf 'search --no-floppy --file --set=root /boot/grub/grub.cfg\n' \
         > "$_embed_cfg"
     grub-mkimage \
@@ -56,6 +57,7 @@ else
         biosdisk part_msdos fat search search_fs_file normal multiboot2 linux \
         || echo "Warning: grub-mkimage failed; core.img will be missing." >&2
     rm -f "$_embed_cfg"
+    trap - EXIT
 
     # GRUB modules copied to the ISO so the installer can transfer them to
     # the FAT32 partition.  Missing modules are non-fatal (skipped silently).
