@@ -293,7 +293,7 @@ void vfs_auto_mount(void)
             t_dec(drive);
             t_writestring(") has no mountable FAT32 partition.\n");
         }
-    } else if (s_boot_biosdev >= 0xE0u) {
+    } else if (s_boot_biosdev >= 0xE0u && s_boot_biosdev != 0xFFu) {
         /* Booted from CD-ROM: ISO9660 already registered by vfs_init(). */
         if (s_cdrom_drive >= 0) {
             memcpy(s_cwd, "/cdrom", 7);   /* 7 includes the NUL terminator */
