@@ -9,7 +9,7 @@
 # Prerequisites: i686-elf-gcc cross-compiler (same toolchain as the kernel).
 
 DEFAULT_HOST!=../default-host.sh
-HOST?=DEFAULT_HOST
+HOST?=$(DEFAULT_HOST)
 HOSTARCH!=../target-triplet-to-arch.sh $(HOST)
 
 CFLAGS?=-O2 -g
