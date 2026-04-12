@@ -5,8 +5,12 @@
  *   shell_readline() - echoes input, handles backspace, ends on Enter
  *   shell_run()      - infinite prompt loop ("makar-sh> ")
  *
- * Built-in commands: help, clear, echo, meminfo, uptime, shutdown
+ * Built-in commands: help, clear, echo, meminfo, uptime, version, shutdown
  */
+
+#define BUILD_DATE __DATE__
+#define BUILD_TIME __TIME__
+#define COPYRIGHT  "Copyright (c) 2026 Arawn Davies"
 
 #include <kernel/shell.h>
 #include <kernel/keyboard.h>
@@ -105,12 +109,14 @@ static int shell_parse(char *line, char **argv, int max_args)
 
 static void cmd_help(void)
 {
+    t_writestring(COPYRIGHT "\n");
     t_writestring("Commands:\n");
     t_writestring("  help                         - list commands\n");
     t_writestring("  clear                        - clear the terminal\n");
     t_writestring("  echo [args..]                - print arguments\n");
     t_writestring("  meminfo                      - print heap used/free\n");
     t_writestring("  uptime                       - ticks since boot\n");
+    t_writestring("  version                      - show build info and copyright\n");
     t_writestring("  tasks                        - list kernel tasks\n");
     t_writestring("  lsdisks                      - list detected ATA drives\n");
     t_writestring("  lspart <drv>                 - list partitions (MBR or GPT)\n");

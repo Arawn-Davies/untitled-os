@@ -64,7 +64,7 @@ static void kprint_ok(void)
 void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 {
 	terminal_initialize();
-	t_writestring("Makar kernel starting...\n");
+	t_writestring("Makar kernel starting... (built " __DATE__ " " __TIME__ ")\n");
 
 	t_writestring("Initializing serial COM1");
 	kprint_ok();
