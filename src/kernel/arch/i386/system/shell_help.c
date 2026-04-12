@@ -37,8 +37,9 @@ void cmd_help(void)
 
 void cmd_version(void)
 {
-    t_writestring("Makar Kernel\n");
+    t_writestring("Makar -- version " SHELL_VERSION
+                  ", build: " BUILD_DATE " " BUILD_TIME "\n");
+    t_writestring("The GCC/C++ sibling of Medli\n");
     t_writestring(COPYRIGHT "\n");
-    t_writestring("Build date: " BUILD_DATE "\n");
-    t_writestring("Build time: " BUILD_TIME "\n");
+    t_writestring("Released under the BSD-3 Clause Clear license\n");
 }

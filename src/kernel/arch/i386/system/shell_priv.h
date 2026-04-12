@@ -11,11 +11,30 @@
 
 #define SHELL_MAX_INPUT  256
 #define SHELL_MAX_ARGS   8
-#define SHELL_PROMPT     "makar-sh> "
+
+/* Medli-compatible identity: username and hostname shown in the prompt. */
+#define SHELL_USERNAME   "root"
+#define SHELL_HOSTNAME   "makar"
+
+/* Kernel version string (shared with cmd_version and the welcome banner). */
+#define SHELL_VERSION    "0.1.0"
 
 #define BUILD_DATE __DATE__
 #define BUILD_TIME __TIME__
-#define COPYRIGHT  "Copyright (c) 2026 Arawn Davies"
+#define COPYRIGHT  "Copyright (C) 2026 Arawn Davies"
+
+/*
+ * Medli-compatible colour scheme: white text on blue background.
+ *
+ * SHELL_COLOR_VGA  – VGA attribute byte: fg=15 (WHITE) | bg=1 (BLUE) << 4
+ * SHELL_FG_RGB     – 24-bit RGB for the VESA framebuffer (foreground)
+ * SHELL_BG_RGB     – 24-bit RGB for the VESA framebuffer (background)
+ * SHELL_ERROR_RGB_PAIR – VGA attr for error text: fg=12 (LIGHT_RED) | bg=1 (BLUE) << 4
+ */
+#define SHELL_COLOR_VGA      0x1F   /* make_color(COLOR_WHITE,      COLOR_BLUE) */
+#define SHELL_ERROR_COLOR_VGA 0x1C  /* make_color(COLOR_LIGHT_RED,  COLOR_BLUE) */
+#define SHELL_FG_RGB         0xFFFFFF
+#define SHELL_BG_RGB         0x0000AA
 
 /* shell.c – REPL core */
 void shell_readline(char *buf, size_t max);

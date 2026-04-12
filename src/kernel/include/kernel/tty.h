@@ -32,4 +32,12 @@ void t_dec(uint32_t num);
 
 void t_spinner_tick(uint32_t tick);
 
+/*
+ * Set the VGA terminal colour attribute to `color`, clear the screen to that
+ * background, and reset the cursor to (0, 0).  Use this to apply a whole-
+ * terminal colour scheme change (e.g. switching from the boot white-on-black
+ * to the Medli-style white-on-blue shell theme).
+ */
+void terminal_set_colorscheme(uint8_t color);
+
 #endif

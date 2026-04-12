@@ -141,11 +141,17 @@ static void disk_parts_print(const disk_parts_t *dp)
 
 void cmd_clear(void)
 {
-    /* Both outputs are always active in parallel: tty.c writes to VGA and
-       forwards every character to vesa_tty.  Reset both so they stay in sync.
-       vesa_tty_init() is a no-op when no VESA framebuffer is present. */
-    terminal_initialize();
-    vesa_tty_init();
+    /*
+     * Reset both outputs and restore the Medli-compatible colour scheme
+     * (white on blue).  terminal_set_colorscheme() fills the VGA buffer
+     * with the new background colour; vesa_tty_setcolor() + vesa_tty_clear()
+     * do the same for the VESA framebuffer.
+     */
+    terminal_set_colorscheme(SHELL_COLOR_VGA);
+    if (vesa_tty_is_ready()) {
+        vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
+        vesa_tty_clear();
+    }
 }
 
 void cmd_echo(int argc, char **argv)

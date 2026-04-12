@@ -208,3 +208,12 @@ void vesa_tty_set_scale(uint32_t scale)
 
 	vesa_clear(tty_bg);
 }
+
+void vesa_tty_clear(void)
+{
+	if (!tty_ready)
+		return;
+	tty_col = 0;
+	tty_row = 0;
+	vesa_clear(tty_bg);
+}
