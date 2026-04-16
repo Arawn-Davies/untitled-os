@@ -73,3 +73,12 @@ sub-structure.
 | `gdb.sh` | Build and launch with GDB stub on `:1234` |
 | `clean.sh` | Remove build artefacts |
 | `mkhdd.sh` | Create a raw hard-disk image |
+
+---
+
+## Docker files
+
+| File | Purpose |
+|---|---|
+| `Dockerfile` | Extends `arawn780/gcc-cross-i686-elf:fast` (the CI image) to create a self-contained build environment with the i686-elf cross-toolchain, GRUB tools, QEMU, and GDB pre-installed |
+| `docker-compose.yml` | Defines three services — `build` (release ISO), `build-debug` (debug ISO), and `test` (debug build + headless serial smoke test) — all bind-mounting the source tree so output lands in your checkout |

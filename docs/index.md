@@ -50,4 +50,5 @@ roadmap.
 
 ## Build & run
 
-See the repository [README](../README.md) for toolchain requirements and build instructions.
+See the repository [README](../README.md) for toolchain requirements, build
+instructions, Docker helper scripts, and Docker Compose usage.
