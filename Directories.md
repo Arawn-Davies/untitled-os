@@ -68,7 +68,7 @@ sub-structure.
 | `iso.sh` | Build `makar.iso` via `grub-mkrescue` |
 | `qemu.sh` | Build and run in QEMU |
 | `docker-iso.sh` | Build `makar.iso` in the CI Docker image |
-| `docker-test.sh` | Build in Docker, run host-QEMU serial smoke test |
+| `docker-test.sh` | Build in Docker, run serial smoke test + GDB boot test suite on host QEMU |
 | `docker-qemu.sh` | Build in Docker, run interactively in host QEMU |
 | `gdb.sh` | Build and launch with GDB stub on `:1234` |
 | `clean.sh` | Remove build artefacts |
