@@ -11,19 +11,18 @@ if ! command -v "$DOCKER_BIN" >/dev/null 2>&1; then
 fi
 
 echo "==> Building makar.iso in Docker image: $DOCKER_IMAGE"
-# Forward CFLAGS from the caller's environment so callers can request a debug
-# build (e.g. CFLAGS='-O0 -g3') without duplicating docker-run boilerplate.
-_cflags_arg=""
+# Forward CFLAGS from the caller's environment (e.g. CFLAGS='-O0 -g3') by
+# embedding it in the bash command string.  This avoids the word-splitting
+# problem that occurs when CFLAGS contains spaces and is passed via -e.
+_build_cmd="bash iso.sh"
 if [ -n "$CFLAGS" ]; then
-    _cflags_arg="-e CFLAGS=$CFLAGS"
+    _build_cmd="CFLAGS='$CFLAGS' bash iso.sh"
 fi
-# shellcheck disable=SC2086
 "$DOCKER_BIN" run --rm \
     -u "$(id -u):$(id -g)" \
     -v "$REPO_ROOT:/work" \
     -w /work \
-    ${_cflags_arg} \
     "$DOCKER_IMAGE" \
-    bash -lc "bash iso.sh"
+    bash -lc "$_build_cmd"
 
 echo "==> Docker build complete: $REPO_ROOT/makar.iso"
