@@ -45,6 +45,12 @@ See [`docs/`](docs/index.md) for full subsystem documentation and the
 bash iso.sh        # build makar.iso
 bash qemu.sh       # build and run in QEMU
 bash gdb.sh        # build and launch with GDB stub on :1234
+bash docker-iso.sh # build makar.iso using the CI Docker image
+bash docker-test.sh # build in Docker, run headless host-QEMU smoke test
+bash docker-qemu.sh # build in Docker, run interactively with host QEMU
 ```
 
 Requires: `i686-elf-gcc`, `nasm`, `grub-mkrescue`, `xorriso`, `qemu-system-i386`
+
+For the Docker-local workflow, install `docker` and host `qemu-system-i386`.
+The Docker container builds `makar.iso`; running/testing still uses host QEMU.
