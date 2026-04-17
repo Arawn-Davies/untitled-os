@@ -66,11 +66,13 @@ sub-structure.
 |---|---|
 | `build.sh` | Build all projects into the sysroot |
 | `iso.sh` | Build `makar.iso` via `grub-mkrescue` |
-| `qemu.sh` | Build and run in QEMU |
+| `qemu.sh` | Build and run in QEMU (CD-ROM + HDD) |
+| `qemu-hdd.sh` | Boot directly from `hdd.img` (no CD-ROM) |
 | `docker-iso.sh` | Build `makar.iso` in the CI Docker image |
 | `docker-test.sh` | Build in Docker, run serial smoke test + GDB boot test suite on host QEMU |
 | `docker-qemu.sh` | Build in Docker, run interactively in host QEMU |
 | `gdb.sh` | Build and launch with GDB stub on `:1234` |
+| `test-gdb.sh` | Local (non-Docker) GDB boot test suite |
 | `clean.sh` | Remove build artefacts |
 | `mkhdd.sh` | Create a raw hard-disk image |
 

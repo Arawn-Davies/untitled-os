@@ -41,58 +41,20 @@ See [`docs/`](docs/index.md) for full subsystem documentation and the
 
 ## Build
 
-### Native (cross-compiler on your machine)
-
 ```sh
-bash iso.sh        # build makar.iso
-bash qemu.sh       # build and run in QEMU
-bash gdb.sh        # build and launch with GDB stub on :1234
+# Native (requires i686-elf-gcc, nasm, grub-mkrescue, xorriso, QEMU):
+bash qemu.sh           # build and run in QEMU
+
+# Docker (requires only docker + host QEMU for run/test):
+bash docker-qemu.sh   # build in Docker, run with host QEMU
+
+# Docker Compose:
+docker compose run --rm build   # produce makar.iso
+docker compose run --rm test    # build + headless serial smoke test
 ```
 
-Requires: `i686-elf-gcc`, `nasm`, `grub-mkrescue`, `xorriso`, `qemu-system-i386`
+See [`docs/building.md`](docs/building.md) for the full build guide — all
+scripts, Docker Compose services, environment variables, QEMU drive layout,
+GDB debugging, and more.
 
-### Docker helper scripts
-
-Build inside the CI Docker image, then (optionally) run/test with host QEMU:
-
-```sh
-bash docker-iso.sh  # build makar.iso using the CI Docker image
-bash docker-test.sh # build in Docker, run headless host-QEMU smoke test + GDB test suite
-bash docker-qemu.sh # build in Docker, run interactively with host QEMU
-```
-
-Requires: `docker` and (for `docker-test.sh` / `docker-qemu.sh`) host
-`qemu-system-i386`.  No cross-compiler needed — the container provides it.
-
-### Docker Compose
-
-The repository includes a `Dockerfile` and `docker-compose.yml` that wrap the
-same CI image (`arawn780/gcc-cross-i686-elf:fast`) for convenient local
-development.
-
-| Service | What it does |
-|---|---|
-| `build` | Compiles the kernel and produces `makar.iso` with release flags (`-O2 -g`). |
-| `build-debug` | Same as `build` but compiles with `-O0 -g3` for accurate GDB symbols. |
-| `test` | Builds a debug ISO then runs the serial smoke test inside the container using headless QEMU — no host QEMU required. |
-
-```sh
-docker compose run --rm build          # produce makar.iso
-docker compose run --rm build-debug    # produce a debug makar.iso
-docker compose run --rm test           # build + headless serial smoke test
-```
-
-The source tree is bind-mounted at `/work`, so build output (`makar.iso`,
-`sysroot/`, `isodir/`) lands directly in your checkout.
-
-> **Tip:** You can also build and use the image standalone:
-> ```sh
-> docker build -t makar .
-> docker run --rm -v "$PWD":/work -w /work makar   # runs bash iso.sh
-> ```
-
-### WSL2 (Windows)
-
-If you are developing on Windows with WSL2 and Docker Desktop, see the
-dedicated [WSL2 guide](docs/wsl2.md) for setup instructions, QEMU GUI
-options, and tips for best performance.
+Windows users: see the [WSL2 guide](docs/wsl2.md).
