@@ -2,7 +2,7 @@
 #
 # Prerequisites:
 #   • Docker with Compose v2 (docker compose) or Compose v1 (docker-compose)
-#   • For the 'run' and 'test' services: qemu-system-i386 on the host
+#   • For the 'test' service: qemu-system-i386 is provided inside the container
 #
 # Common commands:
 #   docker compose run --rm build          – build makar.iso

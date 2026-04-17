@@ -73,7 +73,7 @@ the host QEMU (except for the Compose `test` service — see below).
 
 | Script | What it does | Requires (host) |
 |---|---|---|
-| `docker-iso.sh` | Pulls / uses the CI image and runs `iso.sh` inside it. Outputs `makar.iso` in the repo root via a bind mount. Forwards `CFLAGS` from the caller's environment. | Docker |
+| `docker-iso.sh` | Runs `iso.sh` inside the CI image (pulls the image on first use). Outputs `makar.iso` in the repo root via a bind mount. Forwards `CFLAGS` from the caller's environment. | Docker |
 | `docker-qemu.sh` | Calls `docker-iso.sh`, creates `hdd.img` if missing, then launches QEMU on the host with HDD + CD-ROM. | Docker, QEMU |
 | `docker-test.sh` | Calls `docker-iso.sh` with `-O0 -g3`, runs a serial smoke test on host QEMU, then runs the full GDB boot-test suite on host GDB. | Docker, QEMU, GDB with Python |
 
