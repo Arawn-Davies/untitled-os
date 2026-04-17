@@ -90,3 +90,9 @@ The source tree is bind-mounted at `/work`, so build output (`makar.iso`,
 > docker build -t makar .
 > docker run --rm -v "$PWD":/work -w /work makar   # runs bash iso.sh
 > ```
+
+### WSL2 (Windows)
+
+If you are developing on Windows with WSL2 and Docker Desktop, see the
+dedicated [WSL2 guide](docs/wsl2.md) for setup instructions, QEMU GUI
+options, and tips for best performance.

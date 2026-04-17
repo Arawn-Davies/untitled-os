@@ -52,3 +52,7 @@ roadmap.
 
 See the repository [README](../README.md) for toolchain requirements, build
 instructions, Docker helper scripts, and Docker Compose usage.
+
+| Document | Description |
+|---|---|
+| [WSL2 guide](wsl2.md) | Building and running Makar on Windows via WSL2 + Docker Desktop, including QEMU GUI options |
