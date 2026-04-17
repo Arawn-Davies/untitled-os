@@ -50,4 +50,10 @@ roadmap.
 
 ## Build & run
 
-See the repository [README](../README.md) for toolchain requirements and build instructions.
+| Document | Description |
+|---|---|
+| [Building & running](building.md) | Full build guide — native, Docker scripts, Docker Compose, environment variables, QEMU drive layout |
+| [Testing](testing.md) | Serial smoke test, GDB boot-test suite, debugging with GDB |
+| [WSL2 guide](wsl2.md) | Building and running on Windows via WSL2 + Docker Desktop, including QEMU GUI options |
+
+For a quick-start see the repository [README](../README.md).
