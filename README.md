@@ -11,6 +11,14 @@ Built with the i686-elf-gcc cross compiler
 ([Quick-i686](https://github.com/Arawn-Davies/quick-i686)) and booted via
 GRUB Multiboot 2.
 
+### Medli
+
+[Medli](https://github.com/Arawn-Davies/Medli) is the C# / Cosmos
+counterpart of Makar.  Both projects implement the same operating system
+concept — a shared command vocabulary, filesystem layout, and service
+model — in different languages and runtimes.  See the
+[Makar × Medli](docs/makar-medli.md) roadmap for details.
+
 ## What's implemented
 
 - Serial (UART, 38400 baud, COM1)
@@ -36,25 +44,14 @@ GRUB Multiboot 2.
 
 ## Documentation
 
-See [`docs/`](docs/index.md) for full subsystem documentation and the
-[Makar × Medli](docs/makar-medli.md) co-operation roadmap.
+Everything you need to build, run, test, and understand Makar lives in
+[`docs/`](docs/index.md):
 
-## Build
+| Guide | |
+|---|---|
+| [Building](docs/building.md) | Prerequisites, build scripts, Docker, Docker Compose |
+| [Testing](docs/testing.md) | Serial smoke test, GDB boot-test suite |
+| [WSL2](docs/wsl2.md) | Windows development via WSL2 + Docker Desktop |
+| [Makar × Medli](docs/makar-medli.md) | Co-operation roadmap with the Medli project |
 
-```sh
-# Native (requires i686-elf-gcc, nasm, grub-mkrescue, xorriso, QEMU):
-bash qemu.sh           # build and run in QEMU
-
-# Docker (requires only docker + host QEMU for run/test):
-bash docker-qemu.sh   # build in Docker, run with host QEMU
-
-# Docker Compose:
-docker compose run --rm build   # produce makar.iso
-docker compose run --rm test    # build + headless serial smoke test
-```
-
-See [`docs/building.md`](docs/building.md) for the full build guide — all
-scripts, Docker Compose services, environment variables, QEMU drive layout,
-GDB debugging, and more.
-
-Windows users: see the [WSL2 guide](docs/wsl2.md).
+Kernel subsystem and libc documentation is in [`docs/index.md`](docs/index.md).

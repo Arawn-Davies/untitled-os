@@ -145,49 +145,7 @@ write Makar to the HDD you can boot from the HDD alone with `qemu-hdd.sh`.
 
 ---
 
-## Serial smoke test
+## Testing & debugging
 
-Both `docker-test.sh` and the Compose `test` service verify that the kernel
-boots correctly by checking for two serial log lines:
-
-```
-serial: COM1 ready
-keyboard: PS/2 IRQ1 handler registered
-```
-
-QEMU runs headless (`-display none`) with serial on `stdio`, and the output
-is captured to `serial.log`.  If either line is missing the test fails.
-
----
-
-## GDB boot-test suite
-
-`test-gdb.sh` (native) and `docker-test.sh` (Docker) both run the Python-based
-GDB test suite in `tests/gdb_boot_test.py`:
-
-1. QEMU starts frozen (`-s -S`) with the GDB stub on `:1234`.
-2. GDB connects, sources the test script, and runs assertions against kernel
-   state (symbol addresses, memory layout, boot progress).
-3. Results are written to `gdb-test.log`.
-
-GDB must have Python scripting support.  The scripts auto-detect the best
-available GDB binary in this order: `i686-elf-gdb` → `gdb-multiarch` → `gdb`.
-
----
-
-## Debugging with GDB
-
-```sh
-# Terminal 1 — start QEMU with GDB stub
-bash gdb.sh
-
-# Terminal 2 — attach GDB
-i686-elf-gdb src/kernel/makar.kernel \
-    -ex "target remote :1234" \
-    -ex "break kernel_main" \
-    -ex "continue"
-```
-
-The `-O0 -g3` flags ensure DWARF debug info is accurate.  `gdb.sh` freezes
-the CPU at reset (`-S`) so you have time to set breakpoints before the kernel
-begins executing.
+See [Testing](testing.md) for the serial smoke test, GDB boot-test suite,
+and GDB debugging workflow.
