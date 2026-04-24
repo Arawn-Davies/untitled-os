@@ -41,6 +41,8 @@
 /* Static, page-aligned structures.  All live inside the kernel image which
    is itself within the 0–256 MiB identity-mapped window.                    */
 static uint32_t page_directory[1024]                              __attribute__((aligned(4096)));
+
+uint32_t *paging_kernel_pd(void) { return page_directory; }
 static uint32_t extra_page_tables[EXTRA_PAGE_TABLES][1024]       __attribute__((aligned(4096)));
 static uint32_t next_extra_pt = 0;
 

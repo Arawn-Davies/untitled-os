@@ -8,6 +8,10 @@
 #include <kernel/ktest.h>
 #include <kernel/acpi.h>
 #include <kernel/partition.h>
+#include <kernel/pmm.h>
+#include <kernel/heap.h>
+#include <kernel/vmm.h>
+#include <kernel/paging.h>
 #include <kernel/tty.h>
 #include <string.h>
 
@@ -161,6 +165,180 @@ static void test_partition(void)
 
 
 
+/* ---------------------------------------------------------------------------
+ * Suite: PMM
+ *
+ * Exercises pmm_alloc_frame / pmm_free_frame using the live allocator.
+ * All allocated frames are freed before the suite returns so the PMM state
+ * is identical before and after.
+ * ------------------------------------------------------------------------- */
+
+static void test_pmm(void)
+{
+    ktest_begin("pmm");
+
+    /* Alloc must return a 4 KiB-aligned non-error address. */
+    uint32_t f1 = pmm_alloc_frame();
+    KTEST_ASSERT(f1 != PMM_ALLOC_ERROR);
+    KTEST_ASSERT((f1 & 0xFFFu) == 0);
+
+    /* Two consecutive allocs must return distinct frames. */
+    uint32_t f2 = pmm_alloc_frame();
+    KTEST_ASSERT(f2 != PMM_ALLOC_ERROR);
+    KTEST_ASSERT(f1 != f2);
+
+    /* free_count decreases by 1 per alloc. */
+    uint32_t fc = pmm_free_count();
+    uint32_t f3 = pmm_alloc_frame();
+    KTEST_ASSERT(f3 != PMM_ALLOC_ERROR);
+    KTEST_ASSERT(pmm_free_count() == fc - 1);
+
+    /* Freeing a frame increments free_count and makes it re-allocatable. */
+    pmm_free_frame(f3);
+    KTEST_ASSERT(pmm_free_count() == fc);
+    uint32_t f4 = pmm_alloc_frame();
+    KTEST_ASSERT(f4 == f3);   /* same frame recycled (first-fit scan) */
+
+    pmm_free_frame(f1);
+    pmm_free_frame(f2);
+    pmm_free_frame(f4);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: heap
+ *
+ * Tests the kmalloc/kfree/krealloc first-fit allocator.
+ * ------------------------------------------------------------------------- */
+
+static void test_heap(void)
+{
+    ktest_begin("heap");
+
+    /* kmalloc(0) must return NULL. */
+    KTEST_ASSERT(kmalloc(0) == NULL);
+
+    /* Normal allocations return non-NULL distinct pointers. */
+    void *p1 = kmalloc(64);
+    void *p2 = kmalloc(64);
+    KTEST_ASSERT(p1 != NULL);
+    KTEST_ASSERT(p2 != NULL);
+    KTEST_ASSERT(p1 != p2);
+
+    /* Data written to one block is not clobbered by the other. */
+    memset(p1, 0xAB, 64);
+    memset(p2, 0xCD, 64);
+    KTEST_ASSERT(((uint8_t *)p1)[0]  == 0xAB);
+    KTEST_ASSERT(((uint8_t *)p1)[63] == 0xAB);
+    KTEST_ASSERT(((uint8_t *)p2)[0]  == 0xCD);
+
+    /* kfree(NULL) must not crash. */
+    kfree(NULL);
+
+    /* krealloc to a larger size preserves existing bytes. */
+    void *p3 = kmalloc(16);
+    KTEST_ASSERT(p3 != NULL);
+    memset(p3, 0xEF, 16);
+    void *p4 = krealloc(p3, 128);
+    KTEST_ASSERT(p4 != NULL);
+    KTEST_ASSERT(((uint8_t *)p4)[0]  == 0xEF);
+    KTEST_ASSERT(((uint8_t *)p4)[15] == 0xEF);
+
+    /* krealloc(ptr, 0) behaves like kfree and returns NULL. */
+    void *p5 = kmalloc(32);
+    KTEST_ASSERT(p5 != NULL);
+    void *p6 = krealloc(p5, 0);
+    KTEST_ASSERT(p6 == NULL);
+
+    /* After freeing, the allocator can hand out a new block in that space. */
+    kfree(p1);
+    void *p7 = kmalloc(64);
+    KTEST_ASSERT(p7 != NULL);
+
+    kfree(p2);
+    kfree(p4);
+    kfree(p7);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: VMM
+ *
+ * Tests vmm_create_pd / vmm_map_page / vmm_unmap_page / vmm_free_pd.
+ *
+ * Page table entries are inspected directly: since the kernel is identity-
+ * mapped (phys == virt), every PMM frame address is directly dereferenceable
+ * as a uint32_t pointer.
+ *
+ * x86 page-entry bit positions used here:
+ *   bit 0 (0x1)  – Present
+ *   bit 7 (0x80) – PS / large page (set in kernel PSE entries)
+ * ------------------------------------------------------------------------- */
+
+#define KT_PAGE_PRESENT  0x1u
+#define KT_PAGE_LARGE    0x80u
+
+static void test_vmm(void)
+{
+    ktest_begin("vmm");
+
+    uint32_t *kpd = paging_kernel_pd();
+
+    /* vmm_create_pd returns a 4 KiB-aligned pointer. */
+    uint32_t *pd = vmm_create_pd();
+    KTEST_ASSERT(pd != NULL);
+    KTEST_ASSERT(((uint32_t)pd & 0xFFFu) == 0);
+
+    /* Kernel PDEs (indices 0–63) are propagated into the new PD. */
+    KTEST_ASSERT(pd[0]  == kpd[0]);
+    KTEST_ASSERT(pd[32] == kpd[32]);
+    KTEST_ASSERT(pd[63] == kpd[63]);
+
+    /* Non-kernel PDEs are zeroed. */
+    KTEST_ASSERT((pd[64]   & KT_PAGE_PRESENT) == 0);
+    KTEST_ASSERT((pd[1023] & KT_PAGE_PRESENT) == 0);
+
+    /* vmm_map_page: allocate a frame and map it at a user virtual address. */
+    uint32_t phys = pmm_alloc_frame();
+    KTEST_ASSERT(phys != PMM_ALLOC_ERROR);
+
+    uint32_t virt = 0x40001000u;               /* PDE 256, PTE 1 */
+    uint32_t pdi  = virt >> 22;                /* 256             */
+    uint32_t pti  = (virt >> 12) & 0x3FFu;    /* 1               */
+
+    vmm_map_page(pd, virt, phys, VMM_FLAG_USER | VMM_FLAG_WRITABLE);
+
+    /* PDE for the mapped region must be present and NOT a large page. */
+    KTEST_ASSERT((pd[pdi] & KT_PAGE_PRESENT) != 0);
+    KTEST_ASSERT((pd[pdi] & KT_PAGE_LARGE)   == 0);
+
+    /* The PTE must point to the right physical frame with Present set. */
+    uint32_t *pt = (uint32_t *)(pd[pdi] & ~0xFFFu);
+    KTEST_ASSERT((pt[pti] & KT_PAGE_PRESENT) != 0);
+    KTEST_ASSERT((pt[pti] & ~0xFFFu) == phys);
+
+    /* Mapping inside the kernel large-page window is silently ignored. */
+    vmm_map_page(pd, 0x1000u, phys, VMM_FLAG_USER);  /* PDE 0 = large page */
+    KTEST_ASSERT(pd[0] == kpd[0]);                    /* PDE 0 unchanged    */
+
+    /* vmm_unmap_page clears the PTE (does not free the frame). */
+    vmm_unmap_page(pd, virt);
+    KTEST_ASSERT((pt[pti] & KT_PAGE_PRESENT) == 0);
+
+    /* Re-map so vmm_free_pd has a frame to release. */
+    vmm_map_page(pd, virt, phys, VMM_FLAG_USER | VMM_FLAG_WRITABLE);
+
+    /* vmm_free_pd releases the mapped frame, the page table, and the PD itself.
+     * Three PMM frames total must be returned. */
+    uint32_t fc_before = pmm_free_count();
+    vmm_free_pd(pd);                           /* frees phys + PT + PD = 3 */
+    KTEST_ASSERT(pmm_free_count() == fc_before + 3);
+
+    ktest_summary();
+}
+
 void ktest_run_all(void)
 {
     int total_pass = 0;
@@ -175,6 +353,18 @@ void ktest_run_all(void)
     total_fail += ktest_fail_count;
 
     test_partition();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_pmm();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_heap();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_vmm();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 
