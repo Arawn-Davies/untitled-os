@@ -104,6 +104,12 @@ void cmd_ring3test(void)
 {
     t_writestring("Spawning ring-3 test process...\n");
     task_t *t = task_create("ring3test", usertest_task);
-    if (!t)
+    if (!t) {
         t_writestring("ring3test: task_create failed (pool full?)\n");
+        return;
+    }
+    /* Yield so the new task runs before the shell blocks on keyboard input.
+       This is a cooperative scheduler — without an explicit yield here the
+       ring3test task would never get CPU time until the next keypress. */
+    task_yield();
 }
