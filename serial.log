@@ -6,8 +6,11 @@ init_descriptor_tables: ISR handlers OK
 gdt/idt: descriptor tables loaded
 register_interrupt_handler: INT 1 registered
 register_interrupt_handler: INT 3 registered
+register_interrupt_handler: INT 8 registered
+register_interrupt_handler: INT 13 registered
+register_interrupt_handler: INT 14 registered
 debug: exception handlers registered
-pmm_init: 32524 frames free (127 MiB)
+pmm_init: 32523 frames free (127 MiB)
 register_interrupt_handler: INT 14 registered
 paging_init: 256 MiB identity map via PSE large pages
 paging: init complete
