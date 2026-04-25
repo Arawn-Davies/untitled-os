@@ -18,7 +18,7 @@
 #include <kernel/tty.h>
 #include <kernel/serial.h>
 
-static void syscall_dispatch(registers_t *regs)
+void syscall_dispatch(registers_t *regs)
 {
     switch (regs->eax) {
     case SYS_EXIT:

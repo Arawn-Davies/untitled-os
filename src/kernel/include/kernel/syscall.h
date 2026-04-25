@@ -2,6 +2,7 @@
 #define _KERNEL_SYSCALL_H
 
 #include <stdint.h>
+#include <kernel/isr.h>
 
 /*
  * Syscall numbers for int 0x80.
@@ -26,5 +27,14 @@
  * and after tasking_init().
  */
 void syscall_init(void);
+
+/*
+ * syscall_dispatch – the int 0x80 C handler; exposed for in-kernel testing.
+ *
+ * Interprets regs->eax as the syscall number, dispatches to the appropriate
+ * handler, and may modify regs->eax as a return value.  Safe to call directly
+ * from kernel mode (e.g. ktest) provided tasking is active.
+ */
+void syscall_dispatch(registers_t *regs);
 
 #endif /* _KERNEL_SYSCALL_H */

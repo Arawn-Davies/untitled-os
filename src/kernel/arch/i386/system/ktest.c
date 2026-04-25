@@ -12,6 +12,9 @@
 #include <kernel/heap.h>
 #include <kernel/vmm.h>
 #include <kernel/paging.h>
+#include <kernel/descr_tbl.h>
+#include <kernel/task.h>
+#include <kernel/syscall.h>
 #include <kernel/tty.h>
 #include <string.h>
 
@@ -339,6 +342,166 @@ static void test_vmm(void)
     ktest_summary();
 }
 
+/* ---------------------------------------------------------------------------
+ * Suite: task
+ *
+ * Exercises task_create and task_yield using the live task pool.
+ * Two lightweight noop tasks are created; task_yield transfers control to them
+ * and they self-terminate via task_exit, eventually returning here.
+ * ------------------------------------------------------------------------- */
+
+static void noop_task(void) { task_exit(); }
+
+static void test_task(void)
+{
+    ktest_begin("task");
+
+    /* task_create must return a non-NULL pointer. */
+    task_t *t1 = task_create("ktest_noop1", noop_task);
+    KTEST_ASSERT(t1 != NULL);
+
+    /* A second create must return a different (distinct) task slot. */
+    task_t *t2 = task_create("ktest_noop2", noop_task);
+    KTEST_ASSERT(t2 != NULL);
+    KTEST_ASSERT(t1 != t2);
+
+    /* task_yield must not crash; the noop tasks run and exit, then control
+     * returns here via the cooperative scheduler. */
+    task_yield();
+    KTEST_ASSERT(1);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: syscall
+ *
+ * Calls syscall_dispatch directly with a stack-allocated registers_t frame,
+ * verifying that safe syscalls do not crash and return control to the caller.
+ * SYS_EXIT is intentionally excluded — it calls task_exit() which is noreturn.
+ * ------------------------------------------------------------------------- */
+
+static void test_syscall(void)
+{
+    ktest_begin("syscall");
+
+    registers_t regs;
+    memset(&regs, 0, sizeof(regs));
+
+    /* SYS_WRITE with a valid NUL-terminated kernel string must not crash. */
+    regs.eax = SYS_WRITE;
+    regs.ebx = (uint32_t)"[ktest] syscall SYS_WRITE\n";
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(1);
+
+    /* SYS_YIELD must not crash (internally calls task_yield). */
+    regs.eax = SYS_YIELD;
+    regs.ebx = 0;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(1);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: GDT
+ *
+ * Verifies that the GDT segment descriptors ring-3 entry depends on are
+ * installed correctly:
+ *   index 3 (selector 0x1B) — user code,  DPL=3
+ *   index 4 (selector 0x23) — user data,  DPL=3
+ *   index 5 (selector 0x28) — TSS,        type=9 (32-bit available)
+ *
+ * Also round-trips tss_set_kernel_stack / tss_get_esp0 to confirm the TSS
+ * ESP0 field is writable (the CPU reads it on every ring-3 → ring-0 entry).
+ * ------------------------------------------------------------------------- */
+
+static void test_gdt(void)
+{
+    extern gdt_entry_t gdt_entries[6];
+
+    ktest_begin("gdt");
+
+    /* User code segment (index 3): DPL field (bits [6:5] of access) must be 3. */
+    KTEST_ASSERT(((gdt_entries[3].access >> 5) & 0x3u) == 3u);
+
+    /* User data segment (index 4): DPL must be 3. */
+    KTEST_ASSERT(((gdt_entries[4].access >> 5) & 0x3u) == 3u);
+
+    /* TSS descriptor (index 5): low nibble of access byte encodes type.
+     * 0x89 → type nibble = 9 = "32-bit TSS available". */
+    KTEST_ASSERT((gdt_entries[5].access & 0x0Fu) == 9u);
+
+    /* tss_set_kernel_stack must update the TSS ESP0 field the CPU will read. */
+    uint32_t saved = tss_get_esp0();
+    tss_set_kernel_stack(0xDEAD0000u);
+    KTEST_ASSERT(tss_get_esp0() == 0xDEAD0000u);
+    tss_set_kernel_stack(saved);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: ring3_prereqs
+ *
+ * Maps a code page (USER only, not writable) and a stack page (USER+WRITABLE)
+ * into a fresh page directory and verifies that the PTE flag bits match what
+ * ring3_enter and the CPU require:
+ *
+ *   Code  page: bit 2 (USER) set, bit 1 (WRITABLE) clear, bit 0 (PRESENT) set
+ *   Stack page: bits 2+1+0 all set
+ *
+ * Uses the same virtual addresses as usertest.c so a mis-mapping here would
+ * reproduce the ring-3 freeze without actually entering ring 3.
+ * ------------------------------------------------------------------------- */
+
+#define RT_USER_CODE_BASE  0x40000000u   /* PDE 256, PTE 0 */
+#define RT_USER_STACK_VIRT 0xBFFEF000u   /* USER_STACK_TOP − 4 KiB */
+
+static void test_ring3_prereqs(void)
+{
+    ktest_begin("ring3_prereqs");
+
+    /* VMM flag constants must match the x86 PTE bit positions the CPU checks. */
+    KTEST_ASSERT(VMM_FLAG_USER     == 0x4u);
+    KTEST_ASSERT(VMM_FLAG_WRITABLE == 0x2u);
+
+    uint32_t *pd = vmm_create_pd();
+    KTEST_ASSERT(pd != NULL);
+
+    uint32_t phys_code  = pmm_alloc_frame();
+    uint32_t phys_stack = pmm_alloc_frame();
+    KTEST_ASSERT(phys_code  != PMM_ALLOC_ERROR);
+    KTEST_ASSERT(phys_stack != PMM_ALLOC_ERROR);
+
+    /* Code page — user-readable, not writable (ring 3 must not write .text). */
+    vmm_map_page(pd, RT_USER_CODE_BASE, phys_code, VMM_FLAG_USER);
+    uint32_t pdi_code = RT_USER_CODE_BASE >> 22;
+    uint32_t *pt_code = (uint32_t *)(pd[pdi_code] & ~0xFFFu);
+    uint32_t pte_code = pt_code[0];
+    KTEST_ASSERT((pte_code & 0x1u) != 0);   /* PRESENT  */
+    KTEST_ASSERT((pte_code & 0x4u) != 0);   /* USER     */
+    KTEST_ASSERT((pte_code & 0x2u) == 0);   /* !WRITABLE */
+
+    /* Stack page — user-readable and writable. */
+    vmm_map_page(pd, RT_USER_STACK_VIRT, phys_stack,
+                 VMM_FLAG_USER | VMM_FLAG_WRITABLE);
+    uint32_t pdi_stack = RT_USER_STACK_VIRT >> 22;
+    uint32_t pti_stack = (RT_USER_STACK_VIRT >> 12) & 0x3FFu;
+    uint32_t *pt_stack = (uint32_t *)(pd[pdi_stack] & ~0xFFFu);
+    uint32_t pte_stack = pt_stack[pti_stack];
+    KTEST_ASSERT((pte_stack & 0x1u) != 0);  /* PRESENT   */
+    KTEST_ASSERT((pte_stack & 0x4u) != 0);  /* USER      */
+    KTEST_ASSERT((pte_stack & 0x2u) != 0);  /* WRITABLE  */
+
+    /* vmm_free_pd releases the mapped frames, page tables, and the PD itself. */
+    uint32_t fc_before = pmm_free_count();
+    vmm_free_pd(pd);    /* frees phys_code + PT_code + phys_stack + PT_stack + PD = 5 */
+    KTEST_ASSERT(pmm_free_count() == fc_before + 5);
+
+    ktest_summary();
+}
+
 void ktest_run_all(void)
 {
     int total_pass = 0;
@@ -365,6 +528,22 @@ void ktest_run_all(void)
     total_fail += ktest_fail_count;
 
     test_vmm();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_task();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_syscall();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_gdt();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_ring3_prereqs();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 

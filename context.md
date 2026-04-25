@@ -91,7 +91,68 @@ CP2 does not, the write syscall is the fault; if neither appears, ring-3 entry i
 Serial output lands in `serial.log`; GDB transcript in `gdb-test.log`.
 
 ## Active work (branch: feat/vmm-ring3-userspace)
-Debugging why the ring-3 userspace smoke test does not produce output.
-SYS_DEBUG checkpoints (EBX=1 before write, EBX=2 after) added to the embedded binary so we can
-pinpoint whether ring-3 entry fails, the write syscall faults, or the exit syscall is the issue.
-Watch `serial.log` for `[ring3] CP: 0x1` / `[ring3] CP: 0x2` lines.
+
+### What was done this session
+- Added exception handlers for #8 (double fault), #13 (GPF), #14 (page fault) in
+  `src/kernel/arch/i386/debug/debug.c` — all write to VGA + serial then halt.
+- Added `tss_get_esp0()` accessor to `descr_tbl.c/.h` for ktest use.
+- Added ktest suites: `"task"`, `"syscall"`, `"gdt"`, `"ring3_prereqs"` in
+  `src/kernel/arch/i386/system/ktest.c`.
+- `syscall_dispatch` de-static-ified and declared in `syscall.h` so ktest can call it directly.
+- Ran a diagnostic build (temporarily auto-ran `ring3test` in `shell_run`) and captured
+  `serial.log` — found the root cause (see below). Reverted the diagnostic change.
+
+### Root cause of ring3test freeze (CONFIRMED, NOT YET FIXED)
+
+**Bug 1 — INT 14 handler override:**
+`kernel_main` calls `init_debug_handlers()` (which registers our INT 14 handler) and then
+`paging_init()` (which also calls `register_interrupt_handler(14, ...)`, overriding ours).
+Paging's INT 14 handler only writes to VGA (no serial), then calls `PANIC("Page fault")` which
+does `cli + for(;;)`. This disables the PIT timer (spinner stops) and produces no serial output.
+
+File: `src/kernel/arch/i386/mm/paging.c`, function `paging_init()`
+Fix: remove the `register_interrupt_handler(14, page_fault_handler)` call from `paging_init()`.
+The debug.c handler supersedes it and writes to both VGA and serial.
+
+**Bug 2 — VESA framebuffer not mapped in user PD (ROOT CAUSE of the page fault):**
+`vmm_create_pd()` copies only the first 64 kernel PDEs (covering 0x00000000–0x0FFFFFFF, the
+256 MiB identity window). The VESA framebuffer is at `0xFD000000` (PDE 1008 in the kernel PD)
+and is NOT copied. When a syscall fires from ring 3, the CPU stays on the user PD (CR3 unchanged
+by interrupt). Any `t_writestring` call that routes through `vesa_tty` touches `0xFD000000`
+→ page fault → paging's handler → cli + panic → freeze.
+
+File: `src/kernel/arch/i386/mm/vmm.c`, constant `KERNEL_PDE_COUNT` and function `vmm_create_pd()`
+
+### Fixes to apply next session
+
+**Fix A — vmm.c:** Change `vmm_create_pd` to copy **all 1024** PDEs from the kernel PD (not just 64).
+Update `vmm_free_pd` to skip PDEs that are identical to the kernel PD (shared entries, not
+user-owned) so it does not accidentally free the VESA extra_page_tables static pool.
+
+```c
+/* vmm_create_pd: copy all 1024 PDEs */
+for (uint32_t i = 0; i < 1024; i++)
+    pd[i] = kpd[i];
+
+/* vmm_free_pd: skip shared kernel PDEs */
+uint32_t *kpd = paging_kernel_pd();
+for (uint32_t pdi = 0; pdi < 1024; pdi++) {
+    if (pd[pdi] == kpd[pdi])          /* shared with kernel — do not free */
+        continue;
+    if (!(pd[pdi] & PAGE_PRESENT) || (pd[pdi] & PAGE_LARGE))
+        continue;
+    /* walk page table, free frames, free page table */
+    ...
+}
+```
+
+**Fix B — paging.c:** Remove the `register_interrupt_handler(14, page_fault_handler)` line from
+`paging_init()`. The debug.c handler is the authoritative INT 14 handler.
+
+After both fixes, rebuild and run `ring3test` — expect to see `[ring3] CP: 0x1` and
+`[ring3] CP: 0x2` in serial.log, followed by "Welcome to userspace!" on VGA.
+
+### Memory leak (known, low priority)
+After `task_exit()` in ring3test, `vmm_free_pd(task->page_dir)` is never called. The user PD,
+code page, and stack page leak. Fix: call `vmm_free_pd` from `task_exit` or from the scheduler
+when it reaps a DEAD task with a non-kernel PD.

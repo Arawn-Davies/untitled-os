@@ -91,11 +91,71 @@ static void breakpoint_handler(registers_t *regs)
 }
 
 // ---------------------------------------------------------------------------
+// INT 8 – Double Fault (abort; error code is always 0)
+// ---------------------------------------------------------------------------
+
+static void double_fault_handler(registers_t *regs)
+{
+    t_writestring("\n*** DOUBLE FAULT (err=0x");
+    t_hex(regs->err_code);
+    t_writestring(") — system halted ***\n");
+    Serial_WriteString("\n*** DOUBLE FAULT ***\n");
+    dump_registers(regs);
+    for (;;) asm volatile("cli; hlt");
+}
+
+// ---------------------------------------------------------------------------
+// INT 13 – General Protection Fault
+// ---------------------------------------------------------------------------
+
+static void gpf_handler(registers_t *regs)
+{
+    t_writestring("\n*** GENERAL PROTECTION FAULT (err=0x");
+    t_hex(regs->err_code);
+    t_writestring(") — system halted ***\n");
+    Serial_WriteString("\n*** GENERAL PROTECTION FAULT ***\n");
+    dump_registers(regs);
+    for (;;) asm volatile("cli; hlt");
+}
+
+// ---------------------------------------------------------------------------
+// INT 14 – Page Fault
+//
+// Error code bits: 0=P(present), 1=W/R, 2=U/S, 3=RSVD, 4=I/D
+// CR2 holds the faulting linear address.
+// ---------------------------------------------------------------------------
+
+static void page_fault_handler(registers_t *regs)
+{
+    uint32_t fault_addr;
+    asm volatile("mov %%cr2, %0" : "=r"(fault_addr));
+
+    t_writestring("\n*** PAGE FAULT @ 0x");
+    t_hex(fault_addr);
+    t_writestring(" err=0x");
+    t_hex(regs->err_code);
+    t_writestring(" [");
+    t_writestring((regs->err_code & 0x1) ? "PROT"  : "NP");
+    t_writestring((regs->err_code & 0x2) ? " WRITE" : " READ");
+    t_writestring((regs->err_code & 0x4) ? " USER"  : " KERN");
+    if (regs->err_code & 0x8) t_writestring(" RSVD");
+    if (regs->err_code & 0x10) t_writestring(" IFETCH");
+    t_writestring("] — system halted ***\n");
+
+    Serial_WriteString("\n*** PAGE FAULT ***\n");
+    dump_registers(regs);
+    for (;;) asm volatile("cli; hlt");
+}
+
+// ---------------------------------------------------------------------------
 // Public initialisation – called from kernel_main
 // ---------------------------------------------------------------------------
 
 void init_debug_handlers()
 {
-    register_interrupt_handler(1, debug_exception_handler);
-    register_interrupt_handler(3, breakpoint_handler);
+    register_interrupt_handler(1,  debug_exception_handler);
+    register_interrupt_handler(3,  breakpoint_handler);
+    register_interrupt_handler(8,  double_fault_handler);
+    register_interrupt_handler(13, gpf_handler);
+    register_interrupt_handler(14, page_fault_handler);
 }
