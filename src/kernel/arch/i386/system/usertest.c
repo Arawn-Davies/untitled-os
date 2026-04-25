@@ -21,38 +21,48 @@
 #define USER_STACK_TOP   0xBFFF0000u   /* user stack top; one page below */
 
 /*
- * Position-independent i386 machine code — equivalent to:
+ * Position-independent i386 machine code with debug checkpoints:
  *
- *   write("Welcome to userspace!\n");
+ *   SYS_DEBUG(1);                       // CP 1: entered ring-3
+ *   write("Welcome to userspace!\n");   // CP 2: if printed, write syscall works
+ *   SYS_DEBUG(2);                       // CP 2: returned from write
  *   exit(0);
  *
- * The call/pop idiom makes it load-address-independent: after the call the
- * return address on the stack equals the runtime address of the pop, giving
- * a base from which the msg offset is computed.
- *
  * Disassembly (offsets from code start):
- *   00: E8 00 00 00 00   call  +0       ; push &pop_esi, jmp to pop_esi
- *   05: 5E               pop   esi      ; esi = runtime addr of this insn
- *   06: 83 C6 16         add   esi, 22  ; esi = msg  (22 = 27 - 5)
- *   09: B8 04 00 00 00   mov   eax, 4   ; SYS_WRITE
- *   0E: 89 F3            mov   ebx, esi ; EBX = msg ptr
- *   10: CD 80            int   0x80
- *   12: B8 01 00 00 00   mov   eax, 1   ; SYS_EXIT
- *   17: 31 DB            xor   ebx, ebx
- *   19: CD 80            int   0x80
- *   1B: msg              "Welcome to userspace!\n\0"  (offset 27)
+ *   00: B8 64 00 00 00   mov   eax, 100  ; SYS_DEBUG
+ *   05: BB 01 00 00 00   mov   ebx, 1    ; checkpoint 1
+ *   0A: CD 80            int   0x80
+ *   0C: E8 00 00 00 00   call  +0        ; push &pop_esi, jmp to pop_esi
+ *   11: 5E               pop   esi       ; esi = runtime addr of this insn
+ *   12: 83 C6 22         add   esi, 0x22 ; esi = &msg  (0x33 - 0x11 = 0x22)
+ *   15: B8 04 00 00 00   mov   eax, 4    ; SYS_WRITE
+ *   1A: 89 F3            mov   ebx, esi
+ *   1C: CD 80            int   0x80
+ *   1E: B8 64 00 00 00   mov   eax, 100  ; SYS_DEBUG
+ *   23: BB 02 00 00 00   mov   ebx, 2    ; checkpoint 2
+ *   28: CD 80            int   0x80
+ *   2A: B8 01 00 00 00   mov   eax, 1    ; SYS_EXIT
+ *   2F: 31 DB            xor   ebx, ebx
+ *   31: CD 80            int   0x80
+ *   33: msg              "Welcome to userspace!\n\0"
  */
 static const uint8_t user_test_bin[] = {
+    0xB8, 0x64, 0x00, 0x00, 0x00,          /* mov   eax, 100    */
+    0xBB, 0x01, 0x00, 0x00, 0x00,          /* mov   ebx, 1      */
+    0xCD, 0x80,                             /* int   0x80  (CP1) */
     0xE8, 0x00, 0x00, 0x00, 0x00,          /* call  +0          */
     0x5E,                                   /* pop   esi         */
-    0x83, 0xC6, 0x16,                       /* add   esi, 22     */
+    0x83, 0xC6, 0x22,                       /* add   esi, 0x22   */
     0xB8, 0x04, 0x00, 0x00, 0x00,          /* mov   eax, 4      */
     0x89, 0xF3,                             /* mov   ebx, esi    */
-    0xCD, 0x80,                             /* int   0x80        */
+    0xCD, 0x80,                             /* int   0x80  (write)*/
+    0xB8, 0x64, 0x00, 0x00, 0x00,          /* mov   eax, 100    */
+    0xBB, 0x02, 0x00, 0x00, 0x00,          /* mov   ebx, 2      */
+    0xCD, 0x80,                             /* int   0x80  (CP2) */
     0xB8, 0x01, 0x00, 0x00, 0x00,          /* mov   eax, 1      */
-    0x31, 0xDB,                             /* xor   ebx, ebx   */
-    0xCD, 0x80,                             /* int   0x80        */
-    /* msg at offset 27: */
+    0x31, 0xDB,                             /* xor   ebx, ebx    */
+    0xCD, 0x80,                             /* int   0x80  (exit)*/
+    /* msg at offset 0x33: */
     'W','e','l','c','o','m','e',' ',
     't','o',' ',
     'u','s','e','r','s','p','a','c','e','!','\n','\0'

@@ -16,6 +16,7 @@
 #include <kernel/isr.h>
 #include <kernel/task.h>
 #include <kernel/tty.h>
+#include <kernel/serial.h>
 
 static void syscall_dispatch(registers_t *regs)
 {
@@ -33,6 +34,15 @@ static void syscall_dispatch(registers_t *regs)
 
     case SYS_YIELD:
         task_yield();
+        break;
+
+    case SYS_DEBUG:
+        t_writestring("[ring3] CP: 0x");
+        t_hex(regs->ebx);
+        t_putchar('\n');
+        Serial_WriteString("[ring3] CP: 0x");
+        Serial_WriteHex(regs->ebx);
+        Serial_WriteString("\n");
         break;
 
     default:

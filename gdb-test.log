@@ -2,20 +2,21 @@
 EAX at _start: 0x36D76289
 PASS: Multiboot 2 magic verified (0x36D76289)
 --- Running group: Boot Checkpoints ---
-Breakpoint 1 at 0x104af0: file kernel/kernel.c, line 71.
-Breakpoint 2 at 0x100190: file arch/i386/tty.c, line 20.
-Breakpoint 3 at 0x101740: file arch/i386/serial.c, line 134.
-Breakpoint 4 at 0x1008d0: file arch/i386/descr_tbl.c, line 115.
-Breakpoint 5 at 0x101c10: file arch/i386/debug.c, line 99.
-Breakpoint 6 at 0x101c40: file arch/i386/pmm.c, line 28.
-Breakpoint 7 at 0x101ff0: file arch/i386/paging.c, line 49.
-Breakpoint 8 at 0x102200: file arch/i386/heap.c, line 39.
-Breakpoint 9 at 0x1024d0: file arch/i386/vesa.c, line 11.
-Breakpoint 10 at 0x102a70: file arch/i386/vesa_tty.c, line 35.
-Breakpoint 11 at 0x1018f0: file arch/i386/timer.c, line 37.
-Breakpoint 12 at 0x104a10: file kernel/kernel.c, line 160.
+Breakpoint 1 at 0x10d0a0: file kernel/kernel.c, line 67.
+Breakpoint 2 at 0x106f40: file arch/i386/display/tty.c, line 21.
+Breakpoint 3 at 0x100ec0: file arch/i386/hardware/serial.c, line 90.
+Breakpoint 4 at 0x1001b0: file arch/i386/core/descr_tbl.c, line 167.
+Breakpoint 5 at 0x10cfc0: file arch/i386/debug/debug.c, line 99.
+Breakpoint 6 at 0x106560: file arch/i386/mm/pmm.c, line 28.
+Breakpoint 7 at 0x1068e0: file arch/i386/mm/paging.c, line 71.
+Breakpoint 8 at 0x106aa0: file arch/i386/mm/heap.c, line 39.
+Breakpoint 9 at 0x1077b0: file arch/i386/display/vesa.c, line 11.
+Breakpoint 10 at 0x107d20: file arch/i386/display/vesa_tty.c, line 36.
+Breakpoint 11 at 0x100fc0: file arch/i386/hardware/timer.c, line 57.
+Breakpoint 12 at 0x108740: file arch/i386/system/shell.c, line 292.
 CHECKPOINT: kernel_main
 CHECKPOINT: terminal_initialize
+CHECKPOINT: init_serial
 CHECKPOINT: init_descriptor_tables
 CHECKPOINT: init_debug_handlers
 CHECKPOINT: pmm_init
@@ -24,13 +25,16 @@ CHECKPOINT: heap_init
 CHECKPOINT: vesa_init
 CHECKPOINT: vesa_tty_init
 CHECKPOINT: init_timer
-CHECKPOINT: debug_idle
-Cannot execute this command while the target is running.
-Use the "interrupt" command to stop the target
-and then try again.
-Exception ignored in: <module 'threading' from '/usr/lib/python3.12/threading.py'>
-Traceback (most recent call last):
-  File "/usr/lib/python3.12/threading.py", line 1573, in _shutdown
-    def _shutdown():
-    
-KeyboardInterrupt: 
+CHECKPOINT: shell_run
+GROUP PASS: Boot Checkpoints
+--- Running group: Hardware State ---
+PASS: CR0.PG is set (paging enabled, CR0=0x80000011)
+PASS: CR3 is non-zero (page directory at 0x00162000)
+PASS: timer_callback fired (tick=7)
+GROUP PASS: Hardware State
+--- Running group: VESA Framebuffer ---
+WARN: could not read fb_ready; skipping framebuffer checks
+WARN: could not read tty_ready; skipping TTY checks
+GROUP PASS: VESA Framebuffer
+ALL GROUPS PASSED
+[Inferior 1 (process 1) detached]
