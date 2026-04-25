@@ -4,6 +4,7 @@ set -e
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DOCKER_BIN=${DOCKER_BIN:-docker}
 DOCKER_IMAGE=${DOCKER_IMAGE:-arawn780/gcc-cross-i686-elf:fast}
+DOCKER_PLATFORM=${DOCKER_PLATFORM:-linux/amd64}
 
 if ! command -v "$DOCKER_BIN" >/dev/null 2>&1; then
     echo "ERROR: Docker CLI not found (expected '$DOCKER_BIN')." >&2
@@ -22,6 +23,7 @@ elif [ -n "$CPPFLAGS" ]; then
     _build_cmd="CPPFLAGS='$CPPFLAGS' bash iso.sh"
 fi
 "$DOCKER_BIN" run --rm \
+    --platform "$DOCKER_PLATFORM" \
     -u "$(id -u):$(id -g)" \
     -v "$REPO_ROOT:/work" \
     -w /work \

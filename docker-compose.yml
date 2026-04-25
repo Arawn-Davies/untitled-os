@@ -18,6 +18,7 @@ services:
   # Compiles the kernel and produces makar.iso.
   build:
     build: .
+    platform: linux/amd64
     volumes:
       - .:/work
     working_dir: /work
@@ -27,6 +28,7 @@ services:
   # Same as 'build' but compiles with -O0 -g3 for accurate GDB symbols.
   build-debug:
     build: .
+    platform: linux/amd64
     volumes:
       - .:/work
     working_dir: /work
@@ -39,6 +41,7 @@ services:
   # QEMU runs headless (-display none) so no display is required.
   test:
     build: .
+    platform: linux/amd64
     volumes:
       - .:/work
     working_dir: /work

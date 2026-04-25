@@ -20,6 +20,8 @@ set -e
 REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DOCKER_IMAGE=${DOCKER_IMAGE:-arawn780/gcc-cross-i686-elf:fast}
 DOCKER_BIN=${DOCKER_BIN:-docker}
+DOCKER_PLATFORM=${DOCKER_PLATFORM:-linux/amd64}
+export DOCKER_PLATFORM
 
 if ! command -v "$DOCKER_BIN" >/dev/null 2>&1; then
     echo "ERROR: Docker CLI not found (expected '$DOCKER_BIN')." >&2
@@ -29,16 +31,18 @@ fi
 # ── Step 1: in-kernel ktest suite (TEST_MODE) ─────────────────────────────────
 echo "==> Step 1: cleaning build artifacts..."
 "$DOCKER_BIN" run --rm \
+    --platform "$DOCKER_PLATFORM" \
     -v "$REPO_ROOT:/work" \
     -w /work \
     "$DOCKER_IMAGE" \
     bash -c '. ./src/config.sh && for p in $PROJECTS; do (cd $p && $MAKE clean 2>/dev/null || true); done'
 
 echo "==> Step 1: building TEST_MODE ISO..."
-CFLAGS='-O0 -g3' CPPFLAGS='-DTEST_MODE' ./docker-iso.sh
+CFLAGS='-O0 -g3' CPPFLAGS='-DTEST_MODE' DOCKER_PLATFORM="$DOCKER_PLATFORM" ./docker-iso.sh
 
 echo "==> Step 1: running ktest suite in QEMU (headless)..."
 "$DOCKER_BIN" run --rm \
+    --platform "$DOCKER_PLATFORM" \
     -v "$REPO_ROOT:/work" \
     -w /work \
     "$DOCKER_IMAGE" \
@@ -65,16 +69,18 @@ echo "==> Step 1: running ktest suite in QEMU (headless)..."
 # ── Step 2: GDB boot-checkpoint tests (normal debug build) ────────────────────
 echo "==> Step 2: cleaning TEST_MODE artifacts..."
 "$DOCKER_BIN" run --rm \
+    --platform "$DOCKER_PLATFORM" \
     -v "$REPO_ROOT:/work" \
     -w /work \
     "$DOCKER_IMAGE" \
     bash -c '. ./src/config.sh && for p in $PROJECTS; do (cd $p && $MAKE clean 2>/dev/null || true); done'
 
 echo "==> Step 2: building debug ISO for GDB tests..."
-CFLAGS='-O0 -g3' ./docker-iso.sh
+CFLAGS='-O0 -g3' DOCKER_PLATFORM="$DOCKER_PLATFORM" ./docker-iso.sh
 
 echo "==> Step 2: running GDB boot-checkpoint tests..."
 "$DOCKER_BIN" run --rm \
+    --platform "$DOCKER_PLATFORM" \
     -v "$REPO_ROOT:/work" \
     -w /work \
     "$DOCKER_IMAGE" \
