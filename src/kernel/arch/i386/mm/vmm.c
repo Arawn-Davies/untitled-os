@@ -3,12 +3,6 @@
 #include <kernel/paging.h>
 #include <string.h>
 
-/*
- * Number of kernel PDEs to propagate into each new page directory.
- * 64 × 4 MiB PSE entries = 256 MiB, matching the identity window in paging.c.
- */
-#define KERNEL_PDE_COUNT  64u
-
 /* Mirrors the page-entry flag bits used by paging.c. */
 #define PAGE_PRESENT   0x1u
 #define PAGE_WRITABLE  0x2u
@@ -25,10 +19,13 @@ uint32_t *vmm_create_pd(void)
     uint32_t *pd = (uint32_t *)phys;
     memset(pd, 0, PMM_FRAME_SIZE);
 
-    /* Share kernel PDEs so the kernel is visible from this address space. */
+    /* Copy all present kernel PDEs so every kernel mapping (identity window,
+     * VESA framebuffer, heap extra pages, etc.) is visible from this PD. */
     uint32_t *kpd = paging_kernel_pd();
-    for (uint32_t i = 0; i < KERNEL_PDE_COUNT; i++)
-        pd[i] = kpd[i];
+    for (uint32_t i = 0; i < 1024; i++) {
+        if (kpd[i])
+            pd[i] = kpd[i];
+    }
 
     return pd;
 }
@@ -83,9 +80,13 @@ void vmm_switch(uint32_t *pd)
 
 void vmm_free_pd(uint32_t *pd)
 {
-    /* Only walk non-kernel PDE slots (skip indices 0–63). */
-    for (uint32_t pdi = KERNEL_PDE_COUNT; pdi < 1024; pdi++) {
+    uint32_t *kpd = paging_kernel_pd();
+    for (uint32_t pdi = 0; pdi < 1024; pdi++) {
         if (!(pd[pdi] & PAGE_PRESENT) || (pd[pdi] & PAGE_LARGE))
+            continue;
+        /* Skip PDEs shared with the kernel — freeing them would corrupt the
+         * kernel's own mappings. */
+        if (pd[pdi] == kpd[pdi])
             continue;
 
         uint32_t *pt = (uint32_t *)(pd[pdi] & ~0xFFFu);

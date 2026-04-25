@@ -15,6 +15,7 @@
 #include <kernel/descr_tbl.h>
 #include <kernel/task.h>
 #include <kernel/syscall.h>
+#include <kernel/serial.h>
 #include <kernel/tty.h>
 #include <string.h>
 
@@ -294,14 +295,20 @@ static void test_vmm(void)
     KTEST_ASSERT(pd != NULL);
     KTEST_ASSERT(((uint32_t)pd & 0xFFFu) == 0);
 
-    /* Kernel PDEs (indices 0–63) are propagated into the new PD. */
+    /* Every non-zero kernel PDE must be propagated into the new PD. */
+    bool all_kpdes_ok = true;
+    for (uint32_t i = 0; i < 1024; i++) {
+        if (kpd[i] && pd[i] != kpd[i]) {
+            all_kpdes_ok = false;
+            break;
+        }
+    }
+    KTEST_ASSERT(all_kpdes_ok);
+
+    /* Spot-check: identity-window large-page entries copied. */
     KTEST_ASSERT(pd[0]  == kpd[0]);
     KTEST_ASSERT(pd[32] == kpd[32]);
     KTEST_ASSERT(pd[63] == kpd[63]);
-
-    /* Non-kernel PDEs are zeroed. */
-    KTEST_ASSERT((pd[64]   & KT_PAGE_PRESENT) == 0);
-    KTEST_ASSERT((pd[1023] & KT_PAGE_PRESENT) == 0);
 
     /* vmm_map_page: allocate a frame and map it at a user virtual address. */
     uint32_t phys = pmm_alloc_frame();
@@ -428,9 +435,9 @@ static void test_gdt(void)
     /* User data segment (index 4): DPL must be 3. */
     KTEST_ASSERT(((gdt_entries[4].access >> 5) & 0x3u) == 3u);
 
-    /* TSS descriptor (index 5): low nibble of access byte encodes type.
-     * 0x89 → type nibble = 9 = "32-bit TSS available". */
-    KTEST_ASSERT((gdt_entries[5].access & 0x0Fu) == 9u);
+    /* TSS descriptor (index 5): access byte must be 0x89 (available) or 0x8B
+     * (busy) — the CPU sets the busy bit when ltr loads the selector. */
+    KTEST_ASSERT(gdt_entries[5].access == 0x89u || gdt_entries[5].access == 0x8Bu);
 
     /* tss_set_kernel_stack must update the TSS ESP0 field the CPU will read. */
     uint32_t saved = tss_get_esp0();
@@ -502,6 +509,90 @@ static void test_ring3_prereqs(void)
     ktest_summary();
 }
 
+/* ---------------------------------------------------------------------------
+ * Suite: IDT
+ *
+ * Verifies that the IDT entries the kernel depends on are installed correctly:
+ *   - Exception gates (DPL=0, present, 32-bit interrupt gate = 0x8E)
+ *   - Syscall gate at vector 0x80 (DPL=3 = 0xEE so ring-3 can invoke it)
+ *   - All handler pointers are non-zero
+ *   - All gates use the kernel code selector (0x08)
+ * ------------------------------------------------------------------------- */
+
+static void test_idt(void)
+{
+    extern idt_entry_t idt_entries[256];
+    ktest_begin("idt");
+
+    /* Exception gates: present, DPL=0, 32-bit interrupt gate (0x8E). */
+    KTEST_ASSERT(idt_entries[0].flags  == 0x8E);  /* #DE divide error    */
+    KTEST_ASSERT(idt_entries[8].flags  == 0x8E);  /* #DF double fault    */
+    KTEST_ASSERT(idt_entries[13].flags == 0x8E);  /* #GP protection      */
+    KTEST_ASSERT(idt_entries[14].flags == 0x8E);  /* #PF page fault      */
+
+    /* Handler pointers must be non-zero. */
+    uint32_t base0  = idt_entries[0].base_lo  | ((uint32_t)idt_entries[0].base_hi  << 16);
+    uint32_t base14 = idt_entries[14].base_lo | ((uint32_t)idt_entries[14].base_hi << 16);
+    KTEST_ASSERT(base0  != 0);
+    KTEST_ASSERT(base14 != 0);
+
+    /* Syscall gate: present, DPL=3 (0xEE) so ring-3 can invoke int 0x80. */
+    KTEST_ASSERT(idt_entries[0x80].flags == 0xEE);
+    uint32_t base80 = idt_entries[0x80].base_lo | ((uint32_t)idt_entries[0x80].base_hi << 16);
+    KTEST_ASSERT(base80 != 0);
+
+    /* All checked gates must use the kernel code selector. */
+    KTEST_ASSERT(idt_entries[0].sel    == 0x08);
+    KTEST_ASSERT(idt_entries[14].sel   == 0x08);
+    KTEST_ASSERT(idt_entries[0x80].sel == 0x08);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: ring3_execution
+ *
+ * Performs an end-to-end ring-3 smoke test by creating a task that maps user
+ * code and stack, drops to ring 3 via iret, executes the embedded PIC binary
+ * (SYS_DEBUG → SYS_WRITE → SYS_DEBUG → SYS_EXIT), and verifies that both
+ * debug checkpoints were reached.
+ *
+ * CP1 fires immediately on ring-3 entry; CP2 fires after SYS_WRITE returns.
+ * Seeing CP2 == 2 proves: ring-3 entry worked, the write syscall returned, and
+ * the user binary ran to completion before calling SYS_EXIT.
+ * ------------------------------------------------------------------------- */
+
+extern void ring3_usertest_task(void);
+
+static void test_ring3_execution(void)
+{
+    ktest_begin("ring3_execution");
+
+    /* Reset the checkpoint so stale values from a prior run don't give a
+     * false positive. */
+    g_ring3_last_cp = 0;
+
+    task_t *t = task_create("ring3test", ring3_usertest_task);
+    KTEST_ASSERT(t != NULL);
+
+    /* Yield to the ring-3 task; it runs to SYS_EXIT (task_exit), which marks
+     * itself DEAD and reschedules back to us in one cooperative round-trip. */
+    task_yield();
+
+    /* This line executes only after the scheduler returned to kernel mode.
+     * It proves we are back in ring 0 with the kernel page directory active,
+     * able to call kernel functions and write to serial/VGA normally. */
+    Serial_WriteString("[ktest] ring3_execution: back in kernel mode (ring 0)\n");
+    t_writestring("[ktest] ring3 -> kernel mode OK\n");
+
+    /* CP2 appears after SYS_WRITE returns, just before SYS_EXIT.  Seeing 2
+     * confirms ring-3 entry, the write syscall, and the debug syscall all
+     * worked correctly. */
+    KTEST_ASSERT(g_ring3_last_cp == 2);
+
+    ktest_summary();
+}
+
 int ktest_run_all(void)
 {
     int total_pass = 0;
@@ -544,6 +635,14 @@ int ktest_run_all(void)
     total_fail += ktest_fail_count;
 
     test_ring3_prereqs();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_idt();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_ring3_execution();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 

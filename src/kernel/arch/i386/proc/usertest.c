@@ -68,7 +68,7 @@ static const uint8_t user_test_bin[] = {
     'u','s','e','r','s','p','a','c','e','!','\n','\0'
 };
 
-static void usertest_task(void)
+void ring3_usertest_task(void)
 {
     /* 1. Fresh user address space (kernel PDEs shared). */
     uint32_t *pd = vmm_create_pd();
@@ -113,7 +113,7 @@ static void usertest_task(void)
 void cmd_ring3test(void)
 {
     t_writestring("Spawning ring-3 test process...\n");
-    task_t *t = task_create("ring3test", usertest_task);
+    task_t *t = task_create("ring3test", ring3_usertest_task);
     if (!t) {
         t_writestring("ring3test: task_create failed (pool full?)\n");
         return;

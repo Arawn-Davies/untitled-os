@@ -26,6 +26,12 @@
  * Must be called after init_descriptor_tables() (which installs the IDT gate)
  * and after tasking_init().
  */
+/*
+ * g_ring3_last_cp — last SYS_DEBUG checkpoint value received from ring-3 code.
+ * Reset to 0 before launching a ring-3 test task; read after it exits.
+ */
+extern volatile uint32_t g_ring3_last_cp;
+
 void syscall_init(void);
 
 /*

@@ -2,6 +2,7 @@
 #define _KERNEL_ACPI_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 /*
  * acpi_init – scan for the RSDP and parse the FADT / DSDT.
@@ -14,6 +15,12 @@
  * Returns 1 if ACPI tables were found and parsed successfully, 0 otherwise.
  */
 int acpi_init(void);
+
+/*
+ * acpi_checksum – verify that the byte sum of a table is zero (ACPI-valid).
+ * Returns 1 if valid, 0 if not.
+ */
+int acpi_checksum(const void *table, size_t length);
 
 /*
  * acpi_shutdown – power off the machine via ACPI S5 ("soft off").

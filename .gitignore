@@ -1,9 +1,19 @@
+# Build outputs
 *.iso
-isodir
-sysroot
 *.img
 *.qcow2
-*\**.pyc
-# compiled binary artifacts (no extension) that may appear in arch dirs
+isodir
+sysroot
+
+# Compiled kernel binary
+*.kernel
+
+# Test and serial logs
+*.log
+
+# Python cache
+*.pyc
+tests/groups/__pycache__/
+
+# Compiled binary artifacts (no extension) that appear in arch dirs
 src/kernel/arch/*/dt_asm
-tests/groups/__pycache__/*.pyc

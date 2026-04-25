@@ -9,13 +9,13 @@ Makar is a hobby x86 (i386) bare-metal OS kernel written in C and AT&T assembly,
 ## Build commands
 
 ```sh
-./docker-iso.sh          # build ISO inside Docker (recommended, no toolchain needed)
-./docker-qemu.sh         # build + run in QEMU headless (serial → serial.log)
-./docker-ktest.sh        # build TEST_MODE ISO, run ktest suite, QEMU exits when done
-./docker-test.sh         # full suite: ktest + GDB boot tests
+./docker-qemu.sh         # build interactive ISO + run in QEMU with shell
+./docker-ktest.sh        # full CI suite: ktest (TEST_MODE) + GDB boot tests
 
-./build.sh               # build without Docker (needs i686-elf-gcc cross-toolchain)
-./iso.sh                 # create bootable ISO (calls build.sh + grub-mkrescue)
+# Internal (called inside Docker — do not invoke directly):
+./docker-iso.sh          # Docker ISO build entry point
+./build.sh               # compile kernel + libc
+./iso.sh                 # package into makar.iso
 ./clean.sh               # remove build artifacts
 
 # Docker Compose equivalents
@@ -29,27 +29,23 @@ Test mode uses `-DTEST_MODE`: kernel runs `ktest_run_all()` then exits QEMU via 
 
 ## Testing
 
-**In-kernel test suite** (fastest, QEMU exits when done):
+**Full CI suite** (ktest + GDB boot checkpoints, auto-exits):
 ```sh
-./docker-ktest.sh        # builds with -DTEST_MODE, runs ktest, exits cleanly
-# output: ktest.log; exits 0 on pass, 1 on fail
+./docker-ktest.sh
+# Step 1: TEST_MODE ISO → ktest_run_all() → QEMU exits.  Output: ktest.log
+# Step 2: debug ISO → GDB boot-checkpoint verification.  Output: gdb-test.log
+# exits 0 on pass, 1 on any failure
 ```
 
-**GDB boot-test suite** (comprehensive):
-```sh
-./test-gdb.sh            # native (needs i686-elf-gdb or gdb-multiarch)
-./docker-test.sh         # Docker: ktest suite + GDB boot tests
-```
 GDB test script: `tests/gdb_boot_test.py`. Connects to `:1234`, verifies Multiboot 2 magic, symbol addresses, memory layout, boot checkpoints. Output: `gdb-test.log`.
 
-**Interactive GDB debug**:
+**Interactive GDB debug** (inside Docker container manually):
 ```sh
-./gdb.sh                 # Terminal 1: starts QEMU with -s -S (waits for GDB)
-# Terminal 2:
-i686-elf-gdb src/kernel/makar.kernel -ex "target remote :1234" -ex "break kernel_main" -ex "continue"
+# Run QEMU with GDB stub from inside the Docker container
+docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
+    bash -c 'qemu-system-i386 -cdrom makar.iso -s -S -display none -serial stdio &
+             gdb-multiarch src/kernel/makar.kernel -ex "target remote :1234"'
 ```
-
-GDB auto-detect order: `i686-elf-gdb` → `gdb-multiarch` → `gdb`.
 
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 

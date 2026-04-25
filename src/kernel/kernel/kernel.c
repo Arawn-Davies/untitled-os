@@ -150,7 +150,9 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	t_writestring("Initializing multitasking");
 	kprint_ok();
 	tasking_init();
+#ifndef TEST_MODE
 	task_create("shell", shell_run);
+#endif
 
 	t_writestring("Initializing syscalls (int 0x80)");
 	kprint_ok();

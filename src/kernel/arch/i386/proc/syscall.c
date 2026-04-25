@@ -16,7 +16,9 @@
 #include <kernel/isr.h>
 #include <kernel/task.h>
 #include <kernel/tty.h>
-#include <kernel/serial.h>
+
+/* Last SYS_DEBUG checkpoint value seen; reset to 0 before each ring-3 test. */
+volatile uint32_t g_ring3_last_cp = 0;
 
 void syscall_dispatch(registers_t *regs)
 {
@@ -37,12 +39,10 @@ void syscall_dispatch(registers_t *regs)
         break;
 
     case SYS_DEBUG:
+        g_ring3_last_cp = regs->ebx;
         t_writestring("[ring3] CP: 0x");
         t_hex(regs->ebx);
         t_putchar('\n');
-        Serial_WriteString("[ring3] CP: 0x");
-        Serial_WriteHex(regs->ebx);
-        Serial_WriteString("\n");
         break;
 
     default:

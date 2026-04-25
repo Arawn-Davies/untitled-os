@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-inline void outb(uint16_t port, uint8_t val)
+static inline void outb(uint16_t port, uint8_t val)
 {
 	asm volatile("outb %0, %1"
 				 :
@@ -17,7 +17,7 @@ inline void outb(uint16_t port, uint8_t val)
 	// had the port number a wider C type */
 }
 
-inline uint8_t inb(uint16_t port)
+static inline uint8_t inb(uint16_t port)
 {
 	uint8_t ret;
 	asm volatile("inb %1, %0"
@@ -26,14 +26,14 @@ inline uint8_t inb(uint16_t port)
 	return ret;
 }
 
-inline void outw(uint16_t port, uint16_t val)
+static inline void outw(uint16_t port, uint16_t val)
 {
 	asm volatile("outw %0, %1"
 				 :
 				 : "a"(val), "Nd"(port));
 }
 
-inline uint16_t inw(uint16_t port)
+static inline uint16_t inw(uint16_t port)
 {
 	uint16_t ret;
 	asm volatile("inw %1, %0"
@@ -42,11 +42,11 @@ inline uint16_t inw(uint16_t port)
 	return ret;
 }
 
-inline void enable_interrupts(void) { asm volatile("sti"); }
+static inline void enable_interrupts(void) { asm volatile("sti"); }
 
-inline void disable_interrupts(void) { asm volatile("cli"); }
+static inline void disable_interrupts(void) { asm volatile("cli"); }
 
-inline void invlpg(void *m)
+static inline void invlpg(void *m)
 {
 	asm volatile("invlpg (%0)"
 				 :

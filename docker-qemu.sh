@@ -1,14 +1,32 @@
 #!/bin/sh
+# docker-qemu.sh – build a normal (interactive) ISO and run it locally.
+#
+# Cleans first so that any stale TEST_MODE build artifacts from docker-ktest.sh
+# do not contaminate this build.  The resulting kernel boots to the shell.
+#
+# Usage: ./docker-qemu.sh
+
 set -e
+
+REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DOCKER_IMAGE=${DOCKER_IMAGE:-arawn780/gcc-cross-i686-elf:fast}
+DOCKER_BIN=${DOCKER_BIN:-docker}
+
 . ./src/config.sh
 QEMU_BIN="qemu-system-$(./src/target-triplet-to-arch.sh "$HOST")"
 
-# Build with the CI Docker image, then run locally with host QEMU.
-./docker-iso.sh
+echo "==> Cleaning build artifacts..."
+"$DOCKER_BIN" run --rm \
+    -v "$REPO_ROOT:/work" \
+    -w /work \
+    "$DOCKER_IMAGE" \
+    bash -c '. ./src/config.sh && for p in $PROJECTS; do (cd $p && $MAKE clean 2>/dev/null || true); done'
 
-# Create a blank hard-disk image if one does not already exist.
+echo "==> Building interactive ISO..."
+CFLAGS='-O0 -g3' ./docker-iso.sh
+
 if [ ! -f hdd.img ]; then
-    ./mkhdd.sh
+    qemu-img create -f raw hdd.img 512M
 fi
 
 if ! command -v "$QEMU_BIN" >/dev/null 2>&1; then

@@ -5,6 +5,7 @@
 
 #include <kernel/vga.h>
 #include <kernel/vesa_tty.h>
+#include <kernel/serial.h>
 
 size_t t_line_fill[VGA_WIDTH];
 size_t t_row;
@@ -66,6 +67,7 @@ void t_putentryat(char c, uint8_t color, size_t x, size_t y)
 
 void t_putchar(char c)
 {
+	Serial_WriteChar(c);
 	vesa_tty_putchar(c);
 
 	if (c != '\n')
