@@ -17,7 +17,10 @@
 #include <kernel/task.h>
 #include <kernel/tty.h>
 
-static void syscall_dispatch(registers_t *regs)
+/* Last SYS_DEBUG checkpoint value seen; reset to 0 before each ring-3 test. */
+volatile uint32_t g_ring3_last_cp = 0;
+
+void syscall_dispatch(registers_t *regs)
 {
     switch (regs->eax) {
     case SYS_EXIT:
@@ -33,6 +36,13 @@ static void syscall_dispatch(registers_t *regs)
 
     case SYS_YIELD:
         task_yield();
+        break;
+
+    case SYS_DEBUG:
+        g_ring3_last_cp = regs->ebx;
+        t_writestring("[ring3] CP: 0x");
+        t_hex(regs->ebx);
+        t_putchar('\n');
         break;
 
     default:

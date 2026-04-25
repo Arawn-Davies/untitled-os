@@ -27,6 +27,11 @@ CHECKPOINTS = [
     'vesa_init',
     'vesa_tty_init',
     'init_timer',
+    'keyboard_init',
+    'ide_init',
+    'tasking_init',
+    'syscall_init',
+    'acpi_init',
     'shell_run',
 ]
 
