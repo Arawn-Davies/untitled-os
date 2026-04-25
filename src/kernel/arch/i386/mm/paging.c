@@ -79,9 +79,6 @@ void paging_init(void)
         page_directory[i] = phys | PAGE_PRESENT | PAGE_WRITABLE | PAGE_LARGE;
     }
 
-    /* Register the page-fault handler (ISR 14). */
-    register_interrupt_handler(14, page_fault_handler);
-
     /* Load CR3 with the physical address of the page directory. */
     asm volatile("mov %0, %%cr3" :: "r"(page_directory) : "memory");
 

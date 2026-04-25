@@ -11,7 +11,8 @@ Makar is a hobby x86 (i386) bare-metal OS kernel written in C and AT&T assembly,
 ```sh
 ./docker-iso.sh          # build ISO inside Docker (recommended, no toolchain needed)
 ./docker-qemu.sh         # build + run in QEMU headless (serial → serial.log)
-./docker-test.sh         # build + run full test suite (GDB automation + smoke test)
+./docker-ktest.sh        # build TEST_MODE ISO, run ktest suite, QEMU exits when done
+./docker-test.sh         # full suite: ktest + GDB boot tests
 
 ./build.sh               # build without Docker (needs i686-elf-gcc cross-toolchain)
 ./iso.sh                 # create bootable ISO (calls build.sh + grub-mkrescue)
@@ -20,23 +21,24 @@ Makar is a hobby x86 (i386) bare-metal OS kernel written in C and AT&T assembly,
 # Docker Compose equivalents
 docker compose run --rm build          # release ISO
 docker compose run --rm build-debug    # debug ISO (-O0 -g3)
-docker compose run --rm test           # build + smoke test
+docker compose run --rm test           # debug build + headless boot test
 ```
 
 Debug builds use `-O0 -g3`; release uses `-O2 -g`. Override via `CFLAGS`.
+Test mode uses `-DTEST_MODE`: kernel runs `ktest_run_all()` then exits QEMU via `isa-debug-exit`.
 
 ## Testing
 
-**Serial smoke test** (fastest):
+**In-kernel test suite** (fastest, QEMU exits when done):
 ```sh
-docker compose run --rm test
-# checks serial.log for "serial: COM1 ready" and "keyboard: PS/2 IRQ1 handler registered"
+./docker-ktest.sh        # builds with -DTEST_MODE, runs ktest, exits cleanly
+# output: ktest.log; exits 0 on pass, 1 on fail
 ```
 
 **GDB boot-test suite** (comprehensive):
 ```sh
 ./test-gdb.sh            # native (needs i686-elf-gdb or gdb-multiarch)
-./docker-test.sh         # Docker build + native QEMU + GDB
+./docker-test.sh         # Docker: ktest suite + GDB boot tests
 ```
 GDB test script: `tests/gdb_boot_test.py`. Connects to `:1234`, verifies Multiboot 2 magic, symbol addresses, memory layout, boot checkpoints. Output: `gdb-test.log`.
 
@@ -49,7 +51,7 @@ i686-elf-gdb src/kernel/makar.kernel -ex "target remote :1234" -ex "break kernel
 
 GDB auto-detect order: `i686-elf-gdb` → `gdb-multiarch` → `gdb`.
 
-**In-kernel test suite**: shell command `ktest` runs `tests/` via the `ktest.c` runner.
+**In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 
 ## Architecture
 
@@ -104,17 +106,19 @@ To diagnose failures: watch `serial.log` for `[ring3] CP: 0x1` and `[ring3] CP: 
 ## Key source layout
 ```
 src/kernel/arch/i386/
-  init/       boot.S (Multiboot 2 entry), crti/crtn
+  boot/       boot.S (Multiboot 2 entry), crti/crtn
   core/       GDT/IDT (descr_tbl.c), ISR stub (isr_asm.S), interrupt dispatch (isr.c)
   mm/         pmm.c (frame allocator), paging.c, vmm.c (per-task page dirs), heap.c
-  system/     task.c + task_asm.S (scheduler), syscall.c, ring3.S, usertest.c, ktest.c, shell*
-  hardware/   serial, keyboard, timer, IDE, FAT32, ISO9660, VFS, ACPI
+  drivers/    serial, keyboard, timer, IDE, ACPI, partition
+  fs/         fat32.c, iso9660.c, vfs.c
   display/    tty.c (VGA text), vesa.c + vesa_tty.c (VESA framebuffer)
-  debug/      exception handlers
+  proc/       task.c + task_asm.S (scheduler), syscall.c, ring3.S, usertest.c, ktest.c
+  shell/      shell.c, shell_cmds.c, shell_help.c
+  debug/      exception handlers (INT 1/3/8/13/14, serial-first output)
 src/kernel/kernel/kernel.c   kernel_main
 src/kernel/include/kernel/   all public headers
 src/libc/                    minimal freestanding libc (string, stdio, stdlib) → libk.a
-tests/                       GDB boot-test suite (gdb_boot_test.py) + ktest groups
+tests/                       GDB boot-test suite (gdb_boot_test.py) + test groups
 ```
 
 ## Active branch: `feat/vmm-ring3-userspace`

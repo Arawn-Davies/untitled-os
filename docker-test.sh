@@ -1,14 +1,13 @@
 #!/bin/bash
-# docker-test.sh – build a debug ISO and run the full test suite entirely
-# inside the Docker build container.
+# docker-test.sh – run the full test suite entirely inside Docker.
+#
+# Steps:
+#   1. ktest suite  – TEST_MODE ISO, QEMU exits automatically via isa-debug-exit
+#   2. GDB tests    – normal debug ISO, GDB automation over the QEMU stub
 #
 # Usage: ./docker-test.sh
 #
-# Requirements (host):
-#   • docker
-#
-# Both QEMU and GDB run inside arawn780/gcc-cross-i686-elf:fast so no local
-# cross-compiler, QEMU, or GDB installation is needed.
+# Requirements (host): docker
 
 set -e
 
@@ -16,37 +15,16 @@ REPO_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DOCKER_IMAGE=${DOCKER_IMAGE:-arawn780/gcc-cross-i686-elf:fast}
 DOCKER_BIN=${DOCKER_BIN:-docker}
 
-# ── Docker build (debug flags for accurate GDB symbols) ──────────────────────
+# ── 1. In-kernel test suite (TEST_MODE) ──────────────────────────────────────
+echo "==> Step 1: ktest suite (TEST_MODE, QEMU exits when done)..."
+CFLAGS='-O0 -g3' "$REPO_ROOT/docker-ktest.sh"
+
+# ── 2. GDB boot test suite (normal build) ────────────────────────────────────
+echo "==> Step 2: building debug ISO for GDB tests..."
 export CFLAGS='-O0 -g3'
-echo "==> Building debug ISO in Docker (CFLAGS='$CFLAGS')..."
 ./docker-iso.sh
 
-# ── Serial smoke test ────────────────────────────────────────────────────────
-echo "==> Running serial smoke test..."
-"$DOCKER_BIN" run --rm \
-    -v "$REPO_ROOT:/work" \
-    -w /work \
-    "$DOCKER_IMAGE" \
-    bash -c '
-        timeout 20 qemu-system-i386 \
-            -cdrom makar.iso \
-            -serial stdio \
-            -display none \
-            -no-reboot \
-            -no-shutdown \
-            -d int,cpu_reset \
-            -D /work/qemu-debug.log \
-            2>/dev/null | tee /work/serial.log || true
-
-        grep -q "serial: COM1 ready"                    /work/serial.log \
-            || { echo "FAIL: COM1 ready not found in serial output"; exit 1; }
-        grep -q "keyboard: PS/2 IRQ1 handler registered" /work/serial.log \
-            || { echo "FAIL: keyboard init not found in serial output"; exit 1; }
-        echo "==> Serial smoke test passed."
-    '
-
-# ── GDB boot test suite ──────────────────────────────────────────────────────
-echo "==> Running GDB boot test suite..."
+echo "==> Step 2: running GDB boot test suite..."
 "$DOCKER_BIN" run --rm \
     -v "$REPO_ROOT:/work" \
     -w /work \
@@ -61,7 +39,6 @@ echo "==> Running GDB boot test suite..."
             -s -S &
         QEMU_PID=$!
 
-        # Wait for the GDB stub socket to open.
         sleep 2
 
         timeout 60 gdb-multiarch -batch \

@@ -502,7 +502,7 @@ static void test_ring3_prereqs(void)
     ktest_summary();
 }
 
-void ktest_run_all(void)
+int ktest_run_all(void)
 {
     int total_pass = 0;
     int total_fail = 0;
@@ -552,4 +552,5 @@ void ktest_run_all(void)
     t_writestring(" passed, ");
     t_dec((uint32_t)total_fail);
     t_writestring(" failed\n");
+    return total_fail;
 }
