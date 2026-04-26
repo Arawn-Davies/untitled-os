@@ -40,8 +40,14 @@ void timer_callback(registers_t *regs)
 	(void)regs;
 	tick++;
 	t_spinner_tick(tick);
-	if (tick % SCHED_QUANTUM == 0)
+	if (tick % SCHED_QUANTUM == 0) {
+		/* Send EOI to the master PIC before yielding so that the idle
+		   task's hlt can be woken by the next timer tick.  Without this
+		   the IRQ 0 in-service bit stays set, blocking all future timer
+		   interrupts, and the idle task sleeps forever. */
+		outb(0x20, 0x20);
 		task_yield();
+	}
 }
 
 uint32_t timer_get_ticks(void)

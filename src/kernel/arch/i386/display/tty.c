@@ -81,11 +81,15 @@ void t_putchar(char c)
 		t_column = 0;
 		if (++t_row == t_height)
 		{
-			t_scroll();
+			if (!vesa_tty_is_ready())
+				t_scroll();
+			else
+				t_row = 0;
 		}
 	}
 
-	update_cursor(t_row, t_column);
+	if (!vesa_tty_is_ready())
+		update_cursor(t_row, t_column);
 }
 
 void t_scroll()
@@ -159,6 +163,13 @@ void t_dec(uint32_t num)
 }
 
 // End credit
+
+int t_get_rows(void)
+{
+	if (vesa_tty_is_ready())
+		return (int)vesa_tty_get_rows();
+	return (int)t_height;
+}
 
 void t_spinner_tick(uint32_t tick)
 {

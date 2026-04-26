@@ -2,6 +2,7 @@
 #include <kernel/logo.h>
 #include <kernel/tty.h>
 #include <kernel/serial.h>
+#include <kernel/system.h>
 #include <string.h>
 
 static vesa_fb_t fb;
@@ -102,13 +103,18 @@ void vesa_put_pixel(uint32_t x, uint32_t y, uint32_t colour)
 {
 	if (!fb_ready)
 		return;
+	if (x >= fb.width || y >= fb.height)
+		PANIC("vesa_put_pixel: coordinates out of framebuffer bounds");
 
 	uint32_t bytes_per_pixel = fb.bpp / 8;
 	uint8_t *pixel = (uint8_t *)fb.addr + y * fb.pitch + x * bytes_per_pixel;
 
-	/* Write only as many bytes as the pixel format requires. */
-	for (uint32_t i = 0; i < bytes_per_pixel && i < 4; i++)
-		pixel[i] = (uint8_t)(colour >> (i * 8));
+	if (bytes_per_pixel == 4) {
+		*(uint32_t *)pixel = colour;
+	} else {
+		for (uint32_t i = 0; i < bytes_per_pixel && i < 4; i++)
+			pixel[i] = (uint8_t)(colour >> (i * 8));
+	}
 }
 
 void vesa_clear(uint32_t colour)

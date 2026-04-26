@@ -22,7 +22,7 @@ static void pager_start(void)
 {
     s_pager_line = 0;
     /* Reserve 3 rows: the "-- more --" prompt, a blank, and the shell prompt. */
-    s_pager_size = (int)t_height - 3;
+    s_pager_size = t_get_rows() - 3;
     if (s_pager_size < 5)
         s_pager_size = 5;
 }
