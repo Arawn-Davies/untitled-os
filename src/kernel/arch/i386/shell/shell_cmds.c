@@ -23,6 +23,7 @@
 #include <kernel/acpi.h>
 #include <kernel/vics.h>
 #include <kernel/debug.h>
+#include <kernel/chainload.h>
 
 #include <string.h>
 #include <stdint.h>
@@ -595,6 +596,63 @@ void cmd_shutdown(void)
 void cmd_reboot(void)
 {
     acpi_reboot(); /* never returns */
+}
+
+/* ---------------------------------------------------------------------------
+ * chainload – hand off to a boot sector on disk
+ *
+ * Usage: chainload <drive> [lba]
+ *   drive : ATA drive index (0–3)
+ *   lba   : sector to read (default 0 = MBR / installed bootloader)
+ *
+ * Examples:
+ *   chainload 0        – re-run whatever bootloader is in the MBR (GRUB, etc.)
+ *   chainload 0 2048   – boot the VBR of the first 1 MiB-aligned partition
+ * --------------------------------------------------------------------------- */
+
+/* 512-byte sector staging buffer — static so it doesn't live on the stack. */
+static uint8_t s_chainload_sector[512];
+
+void cmd_chainload(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: chainload <drive> [lba]\n");
+        t_writestring("  lba defaults to 0 (MBR / bootloader sector)\n");
+        return;
+    }
+
+    uint8_t  drive = (uint8_t)parse_uint(argv[1]);
+    uint32_t lba   = (argc >= 3) ? parse_uint(argv[2]) : 0;
+
+    const ide_drive_t *drv = ide_get_drive(drive);
+    if (!drv || !drv->present) {
+        t_writestring("chainload: drive not found\n");
+        return;
+    }
+
+    if (ide_read_sectors(drive, lba, 1, s_chainload_sector) != 0) {
+        t_writestring("chainload: read error\n");
+        return;
+    }
+
+    if (s_chainload_sector[510] != 0x55 || s_chainload_sector[511] != 0xAA) {
+        t_writestring("chainload: sector has no boot signature (0x55AA)\n");
+        return;
+    }
+
+    /* Copy boot sector to the BIOS-standard load address 0x7C00.
+     * The kernel's 256 MiB identity window covers 0x7C00, so phys == virt. */
+    uint8_t *dest = (uint8_t *)0x7C00;
+    for (int i = 0; i < 512; i++)
+        dest[i] = s_chainload_sector[i];
+
+    t_writestring("chainload: handing off to drive 0x");
+    t_hex(0x80 + drive);
+    t_writestring(" LBA ");
+    t_dec(lba);
+    t_writestring("\n");
+
+    chainload_enter((uint8_t)(0x80 + drive));   /* never returns */
 }
 
 /* ---------------------------------------------------------------------------

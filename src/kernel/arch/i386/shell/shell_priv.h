@@ -84,4 +84,7 @@ void cmd_ring3test(void);
 /* On-demand kernel panic (for testing the panic screen) */
 void cmd_panic(int argc, char **argv);
 
+/* Chainload a boot sector from disk */
+void cmd_chainload(int argc, char **argv);
+
 #endif /* SHELL_PRIV_H */
