@@ -5,42 +5,59 @@
 #include <kernel/isr.h>
 
 /*
- * Syscall numbers for int 0x80.
+ * Syscall numbers — Linux i386 ABI subset.
  *
- * Kernel code passes the syscall number in EAX and arguments in EBX, ECX,
- * EDX, ESI, EDI (following the Linux i386 ABI convention).  The return value
- * is placed in EAX.
- *
- * Only kernel-mode callers are supported for now; user-mode support requires
- * the IDT gate to be opened to DPL=3 and a TSS to be installed.
+ * Registers (int 0x80 calling convention):
+ *   EAX = syscall number
+ *   EBX = arg1, ECX = arg2, EDX = arg3
+ *   Return value written back to EAX (negative errno on error).
  */
+#define SYS_EXIT    1    /* void exit(int status)                         */
+#define SYS_READ    3    /* ssize_t read(int fd, void *buf, size_t len)   */
+#define SYS_WRITE   4    /* ssize_t write(int fd, const void *buf, size_t)*/
+#define SYS_OPEN    5    /* int open(const char *path, int flags)         */
+#define SYS_CLOSE   6    /* int close(int fd)                             */
+#define SYS_BRK     45   /* void *brk(void *addr)                         */
+#define SYS_YIELD   158  /* void sched_yield(void)                        */
+#define SYS_DEBUG   100  /* void debug(uint32_t checkpoint)  [Makar ext]  */
 
-#define SYS_EXIT    1    /* task_exit()                           */
-#define SYS_WRITE   4    /* write NUL-terminated string at EBX    */
-#define SYS_YIELD   158  /* task_yield()                          */
-#define SYS_DEBUG   100  /* print checkpoint: EBX=uint32 value    */
+/* open() flags */
+#define O_RDONLY    0
+#define O_WRONLY    1
+#define O_RDWR      2
+
+/* Well-known file descriptors */
+#define FD_STDIN    0
+#define FD_STDOUT   1
+#define FD_STDERR   2
+
+/* Maximum size of a file that can be opened via SYS_OPEN (64 KiB). */
+#define SYSCALL_FILE_MAX  (64u * 1024u)
 
 /*
- * syscall_init – register int 0x80 in the interrupt-handler table.
- *
- * Must be called after init_descriptor_tables() (which installs the IDT gate)
- * and after tasking_init().
- */
-/*
- * g_ring3_last_cp — last SYS_DEBUG checkpoint value received from ring-3 code.
+ * g_ring3_last_cp — last SYS_DEBUG checkpoint value received from ring-3.
  * Reset to 0 before launching a ring-3 test task; read after it exits.
  */
 extern volatile uint32_t g_ring3_last_cp;
 
+/*
+ * syscall_init — register int 0x80 in the interrupt-handler table.
+ *
+ * Must be called after init_descriptor_tables() and tasking_init().
+ */
 void syscall_init(void);
 
 /*
- * syscall_dispatch – the int 0x80 C handler; exposed for in-kernel testing.
- *
- * Interprets regs->eax as the syscall number, dispatches to the appropriate
- * handler, and may modify regs->eax as a return value.  Safe to call directly
- * from kernel mode (e.g. ktest) provided tasking is active.
+ * syscall_dispatch — the int 0x80 C handler; exposed for in-kernel testing.
  */
 void syscall_dispatch(registers_t *regs);
+
+/*
+ * syscall_reset_fds — close all open file descriptors.
+ *
+ * Called by elf_exec() before launching a new process so that a fresh exec
+ * does not inherit stale file handles from the previous run.
+ */
+void syscall_reset_fds(void);
 
 #endif /* _KERNEL_SYSCALL_H */

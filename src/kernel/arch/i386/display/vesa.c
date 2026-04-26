@@ -2,6 +2,7 @@
 #include <kernel/logo.h>
 #include <kernel/tty.h>
 #include <kernel/serial.h>
+#include <kernel/system.h>
 #include <string.h>
 
 static vesa_fb_t fb;
@@ -102,13 +103,18 @@ void vesa_put_pixel(uint32_t x, uint32_t y, uint32_t colour)
 {
 	if (!fb_ready)
 		return;
+	if (x >= fb.width || y >= fb.height)
+		PANIC("vesa_put_pixel: coordinates out of framebuffer bounds");
 
 	uint32_t bytes_per_pixel = fb.bpp / 8;
 	uint8_t *pixel = (uint8_t *)fb.addr + y * fb.pitch + x * bytes_per_pixel;
 
-	/* Write only as many bytes as the pixel format requires. */
-	for (uint32_t i = 0; i < bytes_per_pixel && i < 4; i++)
-		pixel[i] = (uint8_t)(colour >> (i * 8));
+	if (bytes_per_pixel == 4) {
+		*(uint32_t *)pixel = colour;
+	} else {
+		for (uint32_t i = 0; i < bytes_per_pixel && i < 4; i++)
+			pixel[i] = (uint8_t)(colour >> (i * 8));
+	}
 }
 
 void vesa_clear(uint32_t colour)
@@ -116,9 +122,29 @@ void vesa_clear(uint32_t colour)
 	if (!fb_ready)
 		return;
 
-	for (uint32_t y = 0; y < fb.height; y++)
-		for (uint32_t x = 0; x < fb.width; x++)
-			vesa_put_pixel(x, y, colour);
+	uint32_t bytes_per_pixel = fb.bpp / 8;
+
+	if (bytes_per_pixel == 4) {
+		uint32_t *row = (uint32_t *)fb.addr;
+		uint32_t  stride = fb.pitch / 4;
+		uint32_t  total  = fb.height * stride;
+		for (uint32_t i = 0; i < total; i++)
+			row[i] = colour;
+	} else {
+		/* Non-32bpp fallback — write row-by-row using the byte layout. */
+		uint8_t  px[4];
+		for (uint32_t i = 0; i < bytes_per_pixel && i < 4; i++)
+			px[i] = (uint8_t)(colour >> (i * 8));
+
+		for (uint32_t y = 0; y < fb.height; y++) {
+			uint8_t *row = (uint8_t *)fb.addr + y * fb.pitch;
+			for (uint32_t x = 0; x < fb.width; x++) {
+				uint8_t *p = row + x * bytes_per_pixel;
+				for (uint32_t i = 0; i < bytes_per_pixel; i++)
+					p[i] = px[i];
+			}
+		}
+	}
 }
 
 void vesa_disable(void)

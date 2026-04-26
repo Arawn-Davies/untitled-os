@@ -23,6 +23,7 @@ typedef struct task {
     task_state_t  state;
     const char   *name;
     struct task  *next;      /* intrusive circular linked list                    */
+    uint32_t      user_brk;  /* current user-space heap break (0 = not a user process) */
 } task_t;
 
 /*

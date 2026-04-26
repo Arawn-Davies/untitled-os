@@ -129,20 +129,19 @@ static void scroll_up(void)
 {
 	const vesa_fb_t *fb = vesa_get_fb();
 	uint8_t *base = (uint8_t *)fb->addr;
-	uint32_t row_bytes = fb->width * (fb->bpp / 8);
 
-	/* Copy all rows up by FONT_CELL_H scanlines. */
-	for (uint32_t y = 0; y < (tty_rows - 1) * FONT_CELL_H; y++) {
-		uint8_t *dst = base + y * fb->pitch;
-		const uint8_t *src = base + (y + FONT_CELL_H) * fb->pitch;
-		memcpy(dst, src, row_bytes);
-	}
+	/* Shift the entire framebuffer content up by FONT_CELL_H scanlines in one
+	   call.  Source and dest overlap, so memmove is required. */
+	memmove(base,
+	        base + FONT_CELL_H * fb->pitch,
+	        (tty_rows - 1) * FONT_CELL_H * fb->pitch);
 
 	/* Clear the newly vacated bottom character row. */
-	for (uint32_t y = (tty_rows - 1) * FONT_CELL_H;
-	     y < tty_rows * FONT_CELL_H; y++) {
+	uint32_t clear_start = (tty_rows - 1) * FONT_CELL_H;
+	for (uint32_t y = clear_start; y < clear_start + FONT_CELL_H; y++) {
+		uint32_t *scanline = (uint32_t *)((uint8_t *)fb->addr + y * fb->pitch);
 		for (uint32_t x = 0; x < fb->width; x++)
-			vesa_put_pixel(x, y, tty_bg);
+			scanline[x] = tty_bg;
 	}
 }
 

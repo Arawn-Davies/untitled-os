@@ -2,7 +2,7 @@
 set -e
 . ./build.sh
 
-mkdir -p isodir/boot/grub/i386-pc
+mkdir -p isodir/boot/grub/i386-pc isodir/apps
 
 cp sysroot/boot/makar.kernel isodir/boot/makar.kernel
 cat > isodir/boot/grub/grub.cfg << EOF

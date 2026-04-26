@@ -36,6 +36,7 @@
 #include <kernel/isr.h>
 #include <kernel/serial.h>
 #include <kernel/asm.h>
+#include <kernel/tty.h>
 #include <kernel/vesa.h>
 #include <kernel/vesa_tty.h>
 #include <kernel/vesa_font.h>
@@ -129,7 +130,8 @@ static void serial_dump(registers_t *r)
 
 static void vga_putc(int col, int row, char c, uint8_t a)
 {
-    if (col >= 0 && col < VGA_COLS && row >= 0 && row < VGA_ROWS)
+    int rows = (int)(t_height > 0 ? t_height : (size_t)VGA_ROWS);
+    if (col >= 0 && col < VGA_COLS && row >= 0 && row < rows)
         VGA_BASE[row * VGA_COLS + col] = (uint16_t)((a << 8) | (uint8_t)c);
 }
 
@@ -175,9 +177,8 @@ static void render_panic_vga(const char *fault_type, const char *msg,
                               uint32_t fault_addr, int show_addr,
                               registers_t *r)
 {
-    restore_vga_display();
-
-    for (int y = 0; y < VGA_ROWS; y++) vga_fill_row(y, A_BODY);
+    int rows = (int)(t_height > 0 ? t_height : (size_t)VGA_ROWS);
+    for (int y = 0; y < rows; y++) vga_fill_row(y, A_BODY);
 
     /* ---- Title bar ---- */
     vga_fill_row(0, A_TITLE);
@@ -263,7 +264,7 @@ static void render_panic_vga(const char *fault_type, const char *msg,
         row++; /* blank */
 
         /* ---- Stack dump ---- */
-        if (r->esp >= 0x100000u && r->esp < 0x10000000u && row < VGA_ROWS - 6) {
+        if (r->esp >= 0x100000u && r->esp < 0x10000000u && row < rows - 6) {
             col = vga_puts(1, row, "--- Stack at ESP (", A_SECT);
             col = vga_hex(col, row, r->esp, A_VAL);
             col = vga_puts(col, row, ") ", A_DIM);
@@ -271,7 +272,7 @@ static void render_panic_vga(const char *fault_type, const char *msg,
 
             const uint32_t *sp = (const uint32_t *)r->esp;
             /* 4 entries per row: +0x00..+0x1C */
-            for (int i = 0; i < 8 && row < VGA_ROWS - 3; i += 4) {
+            for (int i = 0; i < 8 && row < rows - 3; i += 4) {
                 col = 1;
                 for (int j = i; j < i + 4 && j < 8; j++) {
                     col = vga_puts(col, row, "+0x", A_DIM);
@@ -287,13 +288,13 @@ static void render_panic_vga(const char *fault_type, const char *msg,
     }
 
     /* ---- Footer ---- */
-    for (int x = 0; x < VGA_COLS; x++) vga_putc(x, VGA_ROWS - 3, '-', A_DIM);
+    for (int x = 0; x < VGA_COLS; x++) vga_putc(x, rows - 3, '-', A_DIM);
 
-    col = vga_puts(1, VGA_ROWS - 2, "Kernel panic - not syncing: ", A_FOOT);
-    if (fault_type) col = vga_puts(col, VGA_ROWS - 2, fault_type, A_BODY);
-    if (msg)              vga_puts(col, VGA_ROWS - 2, msg,        A_BODY);
+    col = vga_puts(1, rows - 2, "Kernel panic - not syncing: ", A_FOOT);
+    if (fault_type) col = vga_puts(col, rows - 2, fault_type, A_BODY);
+    if (msg)              vga_puts(col, rows - 2, msg,        A_BODY);
 
-    vga_puts(1, VGA_ROWS - 1, "System halted. Please restart manually.", A_DIM);
+    vga_puts(1, rows - 1, "System halted. Please restart manually.", A_DIM);
 }
 
 /* ============================================================
@@ -625,12 +626,18 @@ static void kernel_panic(const char *fault_type, const char *msg,
 
     /* 2. Render to whichever display is currently active */
     const vesa_fb_t *fb = vesa_get_fb();
-    if (vesa_tty_is_ready() && fb)
+    if (vesa_tty_is_ready() && fb) {
         render_panic_vesa(fb, fault_type, msg, file, func, line,
                           fault_addr, show_addr, r);
-    else
+    } else {
+        /* Only disable VBE when hardware is actually in a VBE graphics mode.
+         * Calling restore_vga_display() when VBE is already off triggers a
+         * QEMU CRTC reset that reverts 80x50 back to 80x25. */
+        if (fb)
+            restore_vga_display();
         render_panic_vga(fault_type, msg, file, func, line,
                          fault_addr, show_addr, r);
+    }
 
     /* 3. Halt — once, no loop */
     asm volatile("cli; hlt");

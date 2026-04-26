@@ -214,6 +214,8 @@ typedef enum {
     CMD_EJECT,
     CMD_RING3TEST,
     CMD_PANIC,
+    CMD_CHAINLOAD,
+    CMD_EXEC,
     CMD_UNKNOWN,
 } shell_cmd_t;
 
@@ -254,6 +256,8 @@ static const cmd_entry_t cmd_table[] = {
     { "eject",      CMD_EJECT      },
     { "ring3test",  CMD_RING3TEST  },
     { "panic",      CMD_PANIC      },
+    { "chainload",  CMD_CHAINLOAD  },
+    { "exec",       CMD_EXEC       },
 };
 
 #define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
@@ -369,6 +373,8 @@ void shell_run(void)
         case CMD_EJECT:      cmd_eject(argc, argv);       break;
         case CMD_RING3TEST:  cmd_ring3test();             break;
         case CMD_PANIC:      cmd_panic(argc, argv);       break;
+        case CMD_CHAINLOAD:  cmd_chainload(argc, argv);   break;
+        case CMD_EXEC:       cmd_exec(argc, argv);        break;
         default:
             /* Medli-style error: red text, matching CommandConsole.cs */
             t_setcolor(SHELL_ERROR_COLOR_VGA);

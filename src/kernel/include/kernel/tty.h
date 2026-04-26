@@ -40,4 +40,10 @@ void t_spinner_tick(uint32_t tick);
  */
 void terminal_set_colorscheme(uint8_t color);
 
+/*
+ * Return the usable terminal height in rows.  When the VESA framebuffer TTY
+ * is active this is the VESA row count; otherwise it is t_height (VGA text).
+ */
+int t_get_rows(void);
+
 #endif

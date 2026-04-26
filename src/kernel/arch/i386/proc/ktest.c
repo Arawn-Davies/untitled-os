@@ -17,6 +17,10 @@
 #include <kernel/syscall.h>
 #include <kernel/serial.h>
 #include <kernel/tty.h>
+#include <kernel/vesa.h>
+#include <kernel/vesa_tty.h>
+#include <kernel/bochs_vbe.h>
+#include <kernel/timer.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
@@ -395,17 +399,48 @@ static void test_syscall(void)
     registers_t regs;
     memset(&regs, 0, sizeof(regs));
 
-    /* SYS_WRITE with a valid NUL-terminated kernel string must not crash. */
+    /* SYS_WRITE(fd=1, buf, len): write to stdout — must not crash and must
+     * return the byte count. */
+    static const char msg[] = "[ktest] syscall SYS_WRITE\n";
     regs.eax = SYS_WRITE;
-    regs.ebx = (uint32_t)"[ktest] syscall SYS_WRITE\n";
+    regs.ebx = FD_STDOUT;
+    regs.ecx = (uint32_t)(uintptr_t)msg;
+    regs.edx = sizeof(msg) - 1;   /* exclude NUL */
     syscall_dispatch(&regs);
-    KTEST_ASSERT(1);
+    KTEST_ASSERT(regs.eax == sizeof(msg) - 1);
 
-    /* SYS_YIELD must not crash (internally calls task_yield). */
+    /* SYS_WRITE to an invalid fd must return -1. */
+    regs.eax = SYS_WRITE;
+    regs.ebx = 99;   /* no such fd */
+    regs.ecx = (uint32_t)(uintptr_t)msg;
+    regs.edx = 1;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == (uint32_t)-1);
+
+    /* Unknown syscall must return -ENOSYS (not crash). */
+    regs.eax = 9999;
+    regs.ebx = regs.ecx = regs.edx = 0;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == (uint32_t)-38);   /* -ENOSYS */
+
+    /* SYS_YIELD must not crash. */
     regs.eax = SYS_YIELD;
     regs.ebx = 0;
     syscall_dispatch(&regs);
     KTEST_ASSERT(1);
+
+    /* SYS_OPEN on a non-existent path must return -1. */
+    regs.eax = SYS_OPEN;
+    regs.ebx = (uint32_t)(uintptr_t)"/no/such/file";
+    regs.ecx = O_RDONLY;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == (uint32_t)-1);
+
+    /* SYS_BRK(0): query current break on a kernel task (user_brk == 0). */
+    regs.eax = SYS_BRK;
+    regs.ebx = 0;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == 0);   /* kernel tasks have no user heap */
 
     ktest_summary();
 }
@@ -575,9 +610,12 @@ static void test_ring3_execution(void)
     task_t *t = task_create("ring3test", ring3_usertest_task);
     KTEST_ASSERT(t != NULL);
 
-    /* Yield to the ring-3 task; it runs to SYS_EXIT (task_exit), which marks
-     * itself DEAD and reschedules back to us in one cooperative round-trip. */
-    task_yield();
+    /* Yield until the ring-3 task has exited.  With preemptive scheduling the
+     * timer may switch us back before ring3test completes all its syscalls, so
+     * we loop until the task is marked DEAD rather than assuming one yield is
+     * sufficient. */
+    while (t && t->state != TASK_DEAD)
+        task_yield();
 
     /* This line executes only after the scheduler returned to kernel mode.
      * It proves we are back in ring 0 with the kernel page directory active,
@@ -589,6 +627,104 @@ static void test_ring3_execution(void)
      * confirms ring-3 entry, the write syscall, and the debug syscall all
      * worked correctly. */
     KTEST_ASSERT(g_ring3_last_cp == 2);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: vesa_resolution
+ *
+ * Exercises the VESA geometry pipeline at four resolutions in ascending size
+ * order: 320×240, 640×480, 1280×720, 1920×1080.
+ *
+ * For each resolution the suite:
+ *   1. Announces the upcoming switch with a 3-second countdown (3… 2… 1…).
+ *   2. Sets the font scale (1 for <1280-wide, 2 for ≥1280-wide).
+ *   3. Programs Bochs VBE hardware (skipped if unavailable).
+ *   4. Updates the vesa_fb_t struct via vesa_update_geometry().
+ *   5. Re-initialises the VESA TTY via vesa_tty_init().
+ *   6. Holds the new resolution for 1 second so it is visible on screen.
+ *   7. Asserts fb width/height/bpp/pitch and computed cols/rows.
+ *
+ * The original resolution is restored before returning.
+ * ------------------------------------------------------------------------- */
+
+typedef struct { uint32_t w; uint32_t h; uint32_t scale; const char *name; } vesa_res_t;
+
+/* Print a 3-second countdown before switching resolution. */
+static void res_countdown(const char *name)
+{
+    t_writestring("[ktest] vesa_resolution: switching to ");
+    t_writestring(name);
+    t_writestring(" in: 3");
+    ksleep(50);
+    t_writestring("  2");
+    ksleep(50);
+    t_writestring("  1");
+    ksleep(50);
+    t_writestring("\n");
+}
+
+static void test_vesa_resolution(void)
+{
+    ktest_begin("vesa_resolution");
+
+    /* Save current fb geometry so we can restore it afterwards. */
+    const vesa_fb_t *orig = vesa_get_fb();
+    uint32_t saved_w = orig ? orig->width  : 640;
+    uint32_t saved_h = orig ? orig->height : 480;
+    bool hw = bochs_vbe_available();
+
+    static const vesa_res_t modes[] = {
+        {  320,  240, 1, " 320x240"  },
+        {  640,  480, 1, " 640x480"  },
+        { 1280,  720, 2, "1280x720"  },
+        { 1920, 1080, 2, "1920x1080" },
+    };
+
+    for (uint32_t i = 0; i < 4; i++) {
+        uint32_t    w     = modes[i].w;
+        uint32_t    h     = modes[i].h;
+        uint32_t    scale = modes[i].scale;
+        const char *name  = modes[i].name;
+
+        res_countdown(name);
+
+        vesa_tty_set_scale(scale);
+        if (hw)
+            bochs_vbe_set_mode(w, h, 32);
+        vesa_update_geometry(w, h, 32);
+        vesa_tty_init();
+
+        /* Hold the new resolution for 1 second so it is visible. */
+        t_writestring("[ktest] vesa_resolution: now at ");
+        t_writestring(name);
+        t_writestring("x32\n");
+        ksleep(50);
+
+        const vesa_fb_t *fb = vesa_get_fb();
+        KTEST_ASSERT(fb != NULL);
+        KTEST_ASSERT_EQ(fb->width,  w);
+        KTEST_ASSERT_EQ(fb->height, h);
+        KTEST_ASSERT_EQ(fb->bpp,    32u);
+        KTEST_ASSERT_EQ(fb->pitch,  w * 4u);
+
+        /* Each glyph cell is 8×8 pixels scaled by font_scale. */
+        uint32_t cell = 8u * scale;
+        KTEST_ASSERT_EQ(vesa_tty_get_cols(), w / cell);
+        KTEST_ASSERT_EQ(vesa_tty_get_rows(), h / cell);
+    }
+
+    /* Restore original display state. */
+    t_writestring("[ktest] vesa_resolution: restoring ");
+    t_dec(saved_w); t_writestring("x"); t_dec(saved_h);
+    t_writestring("\n");
+    uint32_t restore_scale = (saved_w >= 1280) ? 2u : 1u;
+    vesa_tty_set_scale(restore_scale);
+    if (hw)
+        bochs_vbe_set_mode(saved_w, saved_h, 32);
+    vesa_update_geometry(saved_w, saved_h, 32);
+    vesa_tty_init();
 
     ktest_summary();
 }
@@ -643,6 +779,10 @@ int ktest_run_all(void)
     total_fail += ktest_fail_count;
 
     test_ring3_execution();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_vesa_resolution();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 
