@@ -81,4 +81,7 @@ void cmd_eject(int argc, char **argv);
 /* Ring-3 smoke test */
 void cmd_ring3test(void);
 
+/* On-demand kernel panic (for testing the panic screen) */
+void cmd_panic(int argc, char **argv);
+
 #endif /* SHELL_PRIV_H */

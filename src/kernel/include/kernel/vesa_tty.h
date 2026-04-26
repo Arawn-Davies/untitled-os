@@ -20,6 +20,13 @@ uint32_t vesa_tty_get_row(void);
 /* Returns the total number of character columns on the VESA display. */
 uint32_t vesa_tty_get_cols(void);
 
+/* Returns the total number of character rows on the VESA display. */
+uint32_t vesa_tty_get_rows(void);
+
+/* Disable the VESA text renderer (sets tty_ready = false).
+ * Call before switching to VGA text mode. */
+void vesa_tty_disable(void);
+
 /*
  * Render a single character to the framebuffer at the current cursor
  * position, advancing the cursor.  Handles '\n', '\r', and '\b'.

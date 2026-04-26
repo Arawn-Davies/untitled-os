@@ -10,7 +10,9 @@
 #include <kernel/tty.h>
 #include <kernel/timer.h>
 #include <kernel/heap.h>
+#include <kernel/vesa.h>
 #include <kernel/vesa_tty.h>
+#include <kernel/bochs_vbe.h>
 #include <kernel/ide.h>
 #include <kernel/partition.h>
 #include <kernel/fat32.h>
@@ -20,6 +22,7 @@
 #include <kernel/task.h>
 #include <kernel/acpi.h>
 #include <kernel/vics.h>
+#include <kernel/debug.h>
 
 #include <string.h>
 #include <stdint.h>
@@ -488,31 +491,100 @@ void cmd_readsector(int argc, char **argv)
     hexdump_sector(sector_buf);
 }
 
+/* ---------------------------------------------------------------------------
+ * setmode — switch display mode on the fly.
+ *
+ * VGA text modes (Bochs VBE disabled, QEMU reverts to mode 3):
+ *   80x25  /  text   — 80×25 VGA text (9×16 px glyphs)
+ *   80x50            — 80×50 VGA text (9×8 px glyphs)
+ *
+ * VESA framebuffer modes (set via Bochs VBE I/O ports):
+ *   320x240          — 320×240×32
+ *   640x480  / 480p  — 640×480×32
+ *   1280x720 / 720p  — 1280×720×32
+ *   1920x1080/ 1080p — 1920×1080×32
+ * --------------------------------------------------------------------------- */
+
+typedef struct { const char *name; uint32_t w; uint32_t h; } vesa_mode_t;
+
+static const vesa_mode_t vesa_modes[] = {
+    { "320x240",  320,  240 },
+    { "640x480",  640,  480 },
+    { "480p",     640,  480 },
+    { "1280x720", 1280, 720 },
+    { "720p",     1280, 720 },
+    { "1920x1080",1920, 1080 },
+    { "1080p",    1920, 1080 },
+};
+#define VESA_MODE_COUNT ((uint32_t)(sizeof(vesa_modes) / sizeof(vesa_modes[0])))
+
 void cmd_setmode(int argc, char **argv)
 {
     if (argc < 2) {
-        t_writestring("Usage: setmode <25|50>\n");
+        t_writestring("Usage: setmode <mode>\n");
+        t_writestring("  Text : 80x25  80x50\n");
+        t_writestring("  VESA : 320x240  640x480  480p  720p  1080p\n");
         return;
     }
 
-    uint32_t rows = parse_uint(argv[1]);
-    if (rows != 25 && rows != 50) {
-        t_writestring("Error: only 25 and 50 are supported.\n");
+    const char *mode = argv[1];
+
+    /* --- VGA text modes -------------------------------------------------- */
+    if (strcmp(mode, "80x25") == 0 || strcmp(mode, "text") == 0 ||
+        strcmp(mode, "25")    == 0) {
+        bochs_vbe_disable();
+        vesa_disable();
+        vesa_tty_disable();
+        terminal_set_rows(25);
+        terminal_set_colorscheme(SHELL_COLOR_VGA);
+        t_writestring("Mode: VGA 80x25 text\n");
         return;
     }
 
-    /*
-     * VGA text mode: reprogram CRTC Max Scan Line register so the
-     * character cell is 16 rows tall (80x25) or 8 rows tall (80x50),
-     * then reinitialise the terminal to clear and reset the cursor.
-     *
-     * VESA framebuffer: change the font scale factor so glyphs are
-     * rendered at 16x16 px (scale=2, ~25 lines) or 8x8 px (scale=1,
-     * ~50 lines), then clear the framebuffer.
-     */
-    uint32_t vesa_scale = (rows == 50) ? 1 : 2;
-    terminal_set_rows((size_t)rows);
-    vesa_tty_set_scale(vesa_scale);
+    if (strcmp(mode, "80x50") == 0 || strcmp(mode, "50") == 0) {
+        bochs_vbe_disable();
+        vesa_disable();
+        vesa_tty_disable();
+        terminal_set_rows(50);
+        terminal_set_colorscheme(SHELL_COLOR_VGA);
+        t_writestring("Mode: VGA 80x50 text\n");
+        return;
+    }
+
+    /* --- VESA framebuffer modes ------------------------------------------ */
+    if (!bochs_vbe_available()) {
+        t_writestring("Error: Bochs VBE not available on this hardware.\n");
+        return;
+    }
+
+    for (uint32_t i = 0; i < VESA_MODE_COUNT; i++) {
+        if (strcmp(mode, vesa_modes[i].name) != 0)
+            continue;
+
+        uint32_t w = vesa_modes[i].w;
+        uint32_t h = vesa_modes[i].h;
+
+        vesa_tty_set_scale(w >= 1280 ? 2 : 1); /* set scale before init uses it */
+        bochs_vbe_set_mode(w, h, 32);
+        vesa_update_geometry(w, h, 32);         /* fb struct reflects new size   */
+        vesa_tty_init();                        /* maps new fb region, then reinit */
+        vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
+        vesa_tty_clear();
+
+        t_writestring("Mode: ");
+        t_dec(w); t_writestring("x"); t_dec(h); t_writestring("x32\n");
+        return;
+    }
+
+    t_writestring("Error: unknown mode '");
+    t_writestring(mode);
+    t_writestring("'\nUsage: setmode <80x25|80x50|320x240|640x480|480p|720p|1080p>\n");
+}
+
+void cmd_panic(int argc, char **argv)
+{
+    const char *msg = (argc >= 2) ? argv[1] : "Shell-requested panic";
+    KPANIC(msg); /* never returns */
 }
 
 void cmd_shutdown(void)

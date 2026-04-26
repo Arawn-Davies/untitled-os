@@ -1,4 +1,5 @@
 #include <kernel/vesa.h>
+#include <kernel/logo.h>
 #include <kernel/tty.h>
 #include <kernel/serial.h>
 #include <string.h>
@@ -118,4 +119,34 @@ void vesa_clear(uint32_t colour)
 	for (uint32_t y = 0; y < fb.height; y++)
 		for (uint32_t x = 0; x < fb.width; x++)
 			vesa_put_pixel(x, y, colour);
+}
+
+void vesa_disable(void)
+{
+	fb_ready = false;
+}
+
+void vesa_update_geometry(uint32_t width, uint32_t height, uint8_t bpp)
+{
+	fb.width  = width;
+	fb.height = height;
+	fb.bpp    = bpp;
+	fb.pitch  = width * ((uint32_t)bpp / 8u);
+	fb_ready  = true;
+}
+
+void vesa_blit_logo(uint32_t fg, uint32_t bg)
+{
+	if (!fb_ready)
+		return;
+
+	uint32_t x_off = (fb.width  > LOGO_WIDTH)  ? (fb.width  - LOGO_WIDTH)  / 2 : 0;
+	uint32_t y_off = (fb.height > LOGO_HEIGHT) ? (fb.height - LOGO_HEIGHT) / 2 : 0;
+
+	for (uint32_t y = 0; y < LOGO_HEIGHT; y++) {
+		for (uint32_t x = 0; x < LOGO_WIDTH; x++) {
+			uint8_t bit = (logo_bits[y * LOGO_STRIDE + x / 8] >> (7 - x % 8)) & 1;
+			vesa_put_pixel(x_off + x, y_off + y, bit ? fg : bg);
+		}
+	}
 }
