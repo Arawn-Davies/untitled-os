@@ -139,10 +139,11 @@ static void scroll_up(void)
 	}
 
 	/* Clear the newly vacated bottom character row. */
-	for (uint32_t y = (tty_rows - 1) * FONT_CELL_H;
-	     y < tty_rows * FONT_CELL_H; y++) {
+	uint32_t clear_start = (tty_rows - 1) * FONT_CELL_H;
+	for (uint32_t y = clear_start; y < clear_start + FONT_CELL_H; y++) {
+		uint32_t *scanline = (uint32_t *)((uint8_t *)fb->addr + y * fb->pitch);
 		for (uint32_t x = 0; x < fb->width; x++)
-			vesa_put_pixel(x, y, tty_bg);
+			scanline[x] = tty_bg;
 	}
 }
 
