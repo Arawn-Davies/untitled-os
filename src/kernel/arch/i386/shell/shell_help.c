@@ -78,6 +78,7 @@ void cmd_help(void)
     pager_line("  chainload <drv> [lba]        - boot a sector from disk (lba=0: MBR/GRUB)\n");
     pager_line("Development:\n");
     pager_line("  ring3test                    - spawn a ring-3 smoke test process\n");
+    pager_line("  exec <path>                  - load and run an ELF32 executable\n");
 }
 
 void cmd_version(void)

@@ -22,11 +22,16 @@
 #include <kernel/isr.h>
 #include <kernel/tty.h>
 #include <kernel/serial.h>
+#include <kernel/task.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <kernel/asm.h>
+
+/* Preemptive scheduling: yield to the next task every SCHED_QUANTUM ticks.
+ * At 50 Hz this gives an 80 ms time slice per task. */
+#define SCHED_QUANTUM 4
 
 static volatile uint32_t tick = 0;
 
@@ -35,6 +40,8 @@ void timer_callback(registers_t *regs)
 	(void)regs;
 	tick++;
 	t_spinner_tick(tick);
+	if (tick % SCHED_QUANTUM == 0)
+		task_yield();
 }
 
 uint32_t timer_get_ticks(void)

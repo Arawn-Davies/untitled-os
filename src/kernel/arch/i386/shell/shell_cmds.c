@@ -24,6 +24,9 @@
 #include <kernel/vics.h>
 #include <kernel/debug.h>
 #include <kernel/chainload.h>
+#include <kernel/elf.h>
+#include <kernel/task.h>
+#include <kernel/vfs.h>
 
 #include <string.h>
 #include <stdint.h>
@@ -994,4 +997,41 @@ void cmd_eject(int argc, char **argv)
     t_writestring("eject: unknown target '");
     t_writestring(target);
     t_writestring("' — use 'hdd' or 'cdrom'\n");
+}
+
+/* ---------------------------------------------------------------------------
+ * exec – load and run an ELF32 executable from the VFS
+ *
+ * Usage: exec <path>
+ *   path: absolute or CWD-relative VFS path to an ELF32 ET_EXEC binary.
+ *
+ * The binary runs in a fresh ring-3 address space.  All PT_LOAD segments must
+ * reside above 0x10000000 (the kernel 256 MiB boundary).
+ * --------------------------------------------------------------------------- */
+
+static char s_exec_path[VFS_PATH_MAX];
+
+static void exec_task_entry(void)
+{
+    elf_exec(s_exec_path);
+    task_exit();
+}
+
+void cmd_exec(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: exec <path>\n");
+        return;
+    }
+
+    strncpy(s_exec_path, argv[1], VFS_PATH_MAX - 1);
+    s_exec_path[VFS_PATH_MAX - 1] = '\0';
+
+    task_t *t = task_create("exec", exec_task_entry);
+    if (!t) {
+        t_writestring("exec: task_create failed (pool full?)\n");
+        return;
+    }
+
+    task_yield();
 }
