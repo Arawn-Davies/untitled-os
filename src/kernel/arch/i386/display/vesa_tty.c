@@ -78,6 +78,16 @@ uint32_t vesa_tty_get_cols(void)
 	return tty_cols;
 }
 
+uint32_t vesa_tty_get_rows(void)
+{
+	return tty_rows;
+}
+
+void vesa_tty_disable(void)
+{
+	tty_ready = false;
+}
+
 void vesa_tty_setcolor(uint32_t fg_rgb, uint32_t bg_rgb)
 {
 	tty_fg = compose_colour(
@@ -193,20 +203,9 @@ void vesa_tty_spinner_tick(uint32_t tick)
 
 void vesa_tty_set_scale(uint32_t scale)
 {
-	if (!tty_ready)
-		return;
 	if (scale == 0)
 		scale = 1;
-
-	font_scale = scale;
-
-	const vesa_fb_t *fb = vesa_get_fb();
-	tty_cols = fb->width  / FONT_CELL_W;
-	tty_rows = fb->height / FONT_CELL_H;
-	tty_col  = 0;
-	tty_row  = 0;
-
-	vesa_clear(tty_bg);
+	font_scale = scale;   /* always update — vesa_tty_init() uses this */
 }
 
 void vesa_tty_clear(void)

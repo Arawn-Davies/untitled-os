@@ -16,14 +16,18 @@
  *   1280 × 1024 × 32
  */
 
-/*
-#define VESA_WIDTH   640
-#define VESA_HEIGHT  480
-#define VESA_BPP      32
-*/
+/* Uncomment VESA_AUTO to request the highest common resolution (1920×1080)
+ * from the bootloader and let GRUB fall back to the best available mode.
+ * Leave commented to use the fixed 640×480 safe default. */
+/* #define VESA_AUTO */
 
-#define VESA_WIDTH   1024
-#define VESA_HEIGHT  768
-#define VESA_BPP      32
+#ifdef VESA_AUTO
+# define VESA_WIDTH  1920
+# define VESA_HEIGHT 1080
+#else
+# define VESA_WIDTH   640
+# define VESA_HEIGHT  480
+#endif
+#define VESA_BPP 32
 
 #endif /* _KERNEL_VESA_CONFIG_H */

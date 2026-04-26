@@ -48,4 +48,16 @@ void vesa_put_pixel(uint32_t x, uint32_t y, uint32_t colour);
 /* Fill the entire framebuffer with a single 32-bit ARGB colour. */
 void vesa_clear(uint32_t colour);
 
+/* Disable the framebuffer (marks fb_ready = false).
+ * Call before switching to VGA text mode so vesa_tty output stops. */
+void vesa_disable(void);
+
+/* Update the framebuffer geometry after a Bochs VBE mode change.
+ * Sets fb_ready = true; the base address is unchanged (LFB stays constant). */
+void vesa_update_geometry(uint32_t width, uint32_t height, uint8_t bpp);
+
+/* Blit the splash logo (from logo.h) centred on the framebuffer.
+ * fg and bg are 24-bit RGB colours for foreground and background pixels. */
+void vesa_blit_logo(uint32_t fg, uint32_t bg);
+
 #endif

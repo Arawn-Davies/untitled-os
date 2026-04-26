@@ -13,6 +13,7 @@
 #include <kernel/shell.h>
 #include <kernel/keyboard.h>
 #include <kernel/tty.h>
+#include <kernel/vesa.h>
 #include <kernel/vesa_tty.h>
 #include <kernel/vfs.h>
 #include <kernel/ktest.h>
@@ -212,6 +213,7 @@ typedef enum {
     CMD_VICS,
     CMD_EJECT,
     CMD_RING3TEST,
+    CMD_PANIC,
     CMD_UNKNOWN,
 } shell_cmd_t;
 
@@ -251,6 +253,7 @@ static const cmd_entry_t cmd_table[] = {
     { "vics",       CMD_VICS       },
     { "eject",      CMD_EJECT      },
     { "ring3test",  CMD_RING3TEST  },
+    { "panic",      CMD_PANIC      },
 };
 
 #define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
@@ -284,15 +287,29 @@ void shell_run(void)
     static char buf[SHELL_MAX_INPUT];
     char *argv[SHELL_MAX_ARGS];
 
-    /*
-     * Apply the Medli-compatible colour scheme: white text on blue background.
-     * This matches Medli's BeforeRun() which sets ConsoleColor.Blue background
-     * and ConsoleColor.White foreground before clearing the screen.
-     */
     terminal_set_colorscheme(SHELL_COLOR_VGA);
     if (vesa_tty_is_ready()) {
         vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
         vesa_tty_clear();
+
+#ifndef TEST_MODE
+        /* Splash screen: blit the logo centred, prompt for a keypress, then
+         * clear back to the normal shell background before printing the banner. */
+        vesa_blit_logo(SHELL_FG_RGB, SHELL_BG_RGB);
+
+        /* "Press any key to continue..." centred on the bottom quarter. */
+        static const char *prompt_str = "Press any key to continue...";
+        uint32_t cols      = vesa_tty_get_cols();
+        uint32_t rows      = vesa_tty_get_rows();
+        uint32_t prompt_len = 28; /* strlen(prompt_str) */
+        uint32_t prompt_col = (cols > prompt_len) ? (cols - prompt_len) / 2 : 0;
+        uint32_t prompt_row = rows - 3;
+        for (uint32_t i = 0; i < prompt_len; i++)
+            vesa_tty_put_at(prompt_str[i], prompt_col + i, prompt_row);
+
+        keyboard_getchar();
+        vesa_tty_clear();
+#endif
     }
 
     t_writestring("Makar -- version " SHELL_VERSION
@@ -351,6 +368,7 @@ void shell_run(void)
         case CMD_VICS:       cmd_vics(argc, argv);        break;
         case CMD_EJECT:      cmd_eject(argc, argv);       break;
         case CMD_RING3TEST:  cmd_ring3test();             break;
+        case CMD_PANIC:      cmd_panic(argc, argv);       break;
         default:
             /* Medli-style error: red text, matching CommandConsole.cs */
             t_setcolor(SHELL_ERROR_COLOR_VGA);
