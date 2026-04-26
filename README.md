@@ -2,6 +2,8 @@
 
 [![Build](https://github.com/Arawn-Davies/Makar/actions/workflows/build.yml/badge.svg)](https://github.com/Arawn-Davies/Makar/actions/workflows/build.yml)
 
+[![Test](https://github.com/Arawn-Davies/Makar/actions/workflows/test.yml/badge.svg)](https://github.com/Arawn-Davies/Makar/actions/workflows/test.yml)
+
 Makar is a bare-metal i686 operating system written in C/C++.  It is the GCC
 sibling of [Medli](https://github.com/Arawn-Davies/Medli) — two independent
 implementations of the same OS, sharing UX conventions, filesystem design,
