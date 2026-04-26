@@ -21,48 +21,56 @@
 #define USER_STACK_TOP   0xBFFF0000u   /* user stack top; one page below */
 
 /*
- * Position-independent i386 machine code with debug checkpoints:
+ * Position-independent i386 machine code with debug checkpoints.
+ * Uses the Linux i386 ABI: write(fd, buf, len) via int 0x80.
  *
- *   SYS_DEBUG(1);                       // CP 1: entered ring-3
- *   write("Welcome to userspace!\n");   // CP 2: if printed, write syscall works
- *   SYS_DEBUG(2);                       // CP 2: returned from write
+ *   SYS_DEBUG(1);
+ *   write(1, "Welcome to userspace!\n", 22);
+ *   SYS_DEBUG(2);
  *   exit(0);
  *
- * Disassembly (offsets from code start):
- *   00: B8 64 00 00 00   mov   eax, 100  ; SYS_DEBUG
- *   05: BB 01 00 00 00   mov   ebx, 1    ; checkpoint 1
- *   0A: CD 80            int   0x80
- *   0C: E8 00 00 00 00   call  +0        ; push &pop_esi, jmp to pop_esi
- *   11: 5E               pop   esi       ; esi = runtime addr of this insn
- *   12: 83 C6 22         add   esi, 0x22 ; esi = &msg  (0x33 - 0x11 = 0x22)
- *   15: B8 04 00 00 00   mov   eax, 4    ; SYS_WRITE
- *   1A: 89 F3            mov   ebx, esi
- *   1C: CD 80            int   0x80
- *   1E: B8 64 00 00 00   mov   eax, 100  ; SYS_DEBUG
- *   23: BB 02 00 00 00   mov   ebx, 2    ; checkpoint 2
- *   28: CD 80            int   0x80
- *   2A: B8 01 00 00 00   mov   eax, 1    ; SYS_EXIT
- *   2F: 31 DB            xor   ebx, ebx
- *   31: CD 80            int   0x80
- *   33: msg              "Welcome to userspace!\n\0"
+ * Disassembly (offsets from code start, esi = runtime addr of byte 0x11):
+ *   00: B8 64 00 00 00      mov  eax, 100          ; SYS_DEBUG
+ *   05: BB 01 00 00 00      mov  ebx, 1            ; checkpoint 1
+ *   0A: CD 80               int  0x80
+ *   0C: E8 00 00 00 00      call +0                ; esi ← &byte[0x11]
+ *   11: 5E                  pop  esi
+ *   12: B8 04 00 00 00      mov  eax, 4            ; SYS_WRITE
+ *   17: BB 01 00 00 00      mov  ebx, 1            ; fd = stdout
+ *   1C: 8D 8E 2D 00 00 00   lea  ecx, [esi+0x2D]  ; buf = &msg (0x3E-0x11=0x2D)
+ *   22: BA 16 00 00 00      mov  edx, 22           ; len = 22
+ *   27: CD 80               int  0x80
+ *   29: B8 64 00 00 00      mov  eax, 100          ; SYS_DEBUG
+ *   2E: BB 02 00 00 00      mov  ebx, 2            ; checkpoint 2
+ *   33: CD 80               int  0x80
+ *   35: B8 01 00 00 00      mov  eax, 1            ; SYS_EXIT
+ *   3A: 31 DB               xor  ebx, ebx
+ *   3C: CD 80               int  0x80
+ *   3E: msg                 "Welcome to userspace!\n\0"
  */
 static const uint8_t user_test_bin[] = {
-    0xB8, 0x64, 0x00, 0x00, 0x00,          /* mov   eax, 100    */
-    0xBB, 0x01, 0x00, 0x00, 0x00,          /* mov   ebx, 1      */
-    0xCD, 0x80,                             /* int   0x80  (CP1) */
-    0xE8, 0x00, 0x00, 0x00, 0x00,          /* call  +0          */
-    0x5E,                                   /* pop   esi         */
-    0x83, 0xC6, 0x22,                       /* add   esi, 0x22   */
-    0xB8, 0x04, 0x00, 0x00, 0x00,          /* mov   eax, 4      */
-    0x89, 0xF3,                             /* mov   ebx, esi    */
-    0xCD, 0x80,                             /* int   0x80  (write)*/
-    0xB8, 0x64, 0x00, 0x00, 0x00,          /* mov   eax, 100    */
-    0xBB, 0x02, 0x00, 0x00, 0x00,          /* mov   ebx, 2      */
-    0xCD, 0x80,                             /* int   0x80  (CP2) */
-    0xB8, 0x01, 0x00, 0x00, 0x00,          /* mov   eax, 1      */
-    0x31, 0xDB,                             /* xor   ebx, ebx    */
-    0xCD, 0x80,                             /* int   0x80  (exit)*/
-    /* msg at offset 0x33: */
+    /* SYS_DEBUG(1) */
+    0xB8, 0x64, 0x00, 0x00, 0x00,          /* 00: mov  eax, 100         */
+    0xBB, 0x01, 0x00, 0x00, 0x00,          /* 05: mov  ebx, 1           */
+    0xCD, 0x80,                             /* 0A: int  0x80  (CP1)      */
+    /* get runtime address */
+    0xE8, 0x00, 0x00, 0x00, 0x00,          /* 0C: call +0               */
+    0x5E,                                   /* 11: pop  esi              */
+    /* SYS_WRITE(1, &msg, 22) */
+    0xB8, 0x04, 0x00, 0x00, 0x00,          /* 12: mov  eax, 4           */
+    0xBB, 0x01, 0x00, 0x00, 0x00,          /* 17: mov  ebx, 1  (stdout) */
+    0x8D, 0x8E, 0x2D, 0x00, 0x00, 0x00,   /* 1C: lea  ecx, [esi+0x2D]  */
+    0xBA, 0x16, 0x00, 0x00, 0x00,          /* 22: mov  edx, 22          */
+    0xCD, 0x80,                             /* 27: int  0x80  (write)    */
+    /* SYS_DEBUG(2) */
+    0xB8, 0x64, 0x00, 0x00, 0x00,          /* 29: mov  eax, 100         */
+    0xBB, 0x02, 0x00, 0x00, 0x00,          /* 2E: mov  ebx, 2           */
+    0xCD, 0x80,                             /* 33: int  0x80  (CP2)      */
+    /* SYS_EXIT(0) */
+    0xB8, 0x01, 0x00, 0x00, 0x00,          /* 35: mov  eax, 1           */
+    0x31, 0xDB,                             /* 3A: xor  ebx, ebx         */
+    0xCD, 0x80,                             /* 3C: int  0x80  (exit)     */
+    /* msg at offset 0x3E: "Welcome to userspace!\n\0" */
     'W','e','l','c','o','m','e',' ',
     't','o',' ',
     'u','s','e','r','s','p','a','c','e','!','\n','\0'

@@ -395,17 +395,48 @@ static void test_syscall(void)
     registers_t regs;
     memset(&regs, 0, sizeof(regs));
 
-    /* SYS_WRITE with a valid NUL-terminated kernel string must not crash. */
+    /* SYS_WRITE(fd=1, buf, len): write to stdout — must not crash and must
+     * return the byte count. */
+    static const char msg[] = "[ktest] syscall SYS_WRITE\n";
     regs.eax = SYS_WRITE;
-    regs.ebx = (uint32_t)"[ktest] syscall SYS_WRITE\n";
+    regs.ebx = FD_STDOUT;
+    regs.ecx = (uint32_t)(uintptr_t)msg;
+    regs.edx = sizeof(msg) - 1;   /* exclude NUL */
     syscall_dispatch(&regs);
-    KTEST_ASSERT(1);
+    KTEST_ASSERT(regs.eax == sizeof(msg) - 1);
 
-    /* SYS_YIELD must not crash (internally calls task_yield). */
+    /* SYS_WRITE to an invalid fd must return -1. */
+    regs.eax = SYS_WRITE;
+    regs.ebx = 99;   /* no such fd */
+    regs.ecx = (uint32_t)(uintptr_t)msg;
+    regs.edx = 1;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == (uint32_t)-1);
+
+    /* Unknown syscall must return -ENOSYS (not crash). */
+    regs.eax = 9999;
+    regs.ebx = regs.ecx = regs.edx = 0;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == (uint32_t)-38);   /* -ENOSYS */
+
+    /* SYS_YIELD must not crash. */
     regs.eax = SYS_YIELD;
     regs.ebx = 0;
     syscall_dispatch(&regs);
     KTEST_ASSERT(1);
+
+    /* SYS_OPEN on a non-existent path must return -1. */
+    regs.eax = SYS_OPEN;
+    regs.ebx = (uint32_t)(uintptr_t)"/no/such/file";
+    regs.ecx = O_RDONLY;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == (uint32_t)-1);
+
+    /* SYS_BRK(0): query current break on a kernel task (user_brk == 0). */
+    regs.eax = SYS_BRK;
+    regs.ebx = 0;
+    syscall_dispatch(&regs);
+    KTEST_ASSERT(regs.eax == 0);   /* kernel tasks have no user heap */
 
     ktest_summary();
 }
@@ -575,9 +606,12 @@ static void test_ring3_execution(void)
     task_t *t = task_create("ring3test", ring3_usertest_task);
     KTEST_ASSERT(t != NULL);
 
-    /* Yield to the ring-3 task; it runs to SYS_EXIT (task_exit), which marks
-     * itself DEAD and reschedules back to us in one cooperative round-trip. */
-    task_yield();
+    /* Yield until the ring-3 task has exited.  With preemptive scheduling the
+     * timer may switch us back before ring3test completes all its syscalls, so
+     * we loop until the task is marked DEAD rather than assuming one yield is
+     * sufficient. */
+    while (t && t->state != TASK_DEAD)
+        task_yield();
 
     /* This line executes only after the scheduler returned to kernel mode.
      * It proves we are back in ring 0 with the kernel page directory active,

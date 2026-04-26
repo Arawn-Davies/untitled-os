@@ -20,6 +20,7 @@
 #include <kernel/ring3.h>
 #include <kernel/descr_tbl.h>
 #include <kernel/task.h>
+#include <kernel/syscall.h>
 #include <kernel/tty.h>
 #include <string.h>
 
@@ -98,7 +99,8 @@ int elf_exec(const char *path)
         return -1;
     }
 
-    /* 3. Create user page directory (mirrors kernel PDEs). */
+    /* 3. Close any fds open from a previous exec and create page directory. */
+    syscall_reset_fds();
     uint32_t *pd = vmm_create_pd();
     if (!pd) {
         t_writestring("exec: vmm_create_pd failed\n");
@@ -160,7 +162,18 @@ int elf_exec(const char *path)
         }
     }
 
-    /* 5. Map user stack (one page, read-write). */
+    /* 5. Record the initial heap break (page-aligned end of highest segment). */
+    uint32_t top_vaddr = 0;
+    for (int i = 0; i < (int)ehdr->e_phnum; i++) {
+        const Elf32_Phdr *ph = (const Elf32_Phdr *)
+            (s_elf_buf + ehdr->e_phoff + (uint32_t)i * ehdr->e_phentsize);
+        if (ph->p_type != PT_LOAD || ph->p_memsz == 0) continue;
+        uint32_t end = align_up(ph->p_vaddr + ph->p_memsz, PAGE_SIZE);
+        if (end > top_vaddr) top_vaddr = end;
+    }
+    task_current()->user_brk = top_vaddr;
+
+    /* 6. Map user stack (one page, read-write). */
     uint32_t stack_phys = pmm_alloc_frame();
     if (stack_phys == PMM_ALLOC_ERROR) {
         t_writestring("exec: out of physical memory (stack)\n");
@@ -171,7 +184,7 @@ int elf_exec(const char *path)
     vmm_map_page(pd, ELF_STACK_TOP - PAGE_SIZE, stack_phys,
                  VMM_FLAG_USER | VMM_FLAG_WRITABLE);
 
-    /* 6. Activate the address space and enter ring 3. */
+    /* 7. Activate the address space and enter ring 3. */
     task_current()->page_dir = pd;
     tss_set_kernel_stack((uint32_t)(task_current()->stack + TASK_STACK_SIZE));
     vmm_switch(pd);
