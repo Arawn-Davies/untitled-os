@@ -1,0 +1,60 @@
+name: Test
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+
+permissions:
+  contents: read
+
+jobs:
+  ktest:
+    name: In-kernel test suite (ktest)
+    runs-on: ubuntu-latest
+    container:
+      image: arawn780/gcc-cross-i686-elf:fast
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build TEST_MODE ISO
+        env:
+          CFLAGS: '-O0 -g3'
+          CPPFLAGS: '-DTEST_MODE'
+        run: bash iso.sh
+
+      - name: Run ktest suite
+        run: |
+          timeout 60 qemu-system-i386 \
+            -cdrom makar.iso \
+            -serial stdio \
+            -display none \
+            -no-reboot \
+            -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+            2>/dev/null | tee ktest.log || true
+
+          if grep -q "KTEST_RESULT: PASS" ktest.log; then
+            echo "ktest: ALL PASSED"
+          elif grep -q "KTEST_RESULT: FAIL" ktest.log; then
+            echo "ktest: FAILED"
+            cat ktest.log
+            exit 1
+          else
+            echo "ktest: TIMEOUT or kernel did not reach test runner"
+            cat ktest.log
+            exit 1
+          fi
+
+      - name: Upload ktest log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ktest-log
+          path: ktest.log
