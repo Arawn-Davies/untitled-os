@@ -1,16 +1,39 @@
-# userspace/Makefile — placeholder
-#
-# This Makefile is intentionally empty.  It exists so that build tooling can
-# discover the userspace project directory without breaking.  Populate it when
-# the first userspace program is ready to build.
+DEFAULT_HOST!=../default-host.sh
+HOST?=$(DEFAULT_HOST)
 
-.PHONY: all clean install install-headers
+CC=$(HOST)-gcc
+AS=$(HOST)-as
+LD=$(HOST)-ld
 
-all:
-	@echo "userspace: nothing to build yet"
+CFLAGS?=-O2 -g
+CFLAGS:=$(CFLAGS) -std=c11 -ffreestanding -fno-stack-protector \
+        -Wall -Wextra -nostdlib -nostdinc -I.
 
-clean:
+LDFLAGS=-T link.ld -nostdlib
 
-install: install-headers
+DESTDIR?=
+ISODIR?=$(CURDIR)/../../isodir
+
+PROGS=hello.elf
+
+all: $(PROGS)
+
+hello.elf: crt0.o hello.o
+	$(LD) $(LDFLAGS) -o $@ $^
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+%.o: %.S
+	$(AS) --32 -o $@ $<
+
+install: all
+	mkdir -p $(ISODIR)/apps
+	cp $(PROGS) $(ISODIR)/apps/
 
 install-headers:
+
+clean:
+	rm -f *.o $(PROGS)
+
+.PHONY: all install install-headers clean
