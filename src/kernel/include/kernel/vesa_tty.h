@@ -14,6 +14,9 @@ bool vesa_tty_init(void);
 /* Returns true once vesa_tty_init() has succeeded. */
 bool vesa_tty_is_ready(void);
 
+/* Returns the current cursor column (in character cells). */
+uint32_t vesa_tty_get_col(void);
+
 /* Returns the current cursor row (in character cells). */
 uint32_t vesa_tty_get_row(void);
 
@@ -64,5 +67,12 @@ void vesa_tty_clear(void);
  * Safe to call before vesa_tty_init() — exits immediately if not ready.
  */
 void vesa_tty_set_scale(uint32_t scale);
+
+/*
+ * Move the VESA text cursor to (col, row) without drawing anything.
+ * Use this to re-synchronise the internal cursor after direct put_at() writes.
+ * Safe to call before vesa_tty_init() — exits immediately if not ready.
+ */
+void vesa_tty_set_cursor(uint32_t col, uint32_t row);
 
 #endif

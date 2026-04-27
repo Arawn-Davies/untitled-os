@@ -311,15 +311,21 @@ static void vics_parse(const char *buf, uint32_t size)
 
     uint32_t pos = 0;
     while (v_nlines < VICS_MAX_LINES) {
-        uint32_t start = pos;
-        while (pos < size && buf[pos] != '\n') pos++;
-
-        int len = (int)(pos - start);
-        if (len > VICS_LINE_CAP) len = VICS_LINE_CAP;
-
-        memcpy(v_lines[v_nlines], buf + start, (size_t)len);
-        v_lines[v_nlines][len] = '\0';
-        v_len[v_nlines]        = len;
+        /* Copy one line, expanding '\t' to spaces at 4-column stops so the
+         * buffer never contains raw tab bytes (which VGA renders as circles). */
+        int out = 0;
+        while (pos < size && buf[pos] != '\n') {
+            if (buf[pos] == '\t') {
+                int spaces = 4 - (out % 4);
+                while (spaces-- > 0 && out < VICS_LINE_CAP)
+                    v_lines[v_nlines][out++] = ' ';
+            } else if (out < VICS_LINE_CAP) {
+                v_lines[v_nlines][out++] = buf[pos];
+            }
+            pos++;
+        }
+        v_lines[v_nlines][out] = '\0';
+        v_len[v_nlines]        = out;
         v_nlines++;
 
         if (pos >= size) break;
@@ -465,6 +471,11 @@ void vics_edit(const char *path)
         /* ---- Editing ---- */
         if (c == '\b')              { vics_backspace();  continue; }
         if (c == '\n' || c == '\r') { vics_newline();    continue; }
+        if (c == '\t') {
+            /* Tab → 4 spaces */
+            for (int s = 0; s < 4; s++) vics_insert_char(' ');
+            continue;
+        }
         if (c >= ' ' && c <= '~')   { vics_insert_char(c); continue; }
 
         /* All other characters (e.g. Tab, remaining Ctrl codes) are ignored. */

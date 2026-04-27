@@ -13,8 +13,10 @@
 #include <kernel/shell.h>
 #include <kernel/keyboard.h>
 #include <kernel/tty.h>
+#include <kernel/vga.h>
 #include <kernel/vesa.h>
 #include <kernel/vesa_tty.h>
+#include <kernel/serial.h>
 #include <kernel/vfs.h>
 #include <kernel/ktest.h>
 
@@ -50,49 +52,142 @@ static const char *history_get(int ago)
 }
 
 /* ---------------------------------------------------------------------------
+ * readline_redraw – repaint the input line in-place and position cursors.
+ *
+ * VGA uses vga_start_col/row (always 80 cols).
+ * VESA uses vesa_start_col/row (tty_cols wide, which differs from VGA_WIDTH).
+ * Passing separate VESA coords avoids the t_row=0 desync that occurs when
+ * VESA is active and the VGA row counter wraps.
+ * --------------------------------------------------------------------------- */
+static void readline_redraw(const char *buf, size_t len, size_t cur,
+                             size_t vga_start_col, size_t vga_start_row,
+                             uint32_t vesa_start_col, uint32_t vesa_start_row)
+{
+    uint32_t vcols = vesa_tty_is_ready() ? vesa_tty_get_cols() : VGA_WIDTH;
+
+    for (size_t i = 0; i <= len; i++) {
+        char ch = (i < len) ? buf[i] : ' '; /* trailing space erases deletions */
+
+        size_t vga_lp  = vga_start_col + i;
+        size_t vga_row = vga_start_row + vga_lp / VGA_WIDTH;
+        size_t vga_col = vga_lp % VGA_WIDTH;
+        VGA_MEMORY[vga_row * VGA_WIDTH + vga_col] = make_vgaentry(ch, SHELL_COLOR_VGA);
+
+        if (vesa_tty_is_ready()) {
+            uint32_t vlp = vesa_start_col + (uint32_t)i;
+            vesa_tty_put_at(ch, vlp % vcols, vesa_start_row + vlp / vcols);
+        }
+    }
+
+    /* VGA hardware cursor */
+    size_t cp = vga_start_col + cur;
+    update_cursor(vga_start_row + cp / VGA_WIDTH, cp % VGA_WIDTH);
+
+    /* VESA internal cursor */
+    if (vesa_tty_is_ready()) {
+        uint32_t vcp = vesa_start_col + (uint32_t)cur;
+        vesa_tty_set_cursor(vcp % vcols, vesa_start_row + vcp / vcols);
+    }
+}
+
+/* ---------------------------------------------------------------------------
  * shell_readline – read a line from the PS/2 keyboard into buf.
  *
- * Echoes every printable character to the VGA terminal.  Handles:
- *   '\b'           – erase the previous character (if any).
- *   '\n'           – end of line.
- *   KEY_ARROW_UP   – recall older history entry.
- *   KEY_ARROW_DOWN – recall newer history entry (or restore working line).
+ * Handles:
+ *   Printable       – insert at cursor (inline editing).
+ *   '\b'            – delete char before cursor.
+ *   KEY_ARROW_LEFT  – move cursor left within the line.
+ *   KEY_ARROW_RIGHT – move cursor right within the line.
+ *   KEY_ARROW_UP    – recall older history entry.
+ *   KEY_ARROW_DOWN  – recall newer entry (or restore working line).
+ *   '\n' / '\r'     – end of line.
  * Always NUL-terminates buf.  Reads at most (max - 1) characters.
  * --------------------------------------------------------------------------- */
 void shell_readline(char *buf, size_t max)
 {
     size_t len      = 0;
-    int    hist_pos = -1;            /* -1 = not in history-navigation mode */
-    char   work[SHELL_MAX_INPUT];    /* in-progress line saved on first ↑   */
+    size_t cur      = 0;             /* cursor position within buf            */
+    int    hist_pos = -1;            /* -1 = not in history-navigation mode   */
+    char   work[SHELL_MAX_INPUT];    /* in-progress line saved on first ↑     */
 
     buf[0]  = '\0';
     work[0] = '\0';
+
+    /* Capture where the prompt ended.  VGA uses t_column/t_row (wraps at
+     * VGA_WIDTH and resets t_row=0 when VESA is active).  VESA tracks its
+     * own cursor which must be read separately to avoid the t_row=0 desync. */
+    size_t   rl_col      = t_column;
+    size_t   rl_row      = t_row;
+    uint32_t vesa_rl_col = vesa_tty_is_ready() ? vesa_tty_get_col() : (uint32_t)t_column;
+    uint32_t vesa_rl_row = vesa_tty_is_ready() ? vesa_tty_get_row() : (uint32_t)t_row;
 
     while (1) {
         char c = keyboard_getchar();
 
         if (c == '\n' || c == '\r') {
-            t_putchar('\n');
+            /* Sync VGA tty state to end of line, then emit newline. */
+            size_t end = rl_col + len;
+            t_row      = rl_row + end / VGA_WIDTH;
+            t_column   = end % VGA_WIDTH;
+            if (vesa_tty_is_ready()) {
+                uint32_t vcols = vesa_tty_get_cols();
+                uint32_t vend  = vesa_rl_col + (uint32_t)len;
+                vesa_tty_set_cursor(vend % vcols, vesa_rl_row + vend / vcols);
+            }
+            t_putchar('\n');  /* also writes '\n' to serial via tty.c */
             break;
         }
 
         if (c == '\b') {
-            if (len > 0) {
+            if (cur > 0) {
+                for (size_t i = cur - 1; i < len - 1; i++)
+                    buf[i] = buf[i + 1];
                 len--;
+                cur--;
                 buf[len] = '\0';
-                t_backspace();
+                Serial_WriteChar('\b');
+                readline_redraw(buf, len, cur,
+                                rl_col, rl_row, vesa_rl_col, vesa_rl_row);
             }
             hist_pos = -1;
             continue;
         }
 
-        /* ---- Arrow-key history navigation ---- */
+        /* ---- Inline cursor movement ---- */
+        if (c == KEY_ARROW_LEFT) {
+            if (cur > 0) {
+                cur--;
+                size_t cp = rl_col + cur;
+                update_cursor(rl_row + cp / VGA_WIDTH, cp % VGA_WIDTH);
+                if (vesa_tty_is_ready()) {
+                    uint32_t vcols = vesa_tty_get_cols();
+                    uint32_t vcp   = vesa_rl_col + (uint32_t)cur;
+                    vesa_tty_set_cursor(vcp % vcols, vesa_rl_row + vcp / vcols);
+                }
+            }
+            continue;
+        }
+
+        if (c == KEY_ARROW_RIGHT) {
+            if (cur < len) {
+                cur++;
+                size_t cp = rl_col + cur;
+                update_cursor(rl_row + cp / VGA_WIDTH, cp % VGA_WIDTH);
+                if (vesa_tty_is_ready()) {
+                    uint32_t vcols = vesa_tty_get_cols();
+                    uint32_t vcp   = vesa_rl_col + (uint32_t)cur;
+                    vesa_tty_set_cursor(vcp % vcols, vesa_rl_row + vcp / vcols);
+                }
+            }
+            continue;
+        }
+
+        /* ---- History navigation ---- */
         if (c == KEY_ARROW_UP || c == KEY_ARROW_DOWN) {
             int new_pos;
 
             if (c == KEY_ARROW_UP) {
                 if (hist_pos < 0) {
-                    /* First ↑ press: save the in-progress line. */
                     strncpy(work, buf, max - 1);
                     work[max - 1] = '\0';
                 }
@@ -105,25 +200,20 @@ void shell_readline(char *buf, size_t max)
 
             const char *entry;
             if (new_pos < 0) {
-                /* Went past the newest entry → restore the working line. */
                 entry    = work;
                 hist_pos = -1;
             } else {
                 entry = history_get(new_pos);
-                if (!entry)
-                    continue;
+                if (!entry) continue;
                 hist_pos = new_pos;
             }
 
-            /* Erase the current line on-screen. */
-            for (size_t i = 0; i < len; i++)
-                t_backspace();
-
-            /* Load and display the recalled line. */
             strncpy(buf, entry, max - 1);
             buf[max - 1] = '\0';
             len = strlen(buf);
-            t_writestring(buf);
+            cur = len;
+            readline_redraw(buf, len, cur,
+                            rl_col, rl_row, vesa_rl_col, vesa_rl_row);
             continue;
         }
 
@@ -131,13 +221,18 @@ void shell_readline(char *buf, size_t max)
         if (c < 0x20 || c > 0x7E)
             continue;
 
-        /* Any typed character exits history-navigation mode. */
         hist_pos = -1;
 
         if (len < max - 1) {
-            buf[len++] = c;
-            buf[len]   = '\0';
-            t_putchar(c);
+            for (size_t i = len; i > cur; i--)
+                buf[i] = buf[i - 1];
+            buf[cur] = c;
+            len++;
+            cur++;
+            buf[len] = '\0';
+            Serial_WriteChar(c);
+            readline_redraw(buf, len, cur,
+                            rl_col, rl_row, vesa_rl_col, vesa_rl_row);
         }
     }
 
@@ -216,6 +311,10 @@ typedef enum {
     CMD_PANIC,
     CMD_CHAINLOAD,
     CMD_EXEC,
+    /* File I/O */
+    CMD_WRITE,
+    CMD_TOUCH,
+    CMD_CP,
     CMD_UNKNOWN,
 } shell_cmd_t;
 
@@ -258,6 +357,10 @@ static const cmd_entry_t cmd_table[] = {
     { "panic",      CMD_PANIC      },
     { "chainload",  CMD_CHAINLOAD  },
     { "exec",       CMD_EXEC       },
+    /* File I/O */
+    { "write",      CMD_WRITE      },
+    { "touch",      CMD_TOUCH      },
+    { "cp",         CMD_CP         },
 };
 
 #define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
@@ -374,7 +477,11 @@ void shell_run(void)
         case CMD_RING3TEST:  cmd_ring3test();             break;
         case CMD_PANIC:      cmd_panic(argc, argv);       break;
         case CMD_CHAINLOAD:  cmd_chainload(argc, argv);   break;
-        case CMD_EXEC:       cmd_exec(argc, argv);        break;
+        case CMD_EXEC:       cmd_exec(argc, argv);         break;
+        /* File I/O */
+        case CMD_WRITE:      cmd_write(argc, argv);        break;
+        case CMD_TOUCH:      cmd_touch(argc, argv);        break;
+        case CMD_CP:         cmd_cp(argc, argv);           break;
         default:
             /* Medli-style error: red text, matching CommandConsole.cs */
             t_setcolor(SHELL_ERROR_COLOR_VGA);

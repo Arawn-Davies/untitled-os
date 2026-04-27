@@ -68,6 +68,11 @@ bool vesa_tty_is_ready(void)
 	return tty_ready;
 }
 
+uint32_t vesa_tty_get_col(void)
+{
+	return tty_col;
+}
+
 uint32_t vesa_tty_get_row(void)
 {
 	return tty_row;
@@ -198,6 +203,14 @@ void vesa_tty_spinner_tick(uint32_t tick)
 	static const char frames[] = {'|', '/', '-', '\\'};
 	char c = frames[(tick / 12) % 4];
 	vesa_tty_put_at(c, tty_cols - 1, 0);
+}
+
+void vesa_tty_set_cursor(uint32_t col, uint32_t row)
+{
+	if (!tty_ready)
+		return;
+	if (col < tty_cols) tty_col = col;
+	if (row < tty_rows) tty_row = row;
 }
 
 void vesa_tty_set_scale(uint32_t scale)
