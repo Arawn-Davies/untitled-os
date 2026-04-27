@@ -12,6 +12,7 @@
  *   Printable   — insert character at cursor
  *   Backspace   — delete character before cursor; join lines at column 0
  *   Enter       — split line at cursor (insert newline)
+ *   Tab         — insert 4 spaces
  *   Ctrl+S      — save file
  *   Ctrl+Q      — quit (press twice to discard unsaved changes)
  *

@@ -1,6 +1,8 @@
 #ifndef _KERNEL_SHELL_H
 #define _KERNEL_SHELL_H
 
+#include <stddef.h>
+
 /*
  * Minimal kernel REPL over VGA + PS/2 keyboard.
  *
@@ -8,5 +10,17 @@
  * VGA) have been initialised.  It never returns.
  */
 void shell_run(void);
+
+/*
+ * shell_readline – read and echo one line from the PS/2 keyboard into buf.
+ *
+ * Supports inline cursor movement (←/→), backspace at cursor, and history
+ * navigation (↑/↓).  Terminates on Enter; always NUL-terminates buf.
+ * Reads at most (max - 1) characters.
+ *
+ * Exposed here so the syscall layer can provide echoing stdin reads to
+ * ring-3 user-space processes (SYS_READ fd=0).
+ */
+void shell_readline(char *buf, size_t max);
 
 #endif /* _KERNEL_SHELL_H */

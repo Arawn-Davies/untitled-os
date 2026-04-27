@@ -28,6 +28,7 @@
 #include <kernel/task.h>
 #include <kernel/tty.h>
 #include <kernel/keyboard.h>
+#include <kernel/shell.h>
 #include <kernel/vfs.h>
 #include <kernel/heap.h>
 #include <kernel/vmm.h>
@@ -124,12 +125,15 @@ void syscall_dispatch(registers_t *regs)
         if (!buf || len == 0) { regs->eax = 0; break; }
 
         if (fd == FD_STDIN) {
-            uint32_t n = 0;
-            while (n < len) {
-                char c = keyboard_getchar();
-                buf[n++] = c;
-                if (c == '\n') break;   /* line-at-a-time terminal read */
-            }
+            /* Line-buffered stdin with echo, backspace, and cursor editing. */
+            static char s_stdin_line[256];
+            uint32_t cap = (len < sizeof(s_stdin_line)) ? len : (uint32_t)sizeof(s_stdin_line);
+            shell_readline(s_stdin_line, (size_t)cap);
+            uint32_t n = (uint32_t)strlen(s_stdin_line);
+            /* Append '\n' so callers see a complete line (like a real terminal). */
+            if (n < cap - 1) { s_stdin_line[n++] = '\n'; s_stdin_line[n] = '\0'; }
+            if (n > len) n = len;
+            memcpy(buf, s_stdin_line, n);
             regs->eax = n;
         } else {
             int idx = fd_to_slot(fd);

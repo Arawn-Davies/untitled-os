@@ -9,18 +9,23 @@ static void write_str(const char *s)
 
 int main(void)
 {
-    char buf[128];
+    char name[64];
 
-    write_str("Hello from ring-3 userspace!\n");
-    write_str("Type something: ");
+    write_str("What is your name? ");
 
-    long n = sys_read(0, buf, sizeof(buf) - 1);
+    long n = sys_read(0, name, sizeof(name) - 1);
     if (n > 0) {
-        buf[n] = '\0';
-        write_str("You typed: ");
-        sys_write(1, buf, (unsigned int)n);
+        /* Strip trailing newline from shell_readline. */
+        if (name[n - 1] == '\n')
+            n--;
+        name[n] = '\0';
+    } else {
+        name[0] = '\0';
     }
 
-    write_str("Goodbye.\n");
+    write_str("Hello, ");
+    write_str(name[0] ? name : "stranger");
+    write_str("!\n");
+
     return 0;
 }

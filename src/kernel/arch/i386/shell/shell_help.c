@@ -70,6 +70,9 @@ void cmd_help(void)
     pager_line("  ls [path]                    - list directory (/hd/.. or /cdrom/..)\n");
     pager_line("  cd <path>                    - change directory\n");
     pager_line("  cat <file>                   - print file contents\n");
+    pager_line("  write <file> <text...>       - create/overwrite file with text\n");
+    pager_line("  touch <file>                 - create empty file\n");
+    pager_line("  cp <src> <dst>               - copy a file\n");
     pager_line("  mkdir <path>                 - create directory (FAT32 only)\n");
     pager_line("  isols <drv> [path]           - list directory on an ISO9660 CD-ROM\n");
     pager_line("Installer:\n");

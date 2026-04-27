@@ -90,4 +90,9 @@ void cmd_chainload(int argc, char **argv);
 /* Load and run an ELF32 executable from the VFS */
 void cmd_exec(int argc, char **argv);
 
+/* File I/O */
+void cmd_write(int argc, char **argv);
+void cmd_touch(int argc, char **argv);
+void cmd_cp(int argc, char **argv);
+
 #endif /* SHELL_PRIV_H */

@@ -1033,5 +1033,161 @@ void cmd_exec(int argc, char **argv)
         return;
     }
 
-    task_yield();
+    /* Wait for the child to finish before returning to the shell prompt.
+     * Without this, both the exec task and the shell end up in keyboard_getchar
+     * simultaneously and the shell consumes the user's input. */
+    while (t->state != TASK_DEAD)
+        task_yield();
+}
+
+/* ---------------------------------------------------------------------------
+ * File I/O commands
+ * --------------------------------------------------------------------------- */
+
+/*
+ * write <file> <text...>
+ *
+ * Create or overwrite <file> with the given text (argv[2..] joined by spaces,
+ * with a trailing newline).  FAT32 /hd/ paths only.
+ */
+void cmd_write(int argc, char **argv)
+{
+    if (argc < 3) {
+        t_writestring("Usage: write <file> <text...>\n");
+        return;
+    }
+
+    static char s_write_buf[SHELL_MAX_INPUT];
+    size_t off = 0;
+
+    for (int i = 2; i < argc; i++) {
+        if (i > 2 && off < sizeof(s_write_buf) - 1)
+            s_write_buf[off++] = ' ';
+        const char *s = argv[i];
+        while (*s && off < sizeof(s_write_buf) - 1)
+            s_write_buf[off++] = *s++;
+    }
+    if (off < sizeof(s_write_buf) - 1)
+        s_write_buf[off++] = '\n';
+    s_write_buf[off] = '\0';
+
+    /* Resolve path against CWD if relative. */
+    static char s_write_path[VFS_PATH_MAX];
+    const char *arg = argv[1];
+    const char *cwd = vfs_getcwd();
+    if (arg[0] == '/') {
+        strncpy(s_write_path, arg, VFS_PATH_MAX - 1);
+        s_write_path[VFS_PATH_MAX - 1] = '\0';
+    } else {
+        size_t cl = strlen(cwd), al = strlen(arg);
+        if (cl + 1 + al >= VFS_PATH_MAX) { t_writestring("write: path too long\n"); return; }
+        size_t p = 0;
+        memcpy(s_write_path, cwd, cl); p += cl;
+        if (cwd[cl - 1] != '/') s_write_path[p++] = '/';
+        memcpy(s_write_path + p, arg, al + 1);
+    }
+
+    int err = vfs_write_file(s_write_path, s_write_buf, (uint32_t)off);
+    if (err) {
+        t_writestring("write: error ");
+        t_dec((uint32_t)(-err));
+        t_putchar('\n');
+    }
+}
+
+/*
+ * touch <file>
+ *
+ * Create an empty file, or do nothing if it already exists (zero-byte write).
+ */
+void cmd_touch(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: touch <file>\n");
+        return;
+    }
+
+    static char s_touch_path[VFS_PATH_MAX];
+    const char *arg = argv[1];
+    const char *cwd = vfs_getcwd();
+    if (arg[0] == '/') {
+        strncpy(s_touch_path, arg, VFS_PATH_MAX - 1);
+        s_touch_path[VFS_PATH_MAX - 1] = '\0';
+    } else {
+        size_t cl = strlen(cwd), al = strlen(arg);
+        if (cl + 1 + al >= VFS_PATH_MAX) { t_writestring("touch: path too long\n"); return; }
+        size_t p = 0;
+        memcpy(s_touch_path, cwd, cl); p += cl;
+        if (cwd[cl - 1] != '/') s_touch_path[p++] = '/';
+        memcpy(s_touch_path + p, arg, al + 1);
+    }
+
+    int err = vfs_write_file(s_touch_path, "", 0);
+    if (err) {
+        t_writestring("touch: error ");
+        t_dec((uint32_t)(-err));
+        t_putchar('\n');
+    }
+}
+
+/* 64 KiB staging buffer shared by cp (static → lives in BSS, not on stack). */
+static uint8_t s_cp_buf[64u * 1024u];
+
+/*
+ * cp <src> <dst>
+ *
+ * Copy a file.  src may be on /cdrom or /hd; dst must be on /hd (FAT32).
+ * Paths are resolved against the CWD if relative.
+ */
+void cmd_cp(int argc, char **argv)
+{
+    if (argc < 3) {
+        t_writestring("Usage: cp <src> <dst>\n");
+        return;
+    }
+
+    /* Helper: resolve path (absolute or relative to CWD) into out[outsz]. */
+    static char s_cp_src[VFS_PATH_MAX];
+    static char s_cp_dst[VFS_PATH_MAX];
+
+    const char *cwd = vfs_getcwd();
+
+    const char *paths[2] = { argv[1], argv[2] };
+    char       *outs [2] = { s_cp_src, s_cp_dst };
+
+    for (int i = 0; i < 2; i++) {
+        const char *arg = paths[i];
+        char       *out = outs[i];
+        if (arg[0] == '/') {
+            strncpy(out, arg, VFS_PATH_MAX - 1);
+            out[VFS_PATH_MAX - 1] = '\0';
+        } else {
+            size_t cl = strlen(cwd), al = strlen(arg);
+            if (cl + 1 + al >= VFS_PATH_MAX) { t_writestring("cp: path too long\n"); return; }
+            size_t p = 0;
+            memcpy(out, cwd, cl); p += cl;
+            if (cwd[cl - 1] != '/') out[p++] = '/';
+            memcpy(out + p, arg, al + 1);
+        }
+    }
+
+    uint32_t size = 0;
+    int err = vfs_read_file(s_cp_src, s_cp_buf, sizeof(s_cp_buf), &size);
+    if (err) {
+        t_writestring("cp: cannot read '");
+        t_writestring(s_cp_src);
+        t_writestring("'\n");
+        return;
+    }
+
+    err = vfs_write_file(s_cp_dst, s_cp_buf, size);
+    if (err) {
+        t_writestring("cp: cannot write '");
+        t_writestring(s_cp_dst);
+        t_writestring("'\n");
+        return;
+    }
+
+    t_dec(size);
+    t_writestring(" bytes copied.\n");
 }

@@ -465,6 +465,11 @@ void vics_edit(const char *path)
         /* ---- Editing ---- */
         if (c == '\b')              { vics_backspace();  continue; }
         if (c == '\n' || c == '\r') { vics_newline();    continue; }
+        if (c == '\t') {
+            /* Tab → 4 spaces */
+            for (int s = 0; s < 4; s++) vics_insert_char(' ');
+            continue;
+        }
         if (c >= ' ' && c <= '~')   { vics_insert_char(c); continue; }
 
         /* All other characters (e.g. Tab, remaining Ctrl codes) are ignored. */
