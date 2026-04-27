@@ -5,74 +5,109 @@
 #include <stdint.h>
 
 /*
- * Initialise the VESA text renderer.  Must be called after a successful
- * vesa_init().  Clears the framebuffer and sets default colours (white on
- * black).  Returns false if no framebuffer is available.
+ * vesa_tty — text renderer over the VESA framebuffer.
+ *
+ * Phase 1 of the split-pane work: rendering is now expressed against a
+ * `vesa_pane_t` that owns its own cursor, colours, and a sub-rectangle of
+ * the screen (full-width, top_row..top_row+rows-1).  The legacy global API
+ * (vesa_tty_putchar etc.) delegates to a screen-spanning default pane so
+ * existing callers are unaffected.
+ *
+ * Future phases will allow the shell, VICS, and a tmux-style splitter to
+ * each hold their own pane.  Side-by-side (column-split) panes are out of
+ * scope; only horizontal stacking (top/bottom) is supported.
  */
+
+/* Opaque-ish pane handle.  Fields are public so callers can stack-allocate
+ * panes without a heap dependency, but they should only be touched via the
+ * vesa_tty_pane_* API. */
+typedef struct vesa_pane {
+	uint32_t top_row;   /* first cell row owned by this pane */
+	uint32_t cols;      /* width in character cells */
+	uint32_t rows;      /* height in character cells */
+	uint32_t cur_col;   /* cursor column, relative to the pane (0..cols-1) */
+	uint32_t cur_row;   /* cursor row,    relative to the pane (0..rows-1) */
+	uint32_t fg;        /* foreground pixel (already composed for the FB) */
+	uint32_t bg;        /* background pixel (already composed for the FB) */
+} vesa_pane_t;
+
+/* ------------------------------------------------------------------ */
+/* Initialisation / status                                             */
+/* ------------------------------------------------------------------ */
+
+/* Initialise the renderer.  Must be called after vesa_init().  Sets up the
+ * default pane covering the whole screen, clears the framebuffer, sets
+ * default colours (white on black).  Returns false if no framebuffer is
+ * available. */
 bool vesa_tty_init(void);
 
-/* Returns true once vesa_tty_init() has succeeded. */
+/* True once vesa_tty_init() has succeeded. */
 bool vesa_tty_is_ready(void);
 
-/* Returns the current cursor column (in character cells). */
-uint32_t vesa_tty_get_col(void);
-
-/* Returns the current cursor row (in character cells). */
-uint32_t vesa_tty_get_row(void);
-
-/* Returns the total number of character columns on the VESA display. */
-uint32_t vesa_tty_get_cols(void);
-
-/* Returns the total number of character rows on the VESA display. */
-uint32_t vesa_tty_get_rows(void);
-
-/* Disable the VESA text renderer (sets tty_ready = false).
- * Call before switching to VGA text mode. */
+/* Disable the renderer (marks not-ready).  Call before switching to VGA. */
 void vesa_tty_disable(void);
 
-/*
- * Render a single character to the framebuffer at the current cursor
- * position, advancing the cursor.  Handles '\n', '\r', and '\b'.
- * Safe to call before vesa_tty_init() — exits immediately if not ready.
- */
+/* Total character columns / rows on the physical screen. */
+uint32_t vesa_tty_get_cols(void);
+uint32_t vesa_tty_get_rows(void);
+
+/* ------------------------------------------------------------------ */
+/* Default pane — covers the whole screen                              */
+/* ------------------------------------------------------------------ */
+
+/* Returns the screen-spanning default pane (valid after vesa_tty_init).
+ * Phase 2/3 may share this with non-split callers; do not free. */
+vesa_pane_t *vesa_tty_default_pane(void);
+
+/* ------------------------------------------------------------------ */
+/* Pane API                                                            */
+/* ------------------------------------------------------------------ */
+
+/* Initialise a caller-allocated pane covering the full screen width and
+ * the row range [top_row, top_row+rows).  Cursor goes to (0,0).  Colours
+ * are reset to white-on-black; tweak with vesa_tty_pane_setcolor().
+ * Safe to call before vesa_tty_init() — it just zero-fills the struct. */
+void vesa_tty_pane_init(vesa_pane_t *p, uint32_t top_row, uint32_t rows);
+
+/* Set fg/bg as 24-bit RGB (0x00RRGGBB).  Stored in framebuffer-pixel form. */
+void vesa_tty_pane_setcolor(vesa_pane_t *p, uint32_t fg_rgb, uint32_t bg_rgb);
+
+/* Render a character at the pane's cursor, advancing it.  Honours \n, \r,
+ * \b.  Scrolls within the pane only.  No-op if vesa_tty is not ready. */
+void vesa_tty_pane_putchar(vesa_pane_t *p, char c);
+
+/* Render a character at pane-relative cell (col, row) without moving the
+ * cursor.  Out-of-pane writes are clipped. */
+void vesa_tty_pane_put_at(vesa_pane_t *p, char c, uint32_t col, uint32_t row);
+
+/* Move the cursor (pane-relative coordinates). */
+void vesa_tty_pane_set_cursor(vesa_pane_t *p, uint32_t col, uint32_t row);
+
+/* Fill the pane with its current background and reset its cursor to (0,0). */
+void vesa_tty_pane_clear(vesa_pane_t *p);
+
+/* Pane-relative cursor accessors. */
+uint32_t vesa_tty_pane_get_col(const vesa_pane_t *p);
+uint32_t vesa_tty_pane_get_row(const vesa_pane_t *p);
+
+/* ------------------------------------------------------------------ */
+/* Legacy global API (delegates to the default pane)                   */
+/* ------------------------------------------------------------------ */
+
+uint32_t vesa_tty_get_col(void);
+uint32_t vesa_tty_get_row(void);
 void vesa_tty_putchar(char c);
-
-/* Set foreground and background colours as 24-bit RGB (0x00RRGGBB). */
 void vesa_tty_setcolor(uint32_t fg_rgb, uint32_t bg_rgb);
-
-/*
- * Render character c at a specific cell (col, row) without moving the cursor.
- * Safe to call before vesa_tty_init() — exits immediately if not ready.
- */
 void vesa_tty_put_at(char c, uint32_t col, uint32_t row);
-
-/*
- * Animate a spinning cursor at the top-right corner of the VESA display.
- * Call with the current timer tick count (same as t_spinner_tick).
- * Safe to call before vesa_tty_init() — exits immediately if not ready.
- */
-void vesa_tty_spinner_tick(uint32_t tick);
-
-/*
- * vesa_tty_clear – reset the cursor to (0, 0) and fill the framebuffer with
- * the current background colour without changing the fg/bg colour settings.
- * Use this after vesa_tty_setcolor() to apply a colour-scheme change.
- */
+void vesa_tty_set_cursor(uint32_t col, uint32_t row);
 void vesa_tty_clear(void);
 
-/*
- * Change the font scale factor.  scale=2 gives large glyphs (~25 lines at
- * 1024×768), scale=1 gives small glyphs (~50 lines at 1024×768).
- * Clears the screen and resets the cursor.
- * Safe to call before vesa_tty_init() — exits immediately if not ready.
- */
-void vesa_tty_set_scale(uint32_t scale);
+/* Animate a spinning cursor at the top-right corner of the screen.
+ * Always renders into the default pane regardless of focus. */
+void vesa_tty_spinner_tick(uint32_t tick);
 
-/*
- * Move the VESA text cursor to (col, row) without drawing anything.
- * Use this to re-synchronise the internal cursor after direct put_at() writes.
- * Safe to call before vesa_tty_init() — exits immediately if not ready.
- */
-void vesa_tty_set_cursor(uint32_t col, uint32_t row);
+/* Change the font scale factor (1 = small, 2 = large).  Clears the screen
+ * and re-initialises the default pane to the new geometry. */
+void vesa_tty_set_scale(uint32_t scale);
 
 #endif
