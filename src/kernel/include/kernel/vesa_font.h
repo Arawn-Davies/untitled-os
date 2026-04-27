@@ -6,8 +6,8 @@
 /*
  * 8×8 bitmap font for ASCII 0x00–0x7F.
  *
- * Each entry is 8 bytes (8 scanlines).  In each byte, bit 0 is the leftmost
- * pixel and bit 7 is the rightmost pixel.
+ * Each entry is 8 bytes (8 scanlines).  In each byte, bit 7 is the leftmost
+ * pixel and bit 0 is the rightmost pixel (standard IBM VGA MSB-first order).
  *
  * Based on the classic IBM PC VGA 8×8 character ROM glyph set, which is
  * widely reproduced and considered to be in the public domain.
