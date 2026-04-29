@@ -53,12 +53,18 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 **HDD boot test** (installed image, no CD-ROM):
 ```sh
 ./generate-hdd.sh        # build makar-hdd.img (grub-mkimage, explicit (hd0,msdos1) prefix)
+./generate-hdd.sh --test # same image but grub.cfg passes "test" kernel arg → ktest mode
 ./docker-hdd-boot.sh     # boot interactively from HDD on host QEMU
 ./docker-hdd-test.sh     # automated GDB test: Multiboot2 magic + boot checkpoints + fat32_mounted()
 # outputs: hdd-test-gdb.log, hdd-test-serial.log
 ```
 
 `generate-hdd.sh` uses `ubuntu:22.04` (not the cross-compiler image) because `grub-mkimage` and `mkfs.fat` are absent from `arawn780/gcc-cross-i686-elf:fast`. It uses `grub-mkimage` directly (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker.
+
+**TODO (next):** HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
+- `generate-hdd.sh --test` already writes `multiboot2 /boot/makar.kernel test` in grub.cfg.
+- `kernel.c` needs to parse `MULTIBOOT2_TAG_TYPE_CMDLINE` (type 1) and set a runtime `test_mode` flag when the "test" token is present, replacing the `#ifdef TEST_MODE` / `#ifndef TEST_MODE` guards in `kernel_main` with `if (test_mode)` checks. The compile-time `TEST_MODE` flag should remain as an OR condition for the ISO/CI path.
+- `multiboot.h` needs `#define MULTIBOOT2_TAG_TYPE_CMDLINE 1`.
 
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 

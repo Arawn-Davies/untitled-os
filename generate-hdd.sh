@@ -10,21 +10,24 @@
 #       -serial stdio \
 #       -boot c
 #
-# Why a separate script rather than the in-kernel installer?
+# Flags:
+#   --test   Clean, rebuild with -DTEST_MODE, then generate the image.
+#            The resulting kernel runs ktest_run_all() and exits via
+#            isa-debug-exit.  Used by docker-hdd-test.sh.
 #
-#   The in-kernel installer copies core.img verbatim from the ISO. That
-#   core.img was built with a generic `search` that scans every attached
-#   device for /boot/grub/grub.cfg. When the ISO CD-ROM is also connected
-#   during HDD boot, GRUB can find the CD's grub.cfg first and report the
-#   CD-ROM's BIOS device number as the Multiboot2 biosdev tag. The kernel
-#   maps biosdev - 0x80 directly to an IDE drive index; if that index is
-#   wrong (or the HDD is the hint drive that already failed), vfs_auto_mount
-#   may skip the installed FAT32 partition entirely.
+#   (none)   Default interactive mode.  Rebuilds the kernel only if
+#            sysroot/boot/makar.kernel is missing.  Used by
+#            docker-hdd-boot.sh (which does its own clean+build first).
 #
-#   This script uses grub-install instead, which builds core.img with the
-#   HDD FAT32 partition as its explicit root — no device search, no
-#   ambiguity. biosdev is always 0x80 (first HDD), and the kernel mounts
-#   /hd reliably.
+# Why grub-mkimage instead of grub-install?
+#
+#   grub-install probes loop devices via /sys/block and /proc/mounts to
+#   determine the FAT32 partition UUID and embeds `search --fs-uuid <UUID>`
+#   in core.img.  Inside Docker that probe fails silently; the embedded UUID
+#   doesn't match at runtime and GRUB drops into rescue mode.
+#
+#   grub-mkimage with -p '(hd0,msdos1)/boot/grub' hardcodes the root
+#   directly — no UUID search, no device probing, boots cleanly.
 #
 # Requirements on the host: Docker (all other tools run inside a container).
 
@@ -37,19 +40,47 @@ BUILD_IMAGE=${BUILD_IMAGE:-arawn780/gcc-cross-i686-elf:fast}
 HDD_IMG=${HDD_IMG:-makar-hdd.img}
 HDD_SIZE_MB=${HDD_SIZE_MB:-512}
 
+# Parse flags.
+HDD_TEST_MODE=0
+for _arg in "$@"; do
+    case "$_arg" in
+        --test) HDD_TEST_MODE=1 ;;
+        *) echo "ERROR: unknown flag '$_arg'" >&2; exit 1 ;;
+    esac
+done
+
 # ---------------------------------------------------------------------------
-# Step 1: build the kernel (produces sysroot/boot/makar.kernel + makar.iso).
-# Skip if the kernel is already up to date.
+# Step 1: build the kernel into sysroot/boot/makar.kernel.
+#
+# --test : clean first, then build with -DTEST_MODE (-O0 -g3).
+# default: skip if the binary is already present; build interactive otherwise.
 # ---------------------------------------------------------------------------
-if [ ! -f "$REPO_ROOT/sysroot/boot/makar.kernel" ]; then
-    echo "==> Building kernel..."
+if [ "$HDD_TEST_MODE" = "1" ]; then
+    echo "==> Cleaning build artifacts (--test mode)..."
+    "$DOCKER_BIN" run --rm \
+        --platform "$DOCKER_PLATFORM" \
+        -v "$REPO_ROOT:/work" \
+        -w /work \
+        "$BUILD_IMAGE" \
+        bash -c '. ./src/config.sh && for p in $PROJECTS; do (cd $p && $MAKE clean 2>/dev/null || true); done'
+
+    echo "==> Building TEST_MODE kernel..."
     "$DOCKER_BIN" run --rm \
         --platform "$DOCKER_PLATFORM" \
         -u "$(id -u):$(id -g)" \
         -v "$REPO_ROOT:/work" \
         -w /work \
         "$BUILD_IMAGE" \
-        bash -lc "bash build.sh"
+        bash -lc "CFLAGS='-O0 -g3' CPPFLAGS='-DTEST_MODE' bash build.sh"
+elif [ ! -f "$REPO_ROOT/sysroot/boot/makar.kernel" ]; then
+    echo "==> Building interactive kernel..."
+    "$DOCKER_BIN" run --rm \
+        --platform "$DOCKER_PLATFORM" \
+        -u "$(id -u):$(id -g)" \
+        -v "$REPO_ROOT:/work" \
+        -w /work \
+        "$BUILD_IMAGE" \
+        bash -lc "CFLAGS='-O0 -g3' bash build.sh"
 else
     echo "==> Kernel binary found; skipping rebuild."
     echo "    (Delete sysroot/boot/makar.kernel to force a fresh build.)"
