@@ -729,6 +729,71 @@ static void test_vesa_resolution(void)
     ktest_summary();
 }
 
+/* ---------------------------------------------------------------------------
+ * Suite: vesa_colour
+ *
+ * Cycles through all 16 standard CGA palette colours as both foreground and
+ * background, holding each combination briefly so it is visible in a graphical
+ * ktest run.  Asserts that vesa_tty_is_ready() remains true throughout and
+ * that the screen can be written to without panicking.
+ * ------------------------------------------------------------------------- */
+
+typedef struct { const char *name; uint32_t rgb; } ktest_colour_t;
+
+static const ktest_colour_t ktest_palette[] = {
+    { "black",        0x000000 },
+    { "blue",         0x0000AA },
+    { "green",        0x00AA00 },
+    { "cyan",         0x00AAAA },
+    { "red",          0xAA0000 },
+    { "magenta",      0xAA00AA },
+    { "brown",        0xAA5500 },
+    { "lightgray",    0xAAAAAA },
+    { "darkgray",     0x555555 },
+    { "lightblue",    0x5555FF },
+    { "lightgreen",   0x55FF55 },
+    { "lightcyan",    0x55FFFF },
+    { "lightred",     0xFF5555 },
+    { "lightmagenta", 0xFF55FF },
+    { "yellow",       0xFFFF55 },
+    { "white",        0xFFFFFF },
+};
+#define KTEST_PALETTE_SIZE ((uint32_t)(sizeof(ktest_palette)/sizeof(ktest_palette[0])))
+
+static void test_vesa_colour(void)
+{
+    ktest_begin("vesa_colour");
+
+    KTEST_ASSERT(vesa_tty_is_ready());
+
+    /* Pair each background with a contrasting foreground (white or black). */
+    for (uint32_t i = 0; i < KTEST_PALETTE_SIZE; i++) {
+        uint32_t bg = ktest_palette[i].rgb;
+        /* Use white fg on dark backgrounds, black fg on light ones. */
+        uint32_t luminance = ((bg >> 16) & 0xFF) * 299u
+                           + ((bg >>  8) & 0xFF) * 587u
+                           + ( bg        & 0xFF) * 114u;
+        uint32_t fg = (luminance < 128000u) ? 0xFFFFFF : 0x000000;
+
+        vesa_tty_setcolor(fg, bg);
+        vesa_tty_clear();
+
+        t_writestring("[ktest] vesa_colour: bg=");
+        t_writestring(ktest_palette[i].name);
+        t_writestring("\n");
+
+        KTEST_ASSERT(vesa_tty_is_ready());
+
+        ksleep(8); /* ~160 ms at 50 Hz — long enough to see the change */
+    }
+
+    /* Restore default white-on-blue. */
+    vesa_tty_setcolor(0xFFFFFF, 0x0000AA);
+    vesa_tty_clear();
+
+    ktest_summary();
+}
+
 int ktest_run_all(void)
 {
     int total_pass = 0;
@@ -783,6 +848,10 @@ int ktest_run_all(void)
     total_fail += ktest_fail_count;
 
     test_vesa_resolution();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_vesa_colour();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 

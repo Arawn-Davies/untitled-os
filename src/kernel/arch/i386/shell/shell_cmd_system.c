@@ -1,0 +1,108 @@
+/*
+ * shell_cmd_system.c -- system information and control shell commands.
+ *
+ * Commands: echo  meminfo  uptime  tasks  shutdown  reboot  panic  ktest
+ */
+
+#include "shell_priv.h"
+
+#include <kernel/tty.h>
+#include <kernel/timer.h>
+#include <kernel/heap.h>
+#include <kernel/task.h>
+#include <kernel/acpi.h>
+#include <kernel/debug.h>
+#include <kernel/ktest.h>
+
+static void cmd_echo(int argc, char **argv)
+{
+    for (int i = 1; i < argc; i++) {
+        if (i > 1)
+            t_putchar(' ');
+        t_writestring(argv[i]);
+    }
+    t_putchar('\n');
+}
+
+static void cmd_meminfo(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    t_writestring("heap used: ");
+    t_dec((uint32_t)heap_used());
+    t_writestring(" bytes\n");
+    t_writestring("heap free: ");
+    t_dec((uint32_t)heap_free());
+    t_writestring(" bytes\n");
+}
+
+static void cmd_uptime(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    t_writestring("uptime: ");
+    t_dec(timer_get_ticks());
+    t_writestring(" ticks\n");
+}
+
+static void cmd_tasks(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    static const char * const state_names[] = { "ready", "running", "dead" };
+    int n = task_count();
+
+    t_writestring("Tasks (");
+    t_dec((uint32_t)n);
+    t_writestring(" total):\n");
+
+    for (int i = 0; i < n; i++) {
+        task_t *t = task_get(i);
+        if (!t)
+            continue;
+        t_writestring("  [");
+        t_dec((uint32_t)i);
+        t_writestring("] ");
+        t_writestring(t->name ? t->name : "(unnamed)");
+        t_writestring(" - ");
+        t_writestring(state_names[t->state]);
+        t_putchar('\n');
+    }
+}
+
+static void cmd_shutdown(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    acpi_shutdown(); /* never returns */
+}
+
+static void cmd_reboot(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    acpi_reboot(); /* never returns */
+}
+
+static void cmd_panic(int argc, char **argv)
+{
+    const char *msg = (argc >= 2) ? argv[1] : "Shell-requested panic";
+    KPANIC(msg); /* never returns */
+}
+
+static void cmd_ktest(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    ktest_run_all();
+}
+
+/* ---------------------------------------------------------------------------
+ * Module table
+ * --------------------------------------------------------------------------- */
+
+const shell_cmd_entry_t system_cmds[] = {
+    { "echo",     cmd_echo     },
+    { "meminfo",  cmd_meminfo  },
+    { "uptime",   cmd_uptime   },
+    { "tasks",    cmd_tasks    },
+    { "shutdown", cmd_shutdown },
+    { "reboot",   cmd_reboot   },
+    { "panic",    cmd_panic    },
+    { "ktest",    cmd_ktest    },
+    { NULL, NULL }
+};

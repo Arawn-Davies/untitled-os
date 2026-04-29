@@ -21,7 +21,7 @@ void terminal_initialize(void)
 {
 	t_row = 0;
 	t_column = 0;
-	t_color = make_color(COLOR_WHITE, COLOR_BLACK);
+	t_color = make_color(COLOR_WHITE, COLOR_BLUE);
 	t_buffer = VGA_MEMORY;
 	for (size_t y = 0; y < t_height; y++)
 	{

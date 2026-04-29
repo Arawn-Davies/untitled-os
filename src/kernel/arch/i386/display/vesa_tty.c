@@ -102,9 +102,8 @@ bool vesa_tty_init(void)
 	tty_cols = fb->width  / FONT_CELL_W;
 	tty_rows = fb->height / FONT_CELL_H;
 
-	vesa_tty_pane_init(&default_pane, 0, tty_rows);
-	default_pane.fg = compose_colour(0xFF, 0xFF, 0xFF);
-	default_pane.bg = compose_colour(0x00, 0x00, 0x00);
+	tty_fg = compose_colour(0xFF, 0xFF, 0xFF); /* white */
+	tty_bg = compose_colour(0x00, 0x00, 0xAA); /* blue  */
 
 	vesa_clear(default_pane.bg);
 
@@ -158,6 +157,21 @@ void vesa_tty_pane_putchar(vesa_pane_t *p, char c)
 {
 	if (!tty_ready)
 		return;
+
+	/* The timer ISR may preempt between a cursor increment and its bounds
+	 * check, leaving tty_col/tty_row transiently out of range.  Clamp here
+	 * so the draw never receives an invalid position. */
+	if (tty_col >= tty_cols && tty_cols > 0) {
+		tty_col = 0;
+		if (++tty_row >= tty_rows) {
+			scroll_up();
+			tty_row = tty_rows - 1;
+		}
+	}
+	if (tty_row >= tty_rows && tty_rows > 0) {
+		scroll_up();
+		tty_row = tty_rows - 1;
+	}
 
 	if (c == '\n') {
 		p->cur_col = 0;

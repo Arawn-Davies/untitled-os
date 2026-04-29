@@ -286,7 +286,8 @@ void syscall_dispatch(registers_t *regs)
     case SYS_DEBUG:
         g_ring3_last_cp = regs->ebx;
         Serial_WriteString("[ring3] CP: 0x");
-        /* Serial_WriteHex not available everywhere; use t_hex for VGA. */
+        Serial_WriteHex(regs->ebx);
+        Serial_WriteString("\n");
         t_writestring("[ring3] CP: 0x");
         t_hex(regs->ebx);
         t_putchar('\n');
