@@ -63,13 +63,22 @@ rm -f "$REPO_ROOT/ktest.log"
 #
 # -serial file:...  → serial output goes directly to ktest.log
 # no -display flag  → QEMU auto-selects SDL/GTK/Cocoa; override via QEMU_DISPLAY
-timeout 60 "$QEMU_BIN" \
+#
+# isa-debug-exit causes QEMU to exit automatically when ktest finishes.
+# A background watchdog kills QEMU after 60 s in case the kernel hangs.
+"$QEMU_BIN" \
     -cdrom "$REPO_ROOT/makar.iso" \
     -serial "file:$REPO_ROOT/ktest.log" \
     ${QEMU_DISPLAY:+-display "$QEMU_DISPLAY"} \
     -no-reboot \
     -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-    || true
+    &
+QEMU_PID=$!
+( sleep 60 && kill "$QEMU_PID" 2>/dev/null ) &
+WATCHDOG_PID=$!
+wait "$QEMU_PID" 2>/dev/null || true
+kill "$WATCHDOG_PID" 2>/dev/null || true
+wait "$WATCHDOG_PID" 2>/dev/null || true
 
 # ── Check result ──────────────────────────────────────────────────────────────
 echo ""

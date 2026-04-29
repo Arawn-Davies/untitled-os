@@ -118,8 +118,9 @@ void ring3_usertest_task(void)
     ring3_enter(USER_CODE_BASE, USER_STACK_TOP);
 }
 
-void cmd_ring3test(void)
+void cmd_ring3test(int argc, char **argv)
 {
+    (void)argc; (void)argv;
     t_writestring("Spawning ring-3 test process...\n");
     task_t *t = task_create("ring3test", ring3_usertest_task);
     if (!t) {

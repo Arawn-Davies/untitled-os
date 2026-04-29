@@ -1,0 +1,156 @@
+/*
+ * shell_cmd_apps.c -- application launcher shell commands.
+ *
+ * Commands: vics  install  exec  eject  ring3test
+ */
+
+#include "shell_priv.h"
+
+#include <kernel/tty.h>
+#include <kernel/vfs.h>
+#include <kernel/vics.h>
+#include <kernel/installer.h>
+#include <kernel/elf.h>
+#include <kernel/task.h>
+#include <kernel/ide.h>
+#include <kernel/fat32.h>
+
+/* cmd_ring3test is defined in proc/usertest.c. */
+void cmd_ring3test(int argc, char **argv);
+
+/* ---------------------------------------------------------------------------
+ * Command handlers
+ * --------------------------------------------------------------------------- */
+
+static void cmd_vics(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: vics <filename>\n");
+        t_writestring("  Opens <filename> for editing. Creates the file on save if it does not exist.\n");
+        t_writestring("  Key bindings: Arrow keys navigate | Ctrl+S save | Ctrl+Q quit\n");
+        return;
+    }
+
+    const char *arg  = argv[1];
+    const char *cwd  = vfs_getcwd();
+    static char full_path[VFS_PATH_MAX];
+
+    if (arg[0] == '/') {
+        strncpy(full_path, arg, VFS_PATH_MAX - 1);
+        full_path[VFS_PATH_MAX - 1] = '\0';
+    } else {
+        size_t cwd_len = strlen(cwd);
+        size_t arg_len = strlen(arg);
+        if (cwd_len + 1 + arg_len >= VFS_PATH_MAX) {
+            t_writestring("vics: path too long\n");
+            return;
+        }
+        size_t off = 0;
+        memcpy(full_path, cwd, cwd_len); off += cwd_len;
+        if (cwd[cwd_len - 1] != '/')
+            full_path[off++] = '/';
+        memcpy(full_path + off, arg, arg_len + 1);
+    }
+
+    vics_edit(full_path);
+}
+
+static void cmd_install(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    installer_run();
+}
+
+static char s_exec_path[VFS_PATH_MAX];
+
+static void exec_task_entry(void)
+{
+    elf_exec(s_exec_path);
+    task_exit();
+}
+
+static void cmd_exec(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: exec <path>\n");
+        return;
+    }
+
+    strncpy(s_exec_path, argv[1], VFS_PATH_MAX - 1);
+    s_exec_path[VFS_PATH_MAX - 1] = '\0';
+
+    task_t *t = task_create("exec", exec_task_entry);
+    if (!t) {
+        t_writestring("exec: task_create failed (pool full?)\n");
+        return;
+    }
+
+    while (t->state != TASK_DEAD)
+        task_yield();
+}
+
+static void cmd_eject(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: eject hdd|cdrom\n");
+        return;
+    }
+
+    const char *target = argv[1];
+
+    if (strcmp(target, "hdd") == 0) {
+        if (!fat32_mounted()) {
+            t_writestring("eject: no HDD volume is mounted\n");
+            return;
+        }
+        fat32_unmount();
+        vfs_notify_hd_unmounted();
+        t_writestring("HDD volume unmounted.\n");
+        return;
+    }
+
+    if (strcmp(target, "cdrom") == 0) {
+        int cd_drive = -1;
+        for (int i = 0; i < IDE_MAX_DRIVES; i++) {
+            const ide_drive_t *d = ide_get_drive((uint8_t)i);
+            if (d && d->present && d->type == IDE_TYPE_ATAPI) {
+                cd_drive = i;
+                break;
+            }
+        }
+
+        if (cd_drive < 0) {
+            t_writestring("eject: no CD-ROM drive detected\n");
+            return;
+        }
+
+        vfs_notify_cdrom_ejected();
+
+        int err = ide_eject_atapi((uint8_t)cd_drive);
+        if (err) {
+            t_writestring("eject: ATAPI eject command failed (err ");
+            t_dec((uint32_t)err);
+            t_writestring(")\n");
+        } else {
+            t_writestring("CD-ROM ejected.\n");
+        }
+        return;
+    }
+
+    t_writestring("eject: unknown target '");
+    t_writestring(target);
+    t_writestring("' — use 'hdd' or 'cdrom'\n");
+}
+
+/* ---------------------------------------------------------------------------
+ * Module table
+ * --------------------------------------------------------------------------- */
+
+const shell_cmd_entry_t apps_cmds[] = {
+    { "vics",      cmd_vics      },
+    { "install",   cmd_install   },
+    { "exec",      cmd_exec      },
+    { "eject",     cmd_eject     },
+    { "ring3test", cmd_ring3test },
+    { NULL, NULL }
+};

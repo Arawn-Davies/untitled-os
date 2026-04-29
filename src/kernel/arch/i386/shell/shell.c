@@ -18,7 +18,6 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/serial.h>
 #include <kernel/vfs.h>
-#include <kernel/ktest.h>
 
 #include <string.h>
 
@@ -271,107 +270,34 @@ static int shell_parse(char *line, char **argv, int max_args)
 }
 
 /* ---------------------------------------------------------------------------
- * Command dispatch – enum + lookup table + switch/case/default.
+ * Command dispatch – module table pattern.
  *
- * To add a new command: add a CMD_FOO entry to the enum, add a row to
- * cmd_table[], add a case in shell_run().
+ * Each category file exports a NULL-name-terminated shell_cmd_entry_t[].
+ * To add a new command: add it to the appropriate category file's table.
+ * To add a new category: create a new file and add its table pointer here.
  * --------------------------------------------------------------------------- */
 
-typedef enum {
-    CMD_HELP,
-    CMD_CLEAR,
-    CMD_ECHO,
-    CMD_MEMINFO,
-    CMD_UPTIME,
-    CMD_VERSION,
-    CMD_TASKS,
-    CMD_LSDISKS,
-    CMD_LSPART,
-    CMD_MKPART,
-    CMD_READSECTOR,
-    CMD_SETMODE,
-    CMD_SHUTDOWN,
-    CMD_REBOOT,
-    CMD_KTEST,
-    /* FAT32 commands */
-    CMD_MOUNT,
-    CMD_UMOUNT,
-    CMD_LS,
-    CMD_CAT,
-    CMD_CD,
-    CMD_MKDIR,
-    CMD_MKFS,
-    /* ISO9660 commands */
-    CMD_ISOLS,
-    /* Installer */
-    CMD_INSTALL,
-    CMD_VICS,
-    CMD_EJECT,
-    CMD_RING3TEST,
-    CMD_PANIC,
-    CMD_CHAINLOAD,
-    CMD_EXEC,
-    /* File I/O */
-    CMD_WRITE,
-    CMD_TOUCH,
-    CMD_CP,
-    CMD_UNKNOWN,
-} shell_cmd_t;
-
-typedef struct {
-    const char *name;
-    shell_cmd_t id;
-} cmd_entry_t;
-
-static const cmd_entry_t cmd_table[] = {
-    { "help",       CMD_HELP       },
-    { "clear",      CMD_CLEAR      },
-    { "echo",       CMD_ECHO       },
-    { "meminfo",    CMD_MEMINFO    },
-    { "uptime",     CMD_UPTIME     },
-    { "version",    CMD_VERSION    },
-    { "tasks",      CMD_TASKS      },
-    { "lsdisks",    CMD_LSDISKS    },
-    { "lspart",     CMD_LSPART     },
-    { "mkpart",     CMD_MKPART     },
-    { "readsector", CMD_READSECTOR },
-    { "setmode",    CMD_SETMODE    },
-    { "shutdown",   CMD_SHUTDOWN   },
-    { "reboot",     CMD_REBOOT     },
-    { "ktest",      CMD_KTEST      },
-    /* FAT32 commands */
-    { "mount",      CMD_MOUNT      },
-    { "umount",     CMD_UMOUNT     },
-    { "ls",         CMD_LS         },
-    { "cat",        CMD_CAT        },
-    { "cd",         CMD_CD         },
-    { "mkdir",      CMD_MKDIR      },
-    { "mkfs",       CMD_MKFS       },
-    /* ISO9660 commands */
-    { "isols",      CMD_ISOLS      },
-    /* Installer */
-    { "install",    CMD_INSTALL    },
-    { "vics",       CMD_VICS       },
-    { "eject",      CMD_EJECT      },
-    { "ring3test",  CMD_RING3TEST  },
-    { "panic",      CMD_PANIC      },
-    { "chainload",  CMD_CHAINLOAD  },
-    { "exec",       CMD_EXEC       },
-    /* File I/O */
-    { "write",      CMD_WRITE      },
-    { "touch",      CMD_TOUCH      },
-    { "cp",         CMD_CP         },
+static const shell_cmd_entry_t * const cmd_modules[] = {
+    help_cmds,
+    display_cmds,
+    system_cmds,
+    disk_cmds,
+    fs_cmds,
+    apps_cmds,
+    NULL,
 };
 
-#define CMD_TABLE_SIZE ((int)(sizeof(cmd_table) / sizeof(cmd_table[0])))
-
-static shell_cmd_t shell_lookup(const char *name)
+static int shell_dispatch(int argc, char **argv)
 {
-    for (int i = 0; i < CMD_TABLE_SIZE; i++) {
-        if (strcmp(cmd_table[i].name, name) == 0)
-            return cmd_table[i].id;
+    for (int m = 0; cmd_modules[m]; m++) {
+        for (int i = 0; cmd_modules[m][i].name; i++) {
+            if (strcmp(cmd_modules[m][i].name, argv[0]) == 0) {
+                cmd_modules[m][i].fn(argc, argv);
+                return 1;
+            }
+        }
     }
-    return CMD_UNKNOWN;
+    return 0;
 }
 
 /* ---------------------------------------------------------------------------
@@ -404,17 +330,7 @@ void shell_run(void)
          * clear back to the normal shell background before printing the banner. */
         vesa_blit_logo(SHELL_FG_RGB, SHELL_BG_RGB);
 
-        /* "Press any key to continue..." centred on the bottom quarter. */
-        static const char *prompt_str = "Press any key to continue...";
-        uint32_t cols      = vesa_tty_get_cols();
-        uint32_t rows      = vesa_tty_get_rows();
-        uint32_t prompt_len = 28; /* strlen(prompt_str) */
-        uint32_t prompt_col = (cols > prompt_len) ? (cols - prompt_len) / 2 : 0;
-        uint32_t prompt_row = rows - 3;
-        for (uint32_t i = 0; i < prompt_len; i++)
-            vesa_tty_put_at(prompt_str[i], prompt_col + i, prompt_row);
-
-        keyboard_getchar();
+        ksleep(250); /* 5 s at 50 Hz */
         vesa_tty_clear();
 #endif
     }
@@ -444,52 +360,13 @@ void shell_run(void)
         if (argc == 0)
             continue;
 
-        switch (shell_lookup(argv[0])) {
-        case CMD_HELP:       cmd_help();                  break;
-        case CMD_CLEAR:      cmd_clear();                 break;
-        case CMD_ECHO:       cmd_echo(argc, argv);        break;
-        case CMD_MEMINFO:    cmd_meminfo();               break;
-        case CMD_UPTIME:     cmd_uptime();                break;
-        case CMD_VERSION:    cmd_version();               break;
-        case CMD_TASKS:      cmd_tasks();                 break;
-        case CMD_LSDISKS:    cmd_lsdisks();               break;
-        case CMD_LSPART:     cmd_lspart(argc, argv);      break;
-        case CMD_MKPART:     cmd_mkpart(argc, argv);      break;
-        case CMD_READSECTOR: cmd_readsector(argc, argv);  break;
-        case CMD_SETMODE:    cmd_setmode(argc, argv);     break;
-        case CMD_SHUTDOWN:   cmd_shutdown();              break;
-        case CMD_REBOOT:     cmd_reboot();               break;
-        case CMD_KTEST:      ktest_run_all();            break;
-        /* FAT32 commands */
-        case CMD_MOUNT:      cmd_mount(argc, argv);       break;
-        case CMD_UMOUNT:     cmd_umount();                break;
-        case CMD_LS:         cmd_ls(argc, argv);          break;
-        case CMD_CAT:        cmd_cat(argc, argv);         break;
-        case CMD_CD:         cmd_cd(argc, argv);          break;
-        case CMD_MKDIR:      cmd_mkdir(argc, argv);       break;
-        case CMD_MKFS:       cmd_mkfs(argc, argv);        break;
-        /* ISO9660 commands */
-        case CMD_ISOLS:      cmd_isols(argc, argv);       break;
-        /* Installer */
-        case CMD_INSTALL:    cmd_install();               break;
-        case CMD_VICS:       cmd_vics(argc, argv);        break;
-        case CMD_EJECT:      cmd_eject(argc, argv);       break;
-        case CMD_RING3TEST:  cmd_ring3test();             break;
-        case CMD_PANIC:      cmd_panic(argc, argv);       break;
-        case CMD_CHAINLOAD:  cmd_chainload(argc, argv);   break;
-        case CMD_EXEC:       cmd_exec(argc, argv);         break;
-        /* File I/O */
-        case CMD_WRITE:      cmd_write(argc, argv);        break;
-        case CMD_TOUCH:      cmd_touch(argc, argv);        break;
-        case CMD_CP:         cmd_cp(argc, argv);           break;
-        default:
+        if (!shell_dispatch(argc, argv)) {
             /* Medli-style error: red text, matching CommandConsole.cs */
             t_setcolor(SHELL_ERROR_COLOR_VGA);
             t_writestring("The command '");
             t_writestring(argv[0]);
             t_writestring("' is not supported. Please type help for more information.\n\n");
             t_setcolor(SHELL_COLOR_VGA);
-            break;
         }
     }
 }

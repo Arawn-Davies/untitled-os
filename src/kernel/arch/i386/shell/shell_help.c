@@ -43,13 +43,16 @@ static void pager_line(const char *s)
  * cmd_help
  * --------------------------------------------------------------------------- */
 
-void cmd_help(void)
+static void cmd_help(int argc, char **argv)
 {
+    (void)argc; (void)argv;
     pager_start();
     pager_line(COPYRIGHT "\n");
     pager_line("Commands:\n");
     pager_line("  help                         - list commands\n");
     pager_line("  clear                        - clear the terminal\n");
+    pager_line("  fgcol <colour>               - set foreground colour\n");
+    pager_line("  bgcol <colour>               - set background colour\n");
     pager_line("  echo [args..]                - print arguments\n");
     pager_line("  meminfo                      - print heap used/free\n");
     pager_line("  uptime                       - ticks since boot\n");
@@ -59,7 +62,7 @@ void cmd_help(void)
     pager_line("  lspart <drv>                 - list partitions (MBR or GPT)\n");
     pager_line("  mkpart <drv> <mbr|gpt>       - create a partition table\n");
     pager_line("  readsector <drv> <lba>       - hex-dump one sector\n");
-    pager_line("  setmode <25|50>              - switch between 80x25 and 80x50\n");
+    pager_line("  setmode <25|50|720p|1080p>   - switch display mode\n");
     pager_line("  shutdown                     - power off the system (ACPI S5)\n");
     pager_line("  reboot                       - reboot the system (ACPI/KBC)\n");
     pager_line("  ktest                        - run in-kernel unit tests\n");
@@ -82,13 +85,21 @@ void cmd_help(void)
     pager_line("Development:\n");
     pager_line("  ring3test                    - spawn a ring-3 smoke test process\n");
     pager_line("  exec <path>                  - load and run an ELF32 executable\n");
+    pager_line("  vics <file>                  - interactive text editor\n");
 }
 
-void cmd_version(void)
+static void cmd_version(int argc, char **argv)
 {
+    (void)argc; (void)argv;
     t_writestring("Makar -- version " SHELL_VERSION
                   ", build: " BUILD_DATE " " BUILD_TIME "\n");
     t_writestring("The GCC/C++ sibling of Medli\n");
     t_writestring(COPYRIGHT "\n");
     t_writestring("Released under the BSD-3 Clause Clear license\n");
 }
+
+const shell_cmd_entry_t help_cmds[] = {
+    { "help",    cmd_help    },
+    { "version", cmd_version },
+    { NULL, NULL }
+};

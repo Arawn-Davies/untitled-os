@@ -8,6 +8,8 @@
 #define SHELL_PRIV_H
 
 #include <stddef.h>
+#include <stdint.h>
+#include <string.h>
 
 #define SHELL_MAX_INPUT  256
 #define SHELL_MAX_ARGS   8
@@ -31,68 +33,50 @@
  * SHELL_BG_RGB     – 24-bit RGB for the VESA framebuffer (background)
  * SHELL_ERROR_RGB_PAIR – VGA attr for error text: fg=12 (LIGHT_RED) | bg=1 (BLUE) << 4
  */
-#define SHELL_COLOR_VGA      0x1F   /* make_color(COLOR_WHITE,      COLOR_BLUE) */
-#define SHELL_ERROR_COLOR_VGA 0x1C  /* make_color(COLOR_LIGHT_RED,  COLOR_BLUE) */
-#define SHELL_FG_RGB         0xFFFFFF
-#define SHELL_BG_RGB         0x0000AA
+#define SHELL_COLOR_VGA       0x1F   /* make_color(COLOR_WHITE,      COLOR_BLUE) */
+#define SHELL_ERROR_COLOR_VGA 0x1C   /* make_color(COLOR_LIGHT_RED,  COLOR_BLUE) */
+#define SHELL_FG_RGB          0xFFFFFF
+#define SHELL_BG_RGB          0x0000AA
+
+/*
+ * Command entry: all handlers share the same (int argc, char **argv) signature
+ * for uniform dispatch.  A NULL name field terminates each module's table.
+ */
+typedef struct {
+    const char *name;
+    void (*fn)(int argc, char **argv);
+} shell_cmd_entry_t;
+
+/* Command module tables (NULL-name terminated). */
+extern const shell_cmd_entry_t help_cmds[];
+extern const shell_cmd_entry_t display_cmds[];
+extern const shell_cmd_entry_t system_cmds[];
+extern const shell_cmd_entry_t disk_cmds[];
+extern const shell_cmd_entry_t fs_cmds[];
+extern const shell_cmd_entry_t apps_cmds[];
 
 /* shell.c – REPL core */
 void shell_readline(char *buf, size_t max);
 
-/* shell_help.c – help & version commands */
-void cmd_help(void);
-void cmd_version(void);
-
-/* shell_cmds.c – all other built-in commands */
-void cmd_clear(void);
-void cmd_echo(int argc, char **argv);
-void cmd_meminfo(void);
-void cmd_uptime(void);
-void cmd_tasks(void);
-void cmd_lsdisks(void);
-void cmd_lspart(int argc, char **argv);
-void cmd_mkpart(int argc, char **argv);
-void cmd_readsector(int argc, char **argv);
-void cmd_setmode(int argc, char **argv);
-void cmd_shutdown(void);
-void cmd_reboot(void);
-
-/* FAT32 commands */
-void cmd_mount(int argc, char **argv);
-void cmd_umount(void);
-void cmd_ls(int argc, char **argv);
-void cmd_cat(int argc, char **argv);
-void cmd_cd(int argc, char **argv);
-void cmd_mkdir(int argc, char **argv);
-void cmd_mkfs(int argc, char **argv);
-
-/* ISO9660 commands */
-void cmd_isols(int argc, char **argv);
-
-/* Installer */
-void cmd_install(void);
-
-/* VICS text editor */
-void cmd_vics(int argc, char **argv);
-
-/* Eject */
-void cmd_eject(int argc, char **argv);
-
-/* Ring-3 smoke test */
-void cmd_ring3test(void);
-
-/* On-demand kernel panic (for testing the panic screen) */
-void cmd_panic(int argc, char **argv);
-
-/* Chainload a boot sector from disk */
-void cmd_chainload(int argc, char **argv);
-
-/* Load and run an ELF32 executable from the VFS */
-void cmd_exec(int argc, char **argv);
-
-/* File I/O */
-void cmd_write(int argc, char **argv);
-void cmd_touch(int argc, char **argv);
-void cmd_cp(int argc, char **argv);
+/* Shared helper: parse decimal or 0x-prefixed hex string to uint32. */
+static inline uint32_t parse_uint(const char *s)
+{
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        uint32_t v = 0;
+        s += 2;
+        while (*s) {
+            char c = *s++;
+            if (c >= '0' && c <= '9')      v = v * 16 + (uint32_t)(c - '0');
+            else if (c >= 'a' && c <= 'f') v = v * 16 + (uint32_t)(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') v = v * 16 + (uint32_t)(c - 'A' + 10);
+            else break;
+        }
+        return v;
+    }
+    uint32_t v = 0;
+    while (*s >= '0' && *s <= '9')
+        v = v * 10 + (uint32_t)(*s++ - '0');
+    return v;
+}
 
 #endif /* SHELL_PRIV_H */
