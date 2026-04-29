@@ -299,26 +299,35 @@ void vfs_auto_mount(void)
      * mounted even when the system is booted from the CD-ROM.
      *
      * The BIOS boot-device number (set by vfs_set_boot_drive) is used only
-     * as a hint: if it points to a specific ATA drive, try that drive first
-     * so the most likely partition is mounted with priority.
+     * as a priority hint: if biosdev is in the HDD range (0x80–0xDF), the
+     * corresponding IDE index (biosdev − 0x80) is tried first.  The full
+     * scan that follows is always exhaustive — it does NOT skip the hint
+     * drive even if the hint already failed.
+     *
+     * Why exhaustive?  The biosdev → IDE-index mapping is not guaranteed
+     * 1-to-1.  GRUB reports the BIOS device of the root device (where the
+     * kernel file was found), not necessarily the drive that boot.img ran
+     * from.  If GRUB's embedded search picked up the ISO CD-ROM's grub.cfg
+     * first (because it was enumerated before the HDD's FAT32 partition),
+     * the reported biosdev is the CD-ROM's BIOS device, whose index
+     * (biosdev − 0x80) maps to a non-existent IDE slot.  The hint fails,
+     * and the exhaustive scan then finds the real HDD.  Skipping the hint
+     * drive in the scan would be harmless in the common case but could hide
+     * the HDD when biosdev happens to equal the HDD's BIOS device yet
+     * fat32_mount fails on the first try due to a transient IDE condition.
      */
     int hd_mounted = 0;
 
-    /* If biosdev identifies a specific HDD, try it first. */
+    /* Priority hint: try the drive that biosdev points to first. */
     if (s_boot_biosdev >= 0x80u && s_boot_biosdev <= 0xDFu) {
         uint8_t hint_drive = (uint8_t)(s_boot_biosdev - 0x80u);
-        hd_mounted = try_mount_hdd(hint_drive);
+        if (hint_drive < IDE_MAX_DRIVES)
+            hd_mounted = try_mount_hdd(hint_drive);
     }
 
-    /* Scan remaining drives in order (skip the hint drive if already tried). */
-    for (int i = 0; i < IDE_MAX_DRIVES && !hd_mounted; i++) {
-        /* Skip the hint drive — already tried above. */
-        if (s_boot_biosdev >= 0x80u && s_boot_biosdev <= 0xDFu &&
-            (uint8_t)i == (uint8_t)(s_boot_biosdev - 0x80u))
-            continue;
-
+    /* Exhaustive scan: try every slot in order. */
+    for (int i = 0; i < IDE_MAX_DRIVES && !hd_mounted; i++)
         hd_mounted = try_mount_hdd((uint8_t)i);
-    }
 
     /* Report CD-ROM status (always registered by vfs_init if present). */
     if (s_cdrom_drive >= 0) {

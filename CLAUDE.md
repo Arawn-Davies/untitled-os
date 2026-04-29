@@ -11,6 +11,9 @@ Makar is a hobby x86 (i386) bare-metal OS kernel written in C and AT&T assembly,
 ```sh
 ./docker-qemu.sh         # build interactive ISO + run in QEMU with shell
 ./docker-ktest.sh        # full CI suite: ktest (TEST_MODE) + GDB boot tests
+./generate-hdd.sh        # build installed HDD image (makar-hdd.img, bootable with -boot c)
+./docker-hdd-boot.sh     # boot QEMU interactively from the installed HDD image
+./docker-hdd-test.sh     # GDB-based boot test for the installed HDD image
 
 # Internal (called inside Docker — do not invoke directly):
 ./docker-iso.sh          # Docker ISO build entry point
@@ -46,6 +49,16 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
     bash -c 'qemu-system-i386 -cdrom makar.iso -s -S -display none -serial stdio &
              gdb-multiarch src/kernel/makar.kernel -ex "target remote :1234"'
 ```
+
+**HDD boot test** (installed image, no CD-ROM):
+```sh
+./generate-hdd.sh        # build makar-hdd.img (grub-mkimage, explicit (hd0,msdos1) prefix)
+./docker-hdd-boot.sh     # boot interactively from HDD on host QEMU
+./docker-hdd-test.sh     # automated GDB test: Multiboot2 magic + boot checkpoints + fat32_mounted()
+# outputs: hdd-test-gdb.log, hdd-test-serial.log
+```
+
+`generate-hdd.sh` uses `ubuntu:22.04` (not the cross-compiler image) because `grub-mkimage` and `mkfs.fat` are absent from `arawn780/gcc-cross-i686-elf:fast`. It uses `grub-mkimage` directly (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker.
 
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 
