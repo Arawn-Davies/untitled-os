@@ -1,0 +1,62 @@
+name: Release
+
+# Triggered by a version tag (e.g. v0.1.0).
+# Runs the full CI suite first via the reusable ci.yml workflow, then — only
+# if both iso-test and hdd-test pass — builds fresh interactive release
+# artifacts and publishes a GitHub release.
+#
+# Release artifacts (interactive kernel, no TEST_MODE):
+#   makar.iso      – bootable CD-ROM image
+#   makar-hdd.img  – installed HDD image (MBR + FAT32 + GRUB 2)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Run the full CI suite ───────────────────────────────────────────────────
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  # ── Build and publish release artifacts ────────────────────────────────────
+  release:
+    name: Publish release
+    needs: [ci]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Build the release ISO (interactive kernel, default -O2 -g flags).
+      # Runs inside the compiler container; output lands in the bind-mounted
+      # working directory on the host runner.
+      - name: Build release ISO
+        run: |
+          docker run --rm \
+            --platform linux/amd64 \
+            -u "$(id -u):$(id -g)" \
+            -v "$PWD:/work" \
+            -w /work \
+            arawn780/gcc-cross-i686-elf:fast \
+            bash iso.sh
+
+      # Build the release HDD image.
+      # generate-hdd.sh finds sysroot/boot/makar.kernel (just built above)
+      # and skips the rebuild step, so both artifacts use the same binary.
+      - name: Build release HDD image
+        run: |
+          rm -f makar-hdd.img
+          ./generate-hdd.sh
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            makar.iso
+            makar-hdd.img
+          generate_release_notes: true

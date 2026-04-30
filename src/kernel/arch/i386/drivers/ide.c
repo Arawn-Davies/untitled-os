@@ -151,9 +151,24 @@ void ide_init(void)
 {
     uint8_t identify_buf[512];
 
-    /* Disable IRQs on both channels by setting nIEN in the control register. */
-    outb(channels[0].ctrl, 0x02);
-    outb(channels[1].ctrl, 0x02);
+    /*
+     * Software-reset both channels before probing.  GRUB leaves the primary
+     * channel's drive selected and potentially still busy after loading the
+     * kernel; without a reset, IDENTIFY returns 0x00 and the drive is skipped.
+     *
+     * Sequence (ATA spec §9.1):
+     *   1. Assert SRST (bit 2) in the Device Control register while keeping
+     *      nIEN (bit 1) set so no IRQs fire.
+     *   2. Hold for ≥5 µs (a few reads of alt-status is sufficient).
+     *   3. Deassert SRST; drives recalibrate in ≤31 ms (QEMU is instant).
+     *   4. Wait briefly before issuing any commands.
+     */
+    outb(channels[0].ctrl, 0x06);   /* nIEN | SRST */
+    outb(channels[1].ctrl, 0x06);   /* nIEN | SRST */
+    for (int _r = 0; _r < 5; _r++) ide_400ns_delay(0);
+    outb(channels[0].ctrl, 0x02);   /* nIEN, SRST cleared */
+    outb(channels[1].ctrl, 0x02);   /* nIEN, SRST cleared */
+    for (int _r = 0; _r < 250; _r++) ide_400ns_delay(0);  /* ~100 µs settle */
 
     for (uint8_t ch = 0; ch < 2; ch++) {
         for (uint8_t dr = 0; dr < 2; dr++) {

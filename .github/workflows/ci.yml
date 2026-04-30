@@ -1,0 +1,140 @@
+name: CI
+
+# Runs on every push/PR that touches source, tests, or build scripts.
+# Also callable as a reusable workflow (workflow_call) so that release.yml
+# can gate the release job on both test jobs passing.
+
+on:
+  workflow_call:
+  push:
+    branches: ['**']
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '*.sh'
+      - 'Dockerfile*'
+      - 'docker-compose.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '*.sh'
+      - 'Dockerfile*'
+      - 'docker-compose.yml'
+
+jobs:
+  # ── ISO CI ─────────────────────────────────────────────────────────────────
+  # Runs entirely inside the compiler container — no host toolchain needed.
+  # Step 1: TEST_MODE ktest suite (kernel runs ktest_run_all(), then exits).
+  # Step 2: GDB boot-checkpoint verification (debug ISO, gdb_boot_test.py).
+  iso-test:
+    name: ISO test (ktest + GDB boot)
+    runs-on: ubuntu-latest
+    container:
+      image: arawn780/gcc-cross-i686-elf:fast
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Step 1: ktest (TEST_MODE) ──────────────────────────────────────────
+      - name: Build TEST_MODE ISO
+        env:
+          CFLAGS: '-O0 -g3'
+          CPPFLAGS: '-DTEST_MODE'
+        run: bash iso.sh
+
+      - name: Run ktest suite
+        run: |
+          timeout 30 qemu-system-i386 \
+            -cdrom makar.iso \
+            -serial stdio \
+            -display none \
+            -no-reboot \
+            -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+            2>/dev/null | tee ktest.log || true
+
+          if grep -q "KTEST_RESULT: PASS" ktest.log; then
+            echo "ktest: ALL PASSED"
+          elif grep -q "KTEST_RESULT: FAIL" ktest.log; then
+            echo "ktest: FAILED — see ktest.log"
+            cat ktest.log
+            exit 1
+          else
+            echo "ktest: TIMEOUT or kernel did not reach test runner"
+            cat ktest.log
+            exit 1
+          fi
+
+      # ── Step 2: GDB boot-checkpoint test ──────────────────────────────────
+      - name: Clean TEST_MODE artifacts
+        run: |
+          . ./src/config.sh
+          for p in $PROJECTS; do
+            (cd "$p" && $MAKE clean 2>/dev/null || true)
+          done
+
+      - name: Build debug ISO
+        env:
+          CFLAGS: '-O0 -g3'
+        run: bash iso.sh
+
+      - name: GDB boot-checkpoint test
+        run: |
+          qemu-system-i386 \
+            -cdrom makar.iso \
+            -serial file:gdb-serial.log \
+            -display none \
+            -no-reboot \
+            -no-shutdown \
+            -s -S &
+          QEMU_PID=$!
+          sleep 2
+
+          timeout 60 gdb-multiarch -batch \
+            -ex "source tests/gdb_boot_test.py" \
+            src/kernel/makar.kernel \
+            2>&1 | tee gdb-test.log
+          GDB_EXIT=${PIPESTATUS[0]}
+
+          kill "$QEMU_PID" 2>/dev/null || true
+          wait "$QEMU_PID" 2>/dev/null || true
+          exit "$GDB_EXIT"
+
+      - name: Upload ISO test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iso-test-logs
+          path: |
+            ktest.log
+            gdb-test.log
+            gdb-serial.log
+
+  # ── HDD CI ─────────────────────────────────────────────────────────────────
+  # Runs on the host runner so Docker (with --privileged for loop devices)
+  # is available for the disk-image creation step.
+  # Produces makar-hdd-test.img (separate from the interactive image).
+  # GDB checks: Multiboot2 magic, all boot checkpoints, fat32_mounted() != 0.
+  hdd-test:
+    name: HDD test (GDB boot + FAT32 mount)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run HDD boot test
+        run: ./docker-hdd-test.sh
+
+      - name: Upload HDD test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hdd-test-logs
+          path: |
+            hdd-test-gdb.log
+            hdd-test-serial.log
