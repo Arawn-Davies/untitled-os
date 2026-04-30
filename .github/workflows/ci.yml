@@ -32,6 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: arawn780/gcc-cross-i686-elf:fast
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
