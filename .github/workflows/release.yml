@@ -43,7 +43,7 @@ jobs:
           else
             SHORT=$(git rev-parse --short HEAD)
             DATE=$(date -u +%Y.%m.%d)
-            echo "name=v${DATE}-${SHORT}" >> "$GITHUB_OUTPUT"
+            echo "name=v${DATE}-${SHORT}-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
