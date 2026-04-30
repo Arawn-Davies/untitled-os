@@ -1,22 +1,28 @@
 # FAT32 driver — read/write access
 
-> **Status:** placeholder — implementation not yet started
-> **Milestone:** near-term
+> **Status:** complete (read + write; HDD boot self-contained)
+> **Branch:** landed on `main`
 
 ## Summary
 
-Implement a FAT32 filesystem driver providing read and write access to
-FAT32 volumes, adopting the shared Makar/Medli directory layout.
+FAT32 filesystem driver mounted at `/hd` from the first FAT32 partition
+detected on any ATA drive.  ISO 9660 is also supported, mounted at `/cdrom`.
+Both are unified under a VFS layer.
 
-## Acceptance criteria
+## Implemented
 
-- [ ] Mount a FAT32 volume (backed by the ATA/IDE driver)
-- [ ] Read files and directories using the `0:\` volume root convention
-- [ ] Write files and create directories
-- [ ] Adopt the shared layout: `Users\`, `Apps\`, `System\`, `Temp\`
-- [ ] Path separator is `\` (matching Medli `Paths.Separator`)
+- [x] Mount FAT32 volume via BPB validation (`fat32_mount`)
+- [x] Auto-mount on boot: `vfs_auto_mount()` scans all ATA drives, mounts
+      first FAT32 partition at `/hd`; ISO 9660 mounted at `/cdrom`
+- [x] Read files and directories (FAT32 cluster chain traversal)
+- [x] Write files and create/delete directories
+- [x] `ls`, `cd`, `cat`, `mkdir`, `rm`, `cp` shell commands
+- [x] HDD image is self-contained — kernel at `/boot/makar.kernel`,
+      userspace apps at `/apps/` (no CD-ROM required)
+- [x] Path separator is `/` (POSIX-style, not `\`)
 
-## References
+## Source
 
-- Roadmap: [Makar × Medli — near-term](docs/makar-medli.md#near-term)
-- Filesystem layout: [Makar × Medli — filesystem layout](docs/makar-medli.md#filesystem-layout)
+- `src/kernel/arch/i386/fs/fat32.c`
+- `src/kernel/arch/i386/fs/iso9660.c`
+- `src/kernel/arch/i386/fs/vfs.c`
