@@ -59,7 +59,7 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 # outputs: hdd-test-gdb.log, hdd-test-serial.log
 ```
 
-`generate-hdd.sh` uses `ubuntu:22.04` (not the cross-compiler image) because `grub-mkimage` and `mkfs.fat` are absent from `arawn780/gcc-cross-i686-elf:fast`. It uses `grub-mkimage` directly (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker.
+`generate-hdd.sh` uses `ubuntu:22.04` (not the cross-compiler image) because `grub-mkimage` and `mkfs.fat` are absent from `arawn780/gcc-cross-i686-elf:fast`. It uses `grub-mkimage` directly (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker. The FAT32 partition receives the kernel at `/boot/makar.kernel` and the userspace binaries from `isodir/apps/` at `/apps/`, making the HDD image self-contained (no CD-ROM required).
 
 **TODO (next):** HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
 - `generate-hdd.sh --test` already writes `multiboot2 /boot/makar.kernel test` in grub.cfg.
