@@ -159,6 +159,12 @@ mount "$PART" "$MNT"
 mkdir -p "$MNT/boot/grub/i386-pc"
 cp /work/sysroot/boot/makar.kernel "$MNT/boot/makar.kernel"
 
+# Copy apps from the ISO staging area so the HDD is self-contained.
+if [ -d /work/isodir/apps ]; then
+    mkdir -p "$MNT/apps"
+    cp -r /work/isodir/apps/. "$MNT/apps/"
+fi
+
 cat > "$MNT/boot/grub/grub.cfg" << 'GCFG'
 set default=0
 set timeout=0
