@@ -206,18 +206,38 @@ _check_ktest() {
     fi
 }
 
+# Create a minimal 32 MiB FAT32 disk image for the ISO GDB test.
+# Uses mkfs.fat --offset (sector-based, no losetup / no --privileged needed)
+# so this works inside the GitHub Actions container job.
+_make_fat32_disk() {
+    local _img="${1:-iso-test-hdd.img}"
+    echo "==> Creating 32 MiB FAT32 test disk ($REPO_ROOT/$_img)..."
+    rm -f "$REPO_ROOT/$_img"
+    _drun -- \
+        "IMG='/work/$_img'
+         truncate -s 32M \"\$IMG\"
+         printf 'label: dos\nstart=2048, type=c\n' | sfdisk \"\$IMG\" >/dev/null 2>&1
+         mkfs.fat -F 32 -n MAKAR --offset 2048 \"\$IMG\" >/dev/null
+         echo '  FAT32 test disk ready.'"
+}
+
 # Run the GDB ISO boot-checkpoint test.
+# Attaches a minimal FAT32 disk so the kernel can mount /hd during the run,
+# making the hdd_mount group valid for ISO-boot context too.
 # If host has both qemu and gdb-multiarch, run entirely on the host.
 # Otherwise run entirely inside the build container.
 _run_gdb_iso_test() {
-    echo "==> Running GDB boot-checkpoint tests..."
+    _make_fat32_disk "iso-test-hdd.img"
+    echo "==> Running GDB boot tests (ISO boot + FAT32 test disk)..."
     local _qemu _gdb
     _qemu=$(_host_qemu)
     _gdb=$(_host_gdb)
 
     if [ -n "$_qemu" ] && [ -n "$_gdb" ]; then
         "$_qemu" \
-            -cdrom "$REPO_ROOT/makar.iso" \
+            -drive "file=$REPO_ROOT/iso-test-hdd.img,format=raw,if=ide,index=0" \
+            -drive "file=$REPO_ROOT/makar.iso,if=ide,index=2,media=cdrom" \
+            -boot order=d \
             -serial "file:$REPO_ROOT/gdb-serial.log" \
             -display none -no-reboot -no-shutdown \
             -s -S &
@@ -234,7 +254,9 @@ _run_gdb_iso_test() {
     else
         _drun --as-root -- \
             'qemu-system-i386 \
-                 -cdrom makar.iso \
+                 -drive file=/work/iso-test-hdd.img,format=raw,if=ide,index=0 \
+                 -drive file=/work/makar.iso,if=ide,index=2,media=cdrom \
+                 -boot order=d \
                  -serial file:/work/gdb-serial.log \
                  -display none -no-reboot -no-shutdown \
                  -s -S &

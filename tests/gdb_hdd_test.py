@@ -1,21 +1,27 @@
-"""GDB test runner for Makar HDD boot.
+"""GDB test runner for Makar — HDD boot.
 
-Usage (invoked by docker-hdd-test.sh):
+Usage (invoked by run.sh hdd-test):
     gdb-multiarch -batch -ex "source tests/gdb_hdd_test.py" src/kernel/makar.kernel
 
+QEMU must be started with:
+    -drive file=makar-hdd-test.img,format=raw,if=ide,index=0
+    -boot c  -s -S
+
 The runner:
-  1. Connects to a QEMU GDB stub on localhost:1234.  QEMU must have been
-     started with -drive file=makar-hdd.img,format=raw,if=ide,index=0
-     -boot c -s -S before this script runs.
+  1. Connects to a QEMU GDB stub on localhost:1234.
   2. Verifies the Multiboot 2 magic value in %eax at _start — confirms
      GRUB on the HDD image passed the correct magic to the kernel.
   3. Runs each test group in order.
 
-Test groups
+Test groups (all groups run on both ISO and HDD boot paths)
 -----------
   boot_checkpoints  – sequential breakpoints through the boot sequence
   hardware_state    – CR0/CR3 paging state and PIT liveness
+  vesa              – VESA framebuffer driver state and TTY output-path check
   hdd_mount         – fat32_mounted() non-zero, confirming /hd is up
+
+Adding a new group: create tests/groups/<name>.py with NAME and run(), then
+import it into both gdb_boot_test.py and gdb_hdd_test.py.
 """
 
 import os
@@ -30,6 +36,7 @@ sys.path.insert(0, _tests_dir)
 import gdb  # noqa: E402
 from groups import boot_checkpoints  # noqa: E402
 from groups import hardware_state    # noqa: E402
+from groups import vesa              # noqa: E402
 from groups import hdd_mount         # noqa: E402
 
 MULTIBOOT2_MAGIC = 0x36D76289
@@ -37,6 +44,7 @@ MULTIBOOT2_MAGIC = 0x36D76289
 GROUPS = [
     boot_checkpoints,
     hardware_state,
+    vesa,
     hdd_mount,
 ]
 

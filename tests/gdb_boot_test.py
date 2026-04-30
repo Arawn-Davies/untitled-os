@@ -1,23 +1,31 @@
-"""GDB test runner for Makar.
+"""GDB test runner for Makar — ISO boot.
 
-Usage (invoked by the CI workflow):
+Usage (invoked by run.sh iso-test):
     gdb-multiarch -batch -ex "source tests/gdb_boot_test.py" kernel/makar.kernel
 
+QEMU must be started with:
+    -drive file=iso-test-hdd.img,format=raw,if=ide,index=0
+    -drive file=makar.iso,if=ide,index=2,media=cdrom
+    -boot order=d  -s -S
+
+The FAT32 test disk on IDE:0 lets the kernel mount /hd, making the hdd_mount
+group valid for the CD-ROM boot path.
+
 The runner:
-  1. Connects to a QEMU GDB stub on localhost:1234 (QEMU must be started
-     with -s -S before this script is run).
+  1. Connects to a QEMU GDB stub on localhost:1234.
   2. Verifies the Multiboot 2 magic value in %eax at _start.
   3. Runs each test group in order.  Groups are defined in tests/groups/ and
      each exposes a NAME string and a run() → bool function.
 
-Test groups
+Test groups (all groups run on both ISO and HDD boot paths)
 -----------
   boot_checkpoints  – sequential function breakpoints through the boot sequence
   hardware_state    – CR0/CR3 paging state and PIT liveness (timer_callback)
   vesa              – VESA framebuffer driver state and TTY output-path check
+  hdd_mount         – fat32_mounted() non-zero (IDE disk attached for this run)
 
 Adding a new group: create tests/groups/<name>.py with NAME and run(), then
-import it here and append it to GROUPS.
+import it into both gdb_boot_test.py and gdb_hdd_test.py.
 """
 
 import os
@@ -35,6 +43,7 @@ import gdb  # noqa: E402  (provided by GDB's embedded Python interpreter)
 from groups import boot_checkpoints  # noqa: E402
 from groups import hardware_state    # noqa: E402
 from groups import vesa              # noqa: E402
+from groups import hdd_mount         # noqa: E402
 
 MULTIBOOT2_MAGIC = 0x36D76289
 
@@ -42,6 +51,7 @@ GROUPS = [
     boot_checkpoints,
     hardware_state,
     vesa,
+    hdd_mount,
 ]
 
 
