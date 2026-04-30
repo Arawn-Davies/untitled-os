@@ -1,0 +1,39 @@
+# Dockerfile.compiler – source of arawn780/gcc-cross-i686-elf:fast
+#
+# Layers:
+#   1. techiekeith/gcc-cross-i686-elf – GCC 13.2 + Binutils 2.41 built from
+#      source for the i686-elf bare-metal target (OSDev Wiki toolchain guide).
+#      Installs to /usr/local.  Debian 12 (bookworm) base.
+#   2. Extra apt packages for the full Makar build / test / HDD-image pipeline.
+#
+# What each package provides:
+#   build-essential  – make, gcc (host), etc.
+#   nasm             – assembler (used by some boot stubs)
+#   xorriso          – ISO 9660 image writer (grub-mkrescue dependency)
+#   grub-pc-bin      – i386-pc GRUB modules + boot.img (grub-mkimage input)
+#   grub-common      – grub-mkimage, grub-file, grub-script-check
+#   mtools           – FAT filesystem access without loop devices (grub-mkrescue)
+#   dosfstools       – mkfs.fat for building HDD FAT32 partitions
+#   fdisk            – sfdisk for writing MBR partition tables on HDD images
+#   qemu-system-x86  – qemu-system-i386 for boot testing
+#   gdb-multiarch    – GDB with i386 support for GDB boot tests
+#
+# To rebuild and push:
+#   docker buildx build --platform linux/amd64 \
+#       -t arawn780/gcc-cross-i686-elf:fast \
+#       -f Dockerfile.compiler --push .
+
+FROM techiekeith/gcc-cross-i686-elf
+
+RUN apt-get update && apt-get install -y \
+        build-essential \
+        nasm \
+        xorriso \
+        grub-pc-bin \
+        grub-common \
+        mtools \
+        dosfstools \
+        fdisk \
+        qemu-system-x86 \
+        gdb-multiarch \
+    && rm -rf /var/lib/apt/lists/*

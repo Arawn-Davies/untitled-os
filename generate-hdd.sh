@@ -93,12 +93,11 @@ if [ ! -f "$KERNEL" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 2: create the HDD image inside an Ubuntu container that has
-# grub-pc (grub-install, grub-mkimage) and dosfstools (mkfs.fat).
-# These tools are absent from the cross-compiler image.
-#
-# All loop-device work runs as root inside the container; the final image
-# is chown-ed back to the calling user before the container exits.
+# Step 2: create the HDD image inside the compiler container.
+# dosfstools (mkfs.fat), fdisk (sfdisk), grub-pc-bin, and grub-common are
+# all pre-installed in BUILD_IMAGE — no runtime apt-get needed.
+# All loop-device work runs as root (--privileged); the final image is
+# chown-ed back to the calling user before the container exits.
 # ---------------------------------------------------------------------------
 echo "==> Creating $HDD_IMG (${HDD_SIZE_MB} MiB)..."
 
@@ -111,13 +110,9 @@ echo "==> Creating $HDD_IMG (${HDD_SIZE_MB} MiB)..."
     -e HOST_GID="$(id -g)" \
     -v "$REPO_ROOT:/work" \
     -w /work \
-    ubuntu:22.04 \
+    "$BUILD_IMAGE" \
     bash << 'INNER'
 set -e
-
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
-apt-get install -y -qq --no-install-recommends grub-pc dosfstools fdisk
 
 HDD="/work/$HDD_IMG"
 MNT=/mnt/makar-install
