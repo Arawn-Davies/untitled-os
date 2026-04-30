@@ -59,6 +59,19 @@ static const char sc_ascii_upper[89] = {
 };
 
 // ---------------------------------------------------------------------------
+// Ctrl+C (SIGINT) flag — set by the IRQ handler, consumed by callers.
+// ---------------------------------------------------------------------------
+
+static volatile int g_sigint = 0;
+
+int keyboard_sigint_consume(void)
+{
+    if (!g_sigint) return 0;
+    g_sigint = 0;
+    return 1;
+}
+
+// ---------------------------------------------------------------------------
 // 256-byte ring buffer
 // ---------------------------------------------------------------------------
 
