@@ -12,12 +12,13 @@ Makar is a hobby x86 (i386) bare-metal OS kernel written in C and AT&T assembly,
 ./docker-qemu.sh         # build interactive ISO + run in QEMU with shell
 ./docker-ktest.sh        # full CI suite: ktest (TEST_MODE) + GDB boot tests
 ./generate-hdd.sh        # build installed HDD image (makar-hdd.img, bootable with -boot c)
-./docker-hdd-boot.sh     # boot QEMU interactively from the installed HDD image
-./docker-hdd-test.sh     # GDB-based boot test for the installed HDD image
+./generate-hdd.sh --test # build HDD image with "test" kernel arg in grub.cfg
+./docker-hdd-boot.sh     # clean-build + boot QEMU interactively from the HDD image
+./docker-hdd-test.sh     # clean-build + GDB boot test for the HDD image (makar-hdd-test.img)
 
 # Internal (called inside Docker — do not invoke directly):
 ./docker-iso.sh          # Docker ISO build entry point
-./build.sh               # compile kernel + libc
+./build.sh               # compile kernel + libc (parallel via -j$(nproc))
 ./iso.sh                 # package into makar.iso
 ./clean.sh               # remove build artifacts
 
@@ -29,6 +30,7 @@ docker compose run --rm test           # debug build + headless boot test
 
 Debug builds use `-O0 -g3`; release uses `-O2 -g`. Override via `CFLAGS`.
 Test mode uses `-DTEST_MODE`: kernel runs `ktest_run_all()` then exits QEMU via `isa-debug-exit`.
+`build.sh` uses `-j$(nproc)` for parallel compilation automatically.
 
 ## Testing
 
@@ -54,12 +56,14 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 ```sh
 ./generate-hdd.sh        # build makar-hdd.img (grub-mkimage, explicit (hd0,msdos1) prefix)
 ./generate-hdd.sh --test # same image but grub.cfg passes "test" kernel arg → ktest mode
-./docker-hdd-boot.sh     # boot interactively from HDD on host QEMU
-./docker-hdd-test.sh     # automated GDB test: Multiboot2 magic + boot checkpoints + fat32_mounted()
+./docker-hdd-boot.sh     # clean-build + boot interactively from HDD on host QEMU
+./docker-hdd-test.sh     # clean-build + GDB test (uses makar-hdd-test.img, not makar-hdd.img)
 # outputs: hdd-test-gdb.log, hdd-test-serial.log
 ```
 
-`generate-hdd.sh` uses `ubuntu:22.04` (not the cross-compiler image) because `grub-mkimage` and `mkfs.fat` are absent from `arawn780/gcc-cross-i686-elf:fast`. It uses `grub-mkimage` directly (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker. The FAT32 partition receives the kernel at `/boot/makar.kernel` and the userspace binaries from `isodir/apps/` at `/apps/`, making the HDD image self-contained (no CD-ROM required).
+`generate-hdd.sh` uses the compiler image (`arawn780/gcc-cross-i686-elf:fast`) for the disk-creation step — `dosfstools`, `fdisk`, `grub-pc-bin`, and `grub-common` are all pre-installed. It uses `grub-mkimage` directly (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker. The FAT32 partition receives the kernel at `/boot/makar.kernel` and the userspace binaries from `isodir/apps/` at `/apps/`, making the HDD image self-contained (no CD-ROM required).
+
+`docker-hdd-test.sh` always generates a fresh `makar-hdd-test.img` (separate from the interactive `makar-hdd.img`) so test and interactive images never share state. The GDB test continues to `keyboard_getchar` before checking `fat32_mounted()` to guarantee `vfs_auto_mount()` has completed.
 
 **TODO (next):** HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
 - `generate-hdd.sh --test` already writes `multiboot2 /boot/makar.kernel test` in grub.cfg.
@@ -136,8 +140,18 @@ src/libc/                    minimal freestanding libc (string, stdio, stdlib) �
 tests/                       GDB boot-test suite (gdb_boot_test.py) + test groups
 ```
 
-## Active branch: `feat/split-panes`
-Current focus: tmux-style split panes in the VESA renderer (with VGA / low-res fallback to virtual consoles).  The work is staged in three phases:
+## Active branches
+
+### `fix/hdd-boot` (landed, awaiting PR merge)
+IDE software reset before probing, apps directory on HDD image, parallel builds,
+consolidated Docker image, separate interactive/test HDD images, GDB mount-timing fix.
+
+### `feat/sigint-and-calc` (in progress)
+Ctrl+C sigint support (keyboard sentinels moved to 0x80–0x83, `g_sigint` flag, wiring TODO),
+plus bc-style recursive-descent calculator app (`src/userspace/calc.c`).
+
+### `feat/split-panes` (in progress)
+Current feature focus: tmux-style split panes in the VESA renderer (with VGA / low-res fallback to virtual consoles).  The work is staged in three phases:
 
 1. **Phase 1 (✅ implemented, awaiting commit/PR)** — pane abstraction in `vesa_tty`.  `vesa_pane_t` owns its cursor, colours, and a top_row/rows sub-rectangle of the screen.  Legacy `vesa_tty_*` calls delegate to a screen-spanning `default_pane`, so existing callers are unaffected.  Full ktest + GDB boot suite passes.
 2. **Phase 2** — keyboard dispatcher with a Ctrl-A prefix.  In split-mode (VESA, ≥ ~30 rows) Ctrl-A,U / Ctrl-A,J switch focus between the top and bottom panes.  In VGA text mode or low-res VESA, the same prefix selects a full-screen virtual console (Ctrl-A,1/2/3).  Per-task input rings; `keyboard_getchar()` dequeues from the calling task's bound queue.

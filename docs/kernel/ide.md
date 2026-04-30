@@ -62,6 +62,13 @@ Must be called once during kernel initialisation, **after** interrupts are
 disabled for the ATA channels (which this function does itself via the
 control-block `nIEN` bit).
 
+Before probing, `ide_init` issues a software reset (SRST, ATA spec §9.1) on
+both channels: assert bit 2 of the Device Control register for ≥5 µs, then
+deassert and wait ~100 µs for drives to recalibrate.  This is required because
+GRUB leaves the primary channel in a transient state after loading the kernel;
+without the reset, the first `IDENTIFY` status read returns `0x00` and drive 0
+is silently skipped.
+
 ---
 
 ### `int ide_read_sectors(uint8_t drive_num, uint32_t lba, uint8_t count, void *buf)`
