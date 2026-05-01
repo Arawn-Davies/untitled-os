@@ -11,6 +11,7 @@
 #include <kernel/pmm.h>
 #include <kernel/vesa.h>
 #include <kernel/vesa_tty.h>
+#include <kernel/bochs_vbe.h>
 #include <kernel/heap.h>
 
 #include <kernel/paging.h>
@@ -100,9 +101,17 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	kprint_ok();
 	vesa_init(mbi);
 
-	t_writestring("Initializing VESA terminal");
+	t_writestring("Initializing display mode");
 	kprint_ok();
-	vesa_tty_init();
+	if (bochs_vbe_available()) {
+		vesa_tty_set_scale(2);
+		bochs_vbe_set_mode(1280, 720, 32);
+		vesa_update_geometry(1280, 720, 32);
+		vesa_tty_init();
+	} else {
+		vesa_tty_disable();
+		terminal_set_rows(50);
+	}
 
 	t_writestring("Starting timer (50 Hz)");
 	kprint_ok();

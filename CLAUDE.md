@@ -12,7 +12,7 @@ Makar is a hobby x86 (i386) bare-metal OS kernel written in C and AT&T assembly,
 ./docker-qemu.sh         # build interactive ISO + run in QEMU with shell
 ./docker-ktest.sh        # full CI suite: ktest (TEST_MODE) + GDB boot tests
 ./generate-hdd.sh        # build installed HDD image (makar-hdd.img, bootable with -boot c)
-./generate-hdd.sh --test # build HDD image with "test" kernel arg in grub.cfg
+./generate-hdd.sh --test # build HDD image with TEST_MODE kernel (ktest mode)
 ./docker-hdd-boot.sh     # clean-build + boot QEMU interactively from the HDD image
 ./docker-hdd-test.sh     # clean-build + GDB boot test for the HDD image (makar-hdd-test.img)
 
@@ -46,7 +46,6 @@ GDB test script: `tests/gdb_boot_test.py`. Connects to `:1234`, verifies Multibo
 
 **Interactive GDB debug** (inside Docker container manually):
 ```sh
-# Run QEMU with GDB stub from inside the Docker container
 docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
     bash -c 'qemu-system-i386 -cdrom makar.iso -s -S -display none -serial stdio &
              gdb-multiarch src/kernel/makar.kernel -ex "target remote :1234"'
@@ -55,7 +54,7 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 **HDD boot test** (installed image, no CD-ROM):
 ```sh
 ./generate-hdd.sh        # build makar-hdd.img (grub-mkimage, explicit (hd0,msdos1) prefix)
-./generate-hdd.sh --test # same image but grub.cfg passes "test" kernel arg → ktest mode
+./generate-hdd.sh --test # same image but kernel compiled with -DTEST_MODE
 ./docker-hdd-boot.sh     # clean-build + boot interactively from HDD on host QEMU
 ./docker-hdd-test.sh     # clean-build + GDB test (uses makar-hdd-test.img, not makar-hdd.img)
 # outputs: hdd-test-gdb.log, hdd-test-serial.log
@@ -65,22 +64,28 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 
 `docker-hdd-test.sh` always generates a fresh `makar-hdd-test.img` (separate from the interactive `makar-hdd.img`) so test and interactive images never share state. The GDB test continues to `keyboard_getchar` before checking `fat32_mounted()` to guarantee `vfs_auto_mount()` has completed.
 
-**TODO (next):** HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
-- `generate-hdd.sh --test` already writes `multiboot2 /boot/makar.kernel test` in grub.cfg.
-- `kernel.c` needs to parse `MULTIBOOT2_TAG_TYPE_CMDLINE` (type 1) and set a runtime `test_mode` flag when the "test" token is present, replacing the `#ifdef TEST_MODE` / `#ifndef TEST_MODE` guards in `kernel_main` with `if (test_mode)` checks. The compile-time `TEST_MODE` flag should remain as an OR condition for the ISO/CI path.
-- `multiboot.h` needs `#define MULTIBOOT2_TAG_TYPE_CMDLINE 1`.
-
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
+At boot (non-TEST_MODE), `ktest_bg_task` runs all suites silently in the background — only prints to VGA on failure; always writes `KTEST_BG: PASS/FAIL` to serial.
+
+**TODO:** HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
+- `kernel.c` needs to parse `MULTIBOOT2_TAG_TYPE_CMDLINE` (type 1) and set a runtime `test_mode` flag, replacing `#ifdef TEST_MODE` guards with `if (test_mode)`.
+- `multiboot.h` needs `#define MULTIBOOT2_TAG_TYPE_CMDLINE 1`.
 
 ## Architecture
 
 ### Boot sequence (`kernel_main`)
 1. `terminal_initialize` → `init_serial(COM1)` → `init_descriptor_tables` (GDT+IDT)
 2. Exception handlers, PMM, paging (256 MiB identity map, 4 MiB pages), heap
-3. VESA, timer (50 Hz PIT), keyboard, IDE/VFS
-4. `tasking_init` + `task_create("shell", shell_run)`
-5. `syscall_init` (registers `int 0x80` handler at IDT gate DPL=3)
-6. Idle loop: `task_yield` + `hlt`
+3. VESA init + display mode selection: 720p if Bochs VBE available, else 80×50 VGA text
+4. Timer (50 Hz PIT), keyboard, IDE/VFS
+5. `tasking_init` + `task_create("shell", shell_run)` + `task_create("ktest", ktest_bg_task)`
+6. `syscall_init` (registers `int 0x80` handler at IDT gate DPL=3)
+7. Idle loop: `task_yield` + `hlt`
+
+### Display mode selection
+At boot, `kernel_main` calls `bochs_vbe_available()`. If the Bochs VBE I/O ports respond (QEMU `-vga std`), it sets 1280×720×32 and initialises the VESA TTY at `font_scale=2` (40-col equivalent at this res). If VBE is absent (hardware or minimal QEMU config), it falls back to VGA 80×50 text mode.
+
+The `setmode` shell command can switch freely between any supported resolution at runtime.
 
 ### Memory map
 - `0x00000000–0x0FFFFFFF` (256 MiB): kernel identity window (4 MiB large pages)
@@ -88,15 +93,32 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 - `0xBFFF0000` (`USER_STACK_TOP`): ring-3 stack top (one 4 KiB page below)
 
 ### Tasking
-Cooperative round-robin scheduler — no preemption, timer tick only advances accounting. `task_yield()` → context switch via `task_asm.S`. `task_exit()` marks the task DEAD and yields. Pool is fixed-size.
+Cooperative round-robin scheduler — no preemption, timer tick only advances accounting. `task_yield()` → context switch via `task_asm.S`. `task_exit()` marks the task DEAD and yields. Pool is fixed-size (`TASK_MAX_TASKS`).
 
 ### Syscall ABI (`int 0x80`, Linux i386 convention)
 | EAX | Syscall   | Args |
 |-----|-----------|------|
 | 1   | SYS_EXIT  | — |
-| 4   | SYS_WRITE | EBX = NUL-terminated string ptr |
+| 3   | SYS_READ  | EBX = fd (0=stdin), ECX = buf ptr, EDX = count |
+| 4   | SYS_WRITE | EBX = NUL-terminated string ptr (or fd 1) |
 | 100 | SYS_DEBUG | EBX = uint32 checkpoint value (prints to VGA + serial) |
 | 158 | SYS_YIELD | — |
+
+### Keyboard (Phase 2)
+- Arrow-key sentinels at `0x80`–`0x83` (no longer collide with Ctrl codes).
+- Per-task 64-byte ring buffers (up to `KB_TASK_SLOTS=4` tasks).
+- `keyboard_getchar()` registers the calling task and dequeues from its slot.
+- `keyboard_poll()` non-blocking version; falls back to global ring if no slot.
+- Ctrl+A prefix arms the pane-switch dispatcher (Ctrl-A,U / Ctrl-A,J).
+- Ctrl+C: sets `g_sigint=1` AND routes `\x03` to the focused task's queue.
+- `keyboard_sigint_consume()` atomically reads and clears `g_sigint`.
+
+### Shell features
+- Inline editing (cursor movement, insert at point).
+- History navigation (↑/↓ arrows), up to 16 entries.
+- Ctrl+C: abort current input line (prints `^C`, returns empty line to REPL).
+- Tab completion: first token completes command names; subsequent tokens complete VFS paths via `vfs_complete()` → `fat32_complete()`.
+- `exec <path>`: loads and runs an ELF binary from the VFS. Ctrl+C during exec force-kills the child task.
 
 ### VMM (per-task page directories)
 - `vmm_create_pd()` — allocates a page directory and mirrors kernel PDEs (indices 0–63)
@@ -106,21 +128,25 @@ Cooperative round-robin scheduler — no preemption, timer tick only advances ac
 ### Ring-3 entry (`ring3.S`)
 `ring3_enter(entry, stack_top)` loads user data selector (0x23) into DS/ES/FS/GS, builds a 5-word `iret` frame (SS=0x23, ESP, EFLAGS|IF, CS=0x1B, EIP), and executes `iret`. Never returns. Caller must call `tss_set_kernel_stack()` and `vmm_switch(pd)` first.
 
-### Ring-3 smoke test (`ring3test` shell command)
-Shell command `ring3test` → `task_create("ring3test", usertest_task)` → `task_yield`.
+### Userspace apps (`src/userspace/`)
+Freestanding ELF binaries built with the cross-compiler. Link against `crt0.S` + `link.ld`. Loaded and executed by `elf_exec()` (shell `exec` command). Available apps:
 
-`usertest_task` sets up a VMM page directory, maps code (USER_CODE_BASE, user-RO) and stack (USER_STACK_TOP-4K, user-RW) pages, activates the PD, sets the TSS kernel stack, then calls `ring3_enter`.
+| Binary | Description |
+|--------|-------------|
+| `hello.elf` | Hello-world smoke test |
+| `calc.elf` | bc-style expression calculator — `+`, `-`, `*`, `/`, `%`, parentheses, recursive-descent parser |
 
-The embedded PIC binary (`user_test_bin` in `usertest.c`) executes:
-`SYS_DEBUG(1)` → `SYS_WRITE("Welcome to userspace!\n")` → `SYS_DEBUG(2)` → `SYS_EXIT(0)`.
-
-To diagnose failures: watch `serial.log` for `[ring3] CP: 0x1` and `[ring3] CP: 0x2`. CP1 appears before any syscall; CP2 appears after the write but before exit. If CP1 appears but not CP2, the write syscall is the fault; if neither appears, ring-3 entry itself failed.
+### ktest harness
+`KTEST_ASSERT(expr)` — records pass/fail to VGA + serial.
+`KTEST_ASSERT_EQ(a, b)` — equality variant.
+`KTEST_ASSERT_MAJOR(expr)` — like `KTEST_ASSERT` but calls `kpanic_at` on failure; use for invariants whose violation indicates kernel corruption (GDT validity, PMM sanity, etc.).
 
 ## Debug output
 - VGA: `t_writestring`, `t_hex`, `t_dec`, `t_putchar` (`include/kernel/tty.h`)
 - Serial: `Serial_WriteString`, `Serial_WriteHex` (`include/kernel/serial.h`)
 - `KLOG` / `KLOG_HEX` macros — serial only, require `-DDEV_BUILD` compile flag (no-ops in release)
 - `SYS_DEBUG` writes to **both** VGA and serial unconditionally — preferred for ring-3 debugging
+- `kpanic(msg)` / `KPANIC(msg)` / `kpanic_at(msg, file, func, line)` — renders a panic screen and halts
 
 ## Key source layout
 ```
@@ -132,61 +158,69 @@ src/kernel/arch/i386/
   fs/         fat32.c, iso9660.c, vfs.c
   display/    tty.c (VGA text), vesa.c + vesa_tty.c (VESA framebuffer)
   proc/       task.c + task_asm.S (scheduler), syscall.c, ring3.S, usertest.c, ktest.c
-  shell/      shell.c, shell_cmds.c, shell_help.c
+  shell/      shell.c, shell_cmd_{display,disk,fs,apps,system}.c, shell_help.c
   debug/      exception handlers (INT 1/3/8/13/14, serial-first output)
 src/kernel/kernel/kernel.c   kernel_main
 src/kernel/include/kernel/   all public headers
 src/libc/                    minimal freestanding libc (string, stdio, stdlib) → libk.a
+src/userspace/               freestanding ELF apps (calc.elf, hello.elf)
 tests/                       GDB boot-test suite (gdb_boot_test.py) + test groups
 ```
 
+## Current state (as of May 2026)
+
+Makar boots to an interactive VESA shell with a working userspace. The major subsystems in place:
+
+- **Display**: VESA framebuffer (Bochs VBE, defaults to 720p), VGA text fallback (80×50). Split-pane abstraction (`vesa_pane_t`) landed; keyboard dispatcher (Phase 2) and VICS pane integration (Phase 3) are pending.
+- **Storage**: FAT32 (HDD/USB) + ISO 9660 (CD-ROM) via IDE PIO. VFS layer with CWD, auto-mount.
+- **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`). Syscalls: exit, read, write, debug, yield. Apps: `calc.elf`, `hello.elf`.
+- **Shell**: Inline editing, history, tab completion (commands + VFS paths), Ctrl+C sigint (aborts line / kills exec'd task).
+- **Tasking**: Cooperative round-robin. Background ktest at boot.
+- **GRUB**: Two-entry menu (Makar OS + Next available device), 5-second timeout. Both ISO and HDD images.
+
 ## Active branches
 
-### `fix/hdd-boot` (landed, awaiting PR merge)
-IDE software reset before probing, apps directory on HDD image, parallel builds,
-consolidated Docker image, separate interactive/test HDD images, GDB mount-timing fix.
+### `misc/grub-imprv` (current)
+GRUB two-entry menu + 5s timeout, 720p default display, silent background ktest, VGA colour-fix on mode switch, Ctrl+C sigint wiring, tab completion, calc app import.
 
-### `feat/sigint-and-calc` (in progress)
-Ctrl+C sigint support (keyboard sentinels moved to 0x80–0x83, `g_sigint` flag, wiring TODO),
-plus bc-style recursive-descent calculator app (`src/userspace/calc.c`).
+### `feat/split-panes` (Phase 2/3 pending)
+Split-pane keyboard dispatcher and VICS pane integration. Phase 1 (pane abstraction) already landed on main.
 
-### `feat/split-panes` (in progress)
-Current feature focus: tmux-style split panes in the VESA renderer (with VGA / low-res fallback to virtual consoles).  The work is staged in three phases:
+## Future roadmap
 
-1. **Phase 1 (✅ implemented, awaiting commit/PR)** — pane abstraction in `vesa_tty`.  `vesa_pane_t` owns its cursor, colours, and a top_row/rows sub-rectangle of the screen.  Legacy `vesa_tty_*` calls delegate to a screen-spanning `default_pane`, so existing callers are unaffected.  Full ktest + GDB boot suite passes.
-2. **Phase 2** — keyboard dispatcher with a Ctrl-A prefix.  In split-mode (VESA, ≥ ~30 rows) Ctrl-A,U / Ctrl-A,J switch focus between the top and bottom panes.  In VGA text mode or low-res VESA, the same prefix selects a full-screen virtual console (Ctrl-A,1/2/3).  Per-task input rings; `keyboard_getchar()` dequeues from the calling task's bound queue.
-3. **Phase 3** — refactor `vics.c` to take a pane (top_row, text_rows, status_row) instead of hard-coding rows 0–23 + 24 + raw `VGA_MEMORY` writes.  Add a `splitscreen` shell command that spawns VICS in the top pane and continues the shell in the bottom.
+### Near-term kernel work
+- **Runtime test_mode via cmdline**: parse `MULTIBOOT2_TAG_TYPE_CMDLINE` in `kernel.c` so ISO and HDD can share a single kernel binary; replace `#ifdef TEST_MODE` guards with a runtime flag.
+- **Split-panes Phase 2/3**: Ctrl-A,U/J pane focus switching; refactor VICS to accept a `(top_row, rows)` pane descriptor.
+- **Preemptive scheduling**: Add a timer-driven task preemption path. Currently all scheduling is cooperative (`task_yield()`).
+- **Signals**: Full `kill()`/`signal()` ABI beyond the current Ctrl+C `g_sigint` flag.
 
-Split mode is VESA-only.  VGA text and low-res VESA (< ~30 rows) fall back to virtual-console switching with the same Ctrl-A prefix.
+### Userspace / libc porting
 
-The previous focus (ring-3 userspace) landed on `main` in PRs #53 and #112.
+The long-term goal is a self-hosting userspace. Prerequisites and approach:
 
-### Pane API (Phase 1, landed on this branch)
+1. **musl libc** (preferred over glibc or uClibc for size):
+   - Needs: `mmap`/`munmap`, `brk`/`sbrk`, `read`/`write`/`open`/`close`/`stat`, `fork`/`exec`/`wait` (or at minimum `posix_spawn`), `getpid`, signals.
+   - Current blocker: no `fork` — Makar has cooperative tasks, not POSIX processes. Either implement `fork` (requires COW page tables) or target a no-fork musl config (`musl` + `MUSL_NO_FORK` equivalent).
+   - Recommended path: add `SYS_OPEN`, `SYS_CLOSE`, `SYS_READ` (file), `SYS_WRITE` (file), `SYS_STAT`, `SYS_LSEEK` first, then `SYS_BRK` (heap extension), then `SYS_MMAP` (anonymous), then attempt musl.
 
-`include/kernel/vesa_tty.h` defines:
+2. **uClibc-ng** (lighter than musl, targets embedded — no fork required for static linking):
+   - Still needs the file-I/O syscall set above plus `SYS_GETPID`, `SYS_UNAME`.
+   - Static-link userspace apps against uClibc-ng for a known-good libc without porting musl's threading.
 
-```c
-typedef struct vesa_pane {
-    uint32_t top_row, cols, rows;     /* sub-rect — full width, rows [top_row, top_row+rows) */
-    uint32_t cur_col, cur_row;        /* pane-relative cursor */
-    uint32_t fg, bg;                  /* framebuffer-pixel form (already composed) */
-} vesa_pane_t;
-```
+3. **bash / dash**:
+   - Requires a working libc (musl or uClibc), `fork`+`exec`, file descriptors (stdin/stdout/stderr as VFS fds), `tcgetattr`/`tcsetattr` (terminal), `getenv`/`setenv`, `opendir`/`readdir`.
+   - **dash** (POSIX sh, ~150 KiB) is more tractable than bash (~1 MiB) as a first shell port.
+   - Near-term stand-in: extend the existing Makar shell with more builtins (pipes, redirection, variables) rather than porting dash immediately.
 
-Public pane API: `vesa_tty_default_pane()`, `vesa_tty_pane_init(p, top_row, rows)`, `vesa_tty_pane_setcolor(p, fg_rgb, bg_rgb)` (takes 0x00RRGGBB and composes), `vesa_tty_pane_putchar/_put_at/_set_cursor/_clear/_get_col/_get_row`.
+4. **File-descriptor layer**:
+   - Current `SYS_READ` only reads from the keyboard (fd 0). Needs a proper fd table mapping integers to VFS nodes/keyboard/serial.
+   - Once fds exist, pipes (`SYS_PIPE`) become straightforward.
 
-Implementation notes (`arch/i386/display/vesa_tty.c`):
-- `font_scale = 2` by default → 16×16 cells over an 8×8 glyph.  At 640×480 that's 40 cols × 30 rows.
-- `pane_scroll_up(p)` does an in-pane `memmove` over framebuffer scanlines and clears the bottom row to `p->bg`.  Other panes are untouched.
-- `vesa_tty_clear()` (legacy) intentionally clears the **whole** screen (`vesa_clear(default_pane.bg)`), not just the default pane region — preserves prior behaviour for any sub-pane carve-up.
-- `vesa_tty_spinner_tick` always renders into `default_pane` at the top-right of the physical screen, regardless of focus.
-- Stack-allocate `vesa_pane_t` — no heap dependency.
+5. **Process model**:
+   - True POSIX processes require `fork` (COW) + separate address spaces. The current VMM can map per-task page directories; `fork` would clone one.
+   - Alternative: implement `posix_spawn` semantics (create + exec without fork) — sufficient for a non-interactive shell and simpler to implement.
 
-Constraint: side-by-side (column) splits are out of scope.  Only horizontal stacking (top/bottom) is supported.
-
-### Phase 2 / 3 reference points (not yet touched)
-
-- **VGA text mode renderer**: `arch/i386/display/tty.c` writes directly to `0xB8000` (`VGA_MEMORY`).  Stays single-pane; virtual-console switching swaps a backing buffer rather than carving rows.
-- **VICS** (visual editor): `vics.c` currently hard-codes 24 text rows + status row 24 and writes raw cells to `VGA_MEMORY`.  Phase 3 refactors it to accept `(top_row, text_rows, status_row)` and route through either VGA or VESA pane writers.
-- **Keyboard**: `drivers/keyboard.c` exposes a single `keyboard_getchar()` ring.  Phase 2 introduces per-task input queues + a focus pointer; the Ctrl-A prefix is consumed by the dispatcher and never reaches the focused task.
-- **Mode detection for split-eligibility**: check `vesa_tty_is_ready()` and `vesa_tty_get_rows() >= 30`.  Otherwise fall back to virtual consoles.
+### Hardware / platform
+- **USB HID keyboard**: currently PS/2 only. QEMU emulates PS/2 by default; real hardware may need USB HID via OHCI/EHCI.
+- **Network stack**: would need an e1000 or RTL8139 driver (both well-documented for QEMU), then lwIP or a minimal TCP/IP stack.
+- **64-bit (x86-64)**: significant rewrite — new GDT/IDT, long mode entry, 64-bit paging. Worth considering once userspace is stable on i386.
