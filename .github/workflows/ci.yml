@@ -12,6 +12,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - '*.sh'
+      - 'scripts/**'
       - 'Dockerfile*'
       - 'docker-compose.yml'
   pull_request:
@@ -19,14 +20,15 @@ on:
       - 'src/**'
       - 'tests/**'
       - '*.sh'
+      - 'scripts/**'
       - 'Dockerfile*'
       - 'docker-compose.yml'
 
 jobs:
   # ── ISO CI ─────────────────────────────────────────────────────────────────
-  # Runs entirely inside the compiler container — no host toolchain needed.
-  # Step 1: TEST_MODE ktest suite (kernel runs ktest_run_all(), then exits).
-  # Step 2: GDB boot-checkpoint verification (debug ISO, gdb_boot_test.py).
+  # Runs entirely inside the compiler container (/.dockerenv is present so
+  # run.sh executes steps directly without an inner docker run).
+  # Phase 1: TEST_MODE ktest suite.  Phase 2: GDB boot-checkpoint test.
   iso-test:
     name: ISO test (ktest + GDB boot)
     runs-on: ubuntu-latest
@@ -40,69 +42,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ── Step 1: ktest (TEST_MODE) ──────────────────────────────────────────
-      - name: Build TEST_MODE ISO
-        env:
-          CFLAGS: '-O0 -g3'
-          CPPFLAGS: '-DTEST_MODE'
-        run: bash iso.sh
-
-      - name: Run ktest suite
-        run: |
-          timeout 30 qemu-system-i386 \
-            -cdrom makar.iso \
-            -serial stdio \
-            -display none \
-            -no-reboot \
-            -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-            2>/dev/null | tee ktest.log || true
-
-          if grep -q "KTEST_RESULT: PASS" ktest.log; then
-            echo "ktest: ALL PASSED"
-          elif grep -q "KTEST_RESULT: FAIL" ktest.log; then
-            echo "ktest: FAILED — see ktest.log"
-            cat ktest.log
-            exit 1
-          else
-            echo "ktest: TIMEOUT or kernel did not reach test runner"
-            cat ktest.log
-            exit 1
-          fi
-
-      # ── Step 2: GDB boot-checkpoint test ──────────────────────────────────
-      - name: Clean TEST_MODE artifacts
-        run: |
-          . ./src/config.sh
-          for p in $PROJECTS; do
-            (cd "$p" && $MAKE clean 2>/dev/null || true)
-          done
-
-      - name: Build debug ISO
-        env:
-          CFLAGS: '-O0 -g3'
-        run: bash iso.sh
-
-      - name: GDB boot-checkpoint test
-        run: |
-          qemu-system-i386 \
-            -cdrom makar.iso \
-            -serial file:gdb-serial.log \
-            -display none \
-            -no-reboot \
-            -no-shutdown \
-            -s -S &
-          QEMU_PID=$!
-          sleep 2
-
-          timeout 60 gdb-multiarch -batch \
-            -ex "source tests/gdb_boot_test.py" \
-            src/kernel/makar.kernel \
-            2>&1 | tee gdb-test.log
-          GDB_EXIT=${PIPESTATUS[0]}
-
-          kill "$QEMU_PID" 2>/dev/null || true
-          wait "$QEMU_PID" 2>/dev/null || true
-          exit "$GDB_EXIT"
+      - name: Run ISO test suite
+        run: ./run.sh iso-test
 
       - name: Upload ISO test logs
         if: always()
@@ -128,7 +69,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run HDD boot test
-        run: ./docker-hdd-test.sh
+        run: ./run.sh hdd-test
 
       - name: Upload HDD test logs
         if: always()

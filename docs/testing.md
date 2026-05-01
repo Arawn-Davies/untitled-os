@@ -5,91 +5,121 @@ instructions see [Building & Running](building.md).
 
 ---
 
-## CI test suite (`docker-ktest.sh`)
+## CI test suite (`./run.sh iso-test`)
 
-The single command for complete CI validation:
+The single command for complete ISO CI validation:
 
 ```sh
-./docker-ktest.sh
+./run.sh iso-test
 ```
 
-Runs two steps, both fully inside Docker (no host toolchain needed):
+Runs two phases; build steps use Docker, QEMU/GDB prefer the host if available:
 
-**Step 1 — in-kernel ktest suite**
+**Phase 1 — in-kernel ktest suite**
 
 Builds a `TEST_MODE` ISO. The kernel boots, runs `ktest_run_all()` (all
 subsystem unit tests including a live ring-3 userspace execution), then exits
 QEMU cleanly via `isa-debug-exit`. Output: `ktest.log`.
 
-**Step 2 — GDB boot-checkpoint tests**
+**Phase 2 — GDB boot-checkpoint tests**
 
-Builds a normal debug ISO. Launches QEMU with the GDB stub, then runs
-`tests/gdb_boot_test.py` to verify Multiboot 2 magic, symbol addresses, and
-every major boot checkpoint from outside the kernel. Output: `gdb-test.log`.
+Builds a normal debug ISO. Creates a 32 MiB FAT32 test disk and attaches it
+on IDE:0 alongside the CD-ROM so the kernel can mount `/hd`. Launches QEMU
+with the GDB stub and runs `tests/gdb_boot_test.py`. Output: `gdb-test.log`.
 
 Exit code 0 = everything passed; 1 = any failure or timeout.
 
 ---
 
----
-
-## HDD boot test (`docker-hdd-test.sh`)
+## HDD boot test (`./run.sh hdd-test`)
 
 Verifies the installed HDD boot path end-to-end — no CD-ROM attached:
 
 ```sh
-./docker-hdd-test.sh
+./run.sh hdd-test
 ```
 
 What it does:
 
 1. **Clean rebuild** — ensures `src/kernel/makar.kernel` (GDB symbol file) matches the binary written into the image.
-2. **Generate `makar-hdd-test.img`** — a fresh raw MBR + FAT32 HDD image with GRUB 2.  Uses the interactive (non-TEST_MODE) kernel so `shell_run` is called and `vfs_auto_mount()` runs.  Kept separate from `makar-hdd.img` so interactive and test images never share state.
-3. **GDB boot test** — boots the image inside Docker with `-boot c` (HDD-only) and runs `tests/gdb_hdd_test.py`.
-
-Test groups in `gdb_hdd_test.py`:
-
-| Group | What it verifies |
-|---|---|
-| `boot_checkpoints` | Every major boot function is reached (`kernel_main` → `shell_run`) |
-| `hardware_state` | CR0.PG set, CR3 non-zero, PIT is ticking |
-| `hdd_mount` | `fat32_mounted()` returns non-zero — FAT32 partition auto-mounted at `/hd` |
-
-The `hdd_mount` check continues execution to `keyboard_getchar` (the shell's read loop entry) before inspecting `fat32_mounted()`, ensuring `vfs_auto_mount()` has fully completed.
+2. **Generate `makar-hdd-test.img`** — fresh raw MBR + FAT32 + GRUB 2 image using the interactive kernel so `shell_run` is called and `vfs_auto_mount()` runs. Kept separate from `makar-hdd.img` so interactive and test images never share state.
+3. **GDB boot test** — boots the image with `-boot c` (HDD-only) and runs `tests/gdb_hdd_test.py`.
 
 Output files: `hdd-test-gdb.log`, `hdd-test-serial.log`.
 
 ---
 
-## Debugging with GDB
+## GDB test groups
 
-```sh
-# Terminal 1 — start QEMU with GDB stub
-bash gdb.sh
+Both `gdb_boot_test.py` (ISO boot) and `gdb_hdd_test.py` (HDD boot) run the
+same four groups, providing equivalent external verification regardless of
+boot medium:
 
-# Terminal 2 — attach GDB
-i686-elf-gdb src/kernel/makar.kernel \
-    -ex "target remote :1234" \
-    -ex "break kernel_main" \
-    -ex "continue"
-```
+| Group | What it verifies |
+|---|---|
+| `boot_checkpoints` | Every major boot function reached in order: `kernel_main` → `terminal_initialize` → … → `shell_run` |
+| `hardware_state` | CR0.PG set (paging enabled), CR3 non-zero (page directory loaded), `timer_callback` fires (PIT ticking) |
+| `vesa` | VESA framebuffer active and TTY initialised (or absent without crashing — graceful headless) |
+| `hdd_mount` | `fat32_mounted()` non-zero — FAT32 partition auto-mounted at `/hd` after `shell_run` |
 
-The `-O0 -g3` flags ensure DWARF debug info is accurate. `gdb.sh` freezes
-the CPU at reset (`-S`) so you have time to set breakpoints before the kernel
-begins executing.
+The `hdd_mount` check advances execution to `keyboard_getchar` (the shell's
+read-loop entry) before inspecting `fat32_mounted()`, ensuring
+`vfs_auto_mount()` has fully completed.
+
+The ISO GDB test creates the FAT32 test disk using `mkfs.fat --offset`
+(sector-based, no losetup / `--privileged` needed), which works inside the
+GitHub Actions container job.
+
+To add a new group: create `tests/groups/<name>.py` exposing `NAME` and
+`run() → bool`, then import it into **both** `gdb_boot_test.py` and
+`gdb_hdd_test.py`.
 
 ---
 
-## Prerequisites
+## Interactive GDB debug
 
-| Tool | Needed by |
-|---|---|
-| Docker | `docker-ktest.sh` (all steps run inside the container) |
-| `qemu-system-i386` (host) | `docker-qemu.sh` only |
+```sh
+# Build a debug ISO first
+./run.sh iso-boot   # or: CFLAGS='-O0 -g3' ./run.sh iso-release
+
+# In one terminal — start QEMU with GDB stub (inside Docker)
+docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
+    bash -lc 'qemu-system-i386 -cdrom makar.iso -s -S -display none -serial stdio'
+
+# In another terminal — attach GDB (inside Docker or native)
+docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
+    gdb-multiarch src/kernel/makar.kernel \
+        -ex "target remote :1234" \
+        -ex "break kernel_main" \
+        -ex "continue"
+```
+
+The `-O0 -g3` flags ensure DWARF debug info is accurate. QEMU starts with
+`-S` (freeze at reset), giving you time to set breakpoints before execution
+begins.
+
+---
+
+## In-kernel unit tests (interactive)
+
+From the kernel shell:
+
+```
+ktest
+```
+
+Runs `ktest_run_all()` and prints pass/fail for each subsystem suite
+(PMM, heap, ring-3 execution, etc.) directly to the terminal and serial log.
 
 ---
 
 ## CI
 
-The GitHub Actions workflow (`.github/workflows/build.yml`) runs
-`docker-ktest.sh`, so anything that passes locally will pass in CI.
+GitHub Actions runs both test jobs on every push and PR:
+
+| Job | Runner | What runs |
+|---|---|---|
+| `iso-test` | `ubuntu-latest` + container `arawn780/gcc-cross-i686-elf:fast` | `./run.sh iso-test` |
+| `hdd-test` | `ubuntu-latest` (bare metal, Docker available) | `./run.sh hdd-test` |
+
+The `release.yml` workflow gates artifact publication on both jobs passing.

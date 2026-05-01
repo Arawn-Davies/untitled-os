@@ -1,21 +1,19 @@
 # docker-compose.yml – Makar OS development services
 #
-# Prerequisites:
-#   • Docker with Compose v2 (docker compose) or Compose v1 (docker-compose)
-#   • For the 'test' service: qemu-system-i386 is provided inside the container
+# Prefer run.sh for day-to-day use:
+#   ./run.sh iso-release    – optimised ISO
+#   ./run.sh iso-boot       – debug ISO + interactive QEMU
+#   ./run.sh iso-test       – full ktest + GDB boot suite
+#   ./run.sh hdd-boot       – HDD image + interactive QEMU
+#   ./run.sh hdd-test       – HDD image + GDB boot suite
 #
-# Common commands:
-#   docker compose run --rm build          – build makar.iso
-#   docker compose run --rm build-debug    – build with debug symbols (-O0 -g3)
-#   docker compose run --rm test           – serial smoke test (requires host QEMU)
-#
-# The source tree is bind-mounted into every service at /work so build output
-# (makar.iso, sysroot/, isodir/) lands directly in your checkout.
+# The Compose services below remain available for workflows that prefer
+# 'docker compose run'.  The source tree is bind-mounted at /work so all
+# build output lands directly in your checkout.
 
 services:
 
-  # ── Build ──────────────────────────────────────────────────────────────────
-  # Compiles the kernel and produces makar.iso.
+  # ── Release ISO ────────────────────────────────────────────────────────────
   build:
     build: .
     platform: linux/amd64
@@ -24,8 +22,7 @@ services:
     working_dir: /work
     command: bash iso.sh
 
-  # ── Debug build ────────────────────────────────────────────────────────────
-  # Same as 'build' but compiles with -O0 -g3 for accurate GDB symbols.
+  # ── Debug ISO ──────────────────────────────────────────────────────────────
   build-debug:
     build: .
     platform: linux/amd64
@@ -36,30 +33,12 @@ services:
       - CFLAGS=-O0 -g3
     command: bash iso.sh
 
-  # ── Serial smoke test ──────────────────────────────────────────────────────
-  # Builds a debug ISO then runs the serial smoke test inside the container.
-  # QEMU runs headless (-display none) so no display is required.
+  # ── ISO test suite (ktest + GDB) ───────────────────────────────────────────
+  # Equivalent to ./run.sh iso-test but runs inside Compose.
   test:
     build: .
     platform: linux/amd64
     volumes:
       - .:/work
     working_dir: /work
-    environment:
-      - CFLAGS=-O0 -g3
-    command: >
-      bash -lc "
-        bash iso.sh &&
-        timeout 20 qemu-system-i386
-          -cdrom makar.iso
-          -serial stdio
-          -display none
-          -no-reboot
-          -no-shutdown
-          -d int,cpu_reset
-          -D qemu-debug.log
-          2>&1 | tee serial.log || true &&
-        grep -q 'serial: COM1 ready' serial.log &&
-        grep -q 'keyboard: PS/2 IRQ1 handler registered' serial.log &&
-        echo 'Smoke test PASSED'
-      "
+    command: bash -lc "bash run.sh iso-test"
