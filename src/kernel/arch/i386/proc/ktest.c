@@ -21,6 +21,7 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/bochs_vbe.h>
 #include <kernel/timer.h>
+#include <kernel/asm.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
@@ -378,15 +379,20 @@ static void test_task(void)
 {
     ktest_begin("task");
 
-    /* task_create must return a non-NULL pointer. */
-    task_t *t1 = task_create("ktest_noop1", noop_task);
-    KTEST_ASSERT(t1 != NULL);
-
-    task_t *t2 = task_create("ktest_noop2", noop_task);
-    KTEST_ASSERT(t2 != NULL);
-
-    /* Yield until both noop tasks have run and exited. */
+    /* Disable interrupts across both creates so the timer cannot preempt
+     * noop1 before noop2 exists — otherwise noop1 runs, dies, and its slot
+     * gets recycled for noop2, making t1 == t2. */
+    disable_interrupts();
     noop_ran = 0;
+    task_t *t1 = task_create("ktest_noop1", noop_task);
+    task_t *t2 = task_create("ktest_noop2", noop_task);
+    enable_interrupts();
+
+    KTEST_ASSERT(t1 != NULL);
+    KTEST_ASSERT(t2 != NULL);
+    KTEST_ASSERT(t1 != t2);
+
+    /* Yield until at least one noop task has run and exited. */
     for (int i = 0; i < 100 && !noop_ran; i++)
         task_yield();
     KTEST_ASSERT(noop_ran);
