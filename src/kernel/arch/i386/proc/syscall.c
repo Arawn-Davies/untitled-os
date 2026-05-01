@@ -35,6 +35,7 @@
 #include <kernel/pmm.h>
 #include <kernel/serial.h>
 #include <string.h>
+#include <kernel/ktest.h>
 
 /* -------------------------------------------------------------------------
  * File descriptor table (global — only one user process runs at a time)
@@ -167,8 +168,10 @@ void syscall_dispatch(registers_t *regs)
         if (!buf) { regs->eax = (uint32_t)-1; break; }
 
         if (fd == FD_STDOUT || fd == FD_STDERR) {
-            for (uint32_t i = 0; i < len; i++)
-                t_putchar(buf[i]);
+            if (!ktest_muted) {
+                for (uint32_t i = 0; i < len; i++)
+                    t_putchar(buf[i]);
+            }
             regs->eax = len;
         } else {
             /* File write not yet implemented. */
@@ -288,9 +291,11 @@ void syscall_dispatch(registers_t *regs)
         Serial_WriteString("[ring3] CP: 0x");
         Serial_WriteHex(regs->ebx);
         Serial_WriteString("\n");
-        t_writestring("[ring3] CP: 0x");
-        t_hex(regs->ebx);
-        t_putchar('\n');
+        if (!ktest_muted) {
+            t_writestring("[ring3] CP: 0x");
+            t_hex(regs->ebx);
+            t_putchar('\n');
+        }
         break;
 
     default:

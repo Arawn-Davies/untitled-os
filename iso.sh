@@ -10,7 +10,7 @@ set default=0
 set timeout=5
 
 menuentry "Makar OS" {
-	multiboot2 /boot/makar.kernel
+	multiboot2 /boot/makar.kernel${KERNEL_ARGS:+ $KERNEL_ARGS}
 }
 
 menuentry "Next available device" {

@@ -413,6 +413,15 @@ int iso9660_read_file(uint8_t drive, const char *path,
     return 0;
 }
 
+int iso9660_file_exists(uint8_t drive, const char *path)
+{
+    uint32_t lba, size;
+    int isdir;
+    if (path_resolve(drive, path, &lba, &size, &isdir) != 0)
+        return 0;
+    return 1;
+}
+
 int iso9660_ls(uint8_t drive, const char *path)
 {
     uint32_t lba, size;

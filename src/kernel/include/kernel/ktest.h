@@ -57,6 +57,9 @@ int ktest_run_all(void);
  */
 void ktest_bg_task(void);
 
+/* When non-zero, suppress VGA output from ktest and syscall handlers. */
+extern int ktest_muted;
+
 /* Set to 1 by ktest_bg_task when the background run completes. */
 extern volatile int ktest_bg_done;
 

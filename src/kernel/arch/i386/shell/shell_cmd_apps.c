@@ -86,6 +86,9 @@ static void cmd_exec(int argc, char **argv)
         return;
     }
 
+    task_t *self = task_current();
+    keyboard_set_focus(t);
+
     while (t->state != TASK_DEAD) {
         if (keyboard_sigint_consume()) {
             t->state = TASK_DEAD;
@@ -94,6 +97,9 @@ static void cmd_exec(int argc, char **argv)
         }
         task_yield();
     }
+
+    keyboard_release_task(t);
+    keyboard_set_focus(self);
 }
 
 static void cmd_eject(int argc, char **argv)

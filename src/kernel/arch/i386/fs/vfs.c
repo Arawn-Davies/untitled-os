@@ -537,6 +537,24 @@ int vfs_write_file(const char *path, const void *buf, uint32_t size)
     return fat32_write_file(drv, buf, size);
 }
 
+int vfs_file_exists(const char *path)
+{
+    char abs[VFS_PATH_MAX];
+    path_resolve(path, abs);
+
+    const char *drv;
+    switch (vfs_route(abs, &drv)) {
+    case VFS_FS_HD:
+        if (!fat32_mounted()) return 0;
+        return fat32_file_exists(drv);
+    case VFS_FS_CDROM:
+        if (s_cdrom_drive < 0) return 0;
+        return iso9660_file_exists((uint8_t)s_cdrom_drive, drv);
+    default:
+        return 0;
+    }
+}
+
 /* -------------------------------------------------------------------------
  * vfs_complete — enumerate directory entries for tab completion.
  *

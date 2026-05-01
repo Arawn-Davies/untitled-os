@@ -90,6 +90,9 @@ int fat32_mkdir(const char *path);
 int fat32_read_file(const char *path, void *buf, uint32_t bufsz,
                     uint32_t *out_sz);
 
+/* Return 1 if path exists on the volume, 0 otherwise. No heap allocation. */
+int fat32_file_exists(const char *path);
+
 /*
  * fat32_write_file – create or overwrite a file.
  *

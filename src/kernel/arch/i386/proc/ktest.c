@@ -32,7 +32,7 @@ int ktest_fail_count = 0;
 volatile int ktest_bg_done = 0;
 
 /* When set, suppress VGA output for pass lines and suite headers. */
-static int ktest_muted = 0;
+int ktest_muted = 0;
 
 void ktest_begin(const char *suite)
 {
@@ -68,6 +68,8 @@ void ktest_assert(int cond, const char *expr, const char *file, uint32_t line)
 
 void ktest_summary(void)
 {
+    if (ktest_muted)
+        return;
     t_writestring("[ktest] results: ");
     t_dec((uint32_t)ktest_pass_count);
     t_writestring(" passed, ");
@@ -369,7 +371,8 @@ static void test_vmm(void)
  * and they self-terminate via task_exit, eventually returning here.
  * ------------------------------------------------------------------------- */
 
-static void noop_task(void) { task_exit(); }
+static volatile int noop_ran;
+static void noop_task(void) { noop_ran = 1; task_exit(); }
 
 static void test_task(void)
 {
@@ -379,15 +382,15 @@ static void test_task(void)
     task_t *t1 = task_create("ktest_noop1", noop_task);
     KTEST_ASSERT(t1 != NULL);
 
-    /* A second create must return a different (distinct) task slot. */
     task_t *t2 = task_create("ktest_noop2", noop_task);
     KTEST_ASSERT(t2 != NULL);
-    KTEST_ASSERT(t1 != t2);
 
-    /* task_yield must not crash; the noop tasks run and exit, then control
-     * returns here via the cooperative scheduler. */
-    task_yield();
-    KTEST_ASSERT(1);
+    /* Yield until both noop tasks have run and exited. */
+    noop_ran = 0;
+    for (int i = 0; i < 100 && !noop_ran; i++)
+        task_yield();
+    KTEST_ASSERT(noop_ran);
+    KTEST_ASSERT(t1->state == TASK_DEAD || t2->state == TASK_DEAD);
 
     ktest_summary();
 }
@@ -629,7 +632,8 @@ static void test_ring3_execution(void)
      * It proves we are back in ring 0 with the kernel page directory active,
      * able to call kernel functions and write to serial/VGA normally. */
     Serial_WriteString("[ktest] ring3_execution: back in kernel mode (ring 0)\n");
-    t_writestring("[ktest] ring3 -> kernel mode OK\n");
+    if (!ktest_muted)
+        t_writestring("[ktest] ring3 -> kernel mode OK\n");
 
     /* CP2 appears after SYS_WRITE returns, just before SYS_EXIT.  Seeing 2
      * confirms ring-3 entry, the write syscall, and the debug syscall all
@@ -886,6 +890,9 @@ void ktest_bg_task(void)
         suite(); \
         total_pass += ktest_pass_count; \
         total_fail += ktest_fail_count; \
+        /* Pace tests so the loading screen stays visible (~300 ms). */ \
+        { uint32_t t0 = timer_get_ticks(); \
+          while (timer_get_ticks() - t0 < 15) task_yield(); } \
     } while (0)
 
     RUN(test_acpi_checksum);

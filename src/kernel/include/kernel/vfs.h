@@ -106,6 +106,9 @@ int vfs_mkdir(const char *path);
 int vfs_read_file(const char *path, void *buf, uint32_t bufsz, uint32_t *out_sz);
 int vfs_write_file(const char *path, const void *buf, uint32_t size);
 
+/* Return 1 if path exists and is readable, 0 otherwise. */
+int vfs_file_exists(const char *path);
+
 /*
  * vfs_complete – enumerate directory entries for tab completion.
  * dir    : VFS path to enumerate (NULL → CWD).

@@ -159,6 +159,23 @@ static int kb_find_or_register(task_t *t)
     return i;
 }
 
+void keyboard_release_task(task_t *t)
+{
+    for (int i = 0; i < kb_nslots; i++) {
+        if (kb_slots[i].owner == t) {
+            kb_nslots--;
+            for (int j = i; j < kb_nslots; j++)
+                kb_slots[j] = kb_slots[j + 1];
+            if (kb_focused == t)
+                kb_focused = NULL;
+            for (int p = 0; p < 2; p++)
+                if (kb_pane[p] == t)
+                    kb_pane[p] = NULL;
+            return;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Modifier state
 // ---------------------------------------------------------------------------

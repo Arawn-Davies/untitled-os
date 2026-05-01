@@ -465,10 +465,6 @@ void shell_run(void)
         vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
         vesa_tty_clear();
 
-#ifndef TEST_MODE
-        /* Loading screen: show logo + spinner while ktest_bg_task runs.
-         * No keyboard input is processed here — any keys typed are discarded
-         * after the loop so they don't bleed into the first shell readline. */
         vesa_blit_logo(SHELL_FG_RGB, SHELL_BG_RGB);
 
         while (!ktest_bg_done) {
@@ -476,11 +472,12 @@ void shell_run(void)
             task_yield();
         }
         vesa_tty_clear();
-
-        /* Drain any keys typed during the loading screen. */
-        while (keyboard_poll()) {}
-#endif
     }
+
+    while (!ktest_bg_done)
+        task_yield();
+
+    while (keyboard_poll()) {}
 
     t_writestring("Makar -- version " SHELL_VERSION
                   ", build: " BUILD_DATE " " BUILD_TIME "\n");

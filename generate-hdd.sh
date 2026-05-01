@@ -10,14 +10,9 @@
 #       -serial stdio \
 #       -boot c
 #
-# Flags:
-#   --test   Clean, rebuild with -DTEST_MODE, then generate the image.
-#            The resulting kernel runs ktest_run_all() and exits via
-#            isa-debug-exit.  Used by docker-hdd-test.sh.
-#
-#   (none)   Default interactive mode.  Rebuilds the kernel only if
-#            sysroot/boot/makar.kernel is missing.  Used by
-#            docker-hdd-boot.sh (which does its own clean+build first).
+# Env vars:
+#   KERNEL_ARGS  Optional kernel command-line arguments baked into grub.cfg.
+#                Set KERNEL_ARGS=test_mode for automated test images.
 #
 # Why grub-mkimage instead of grub-install?
 #
@@ -41,10 +36,8 @@ HDD_IMG=${HDD_IMG:-makar-hdd.img}
 HDD_SIZE_MB=${HDD_SIZE_MB:-512}
 
 # Parse flags.
-HDD_TEST_MODE=0
 for _arg in "$@"; do
     case "$_arg" in
-        --test) HDD_TEST_MODE=1 ;;
         *) echo "ERROR: unknown flag '$_arg'" >&2; exit 1 ;;
     esac
 done
@@ -52,27 +45,9 @@ done
 # ---------------------------------------------------------------------------
 # Step 1: build the kernel into sysroot/boot/makar.kernel.
 #
-# --test : clean first, then build with -DTEST_MODE (-O0 -g3).
-# default: skip if the binary is already present; build interactive otherwise.
+# Build kernel if not already present.
 # ---------------------------------------------------------------------------
-if [ "$HDD_TEST_MODE" = "1" ]; then
-    echo "==> Cleaning build artifacts (--test mode)..."
-    "$DOCKER_BIN" run --rm \
-        --platform "$DOCKER_PLATFORM" \
-        -v "$REPO_ROOT:/work" \
-        -w /work \
-        "$BUILD_IMAGE" \
-        bash -c '. ./src/config.sh && for p in $PROJECTS; do (cd $p && $MAKE clean 2>/dev/null || true); done'
-
-    echo "==> Building TEST_MODE kernel..."
-    "$DOCKER_BIN" run --rm \
-        --platform "$DOCKER_PLATFORM" \
-        -u "$(id -u):$(id -g)" \
-        -v "$REPO_ROOT:/work" \
-        -w /work \
-        "$BUILD_IMAGE" \
-        bash -lc "CFLAGS='-O0 -g3' CPPFLAGS='-DTEST_MODE' bash build.sh"
-elif [ ! -f "$REPO_ROOT/sysroot/boot/makar.kernel" ]; then
+if [ ! -f "$REPO_ROOT/sysroot/boot/makar.kernel" ]; then
     echo "==> Building interactive kernel..."
     "$DOCKER_BIN" run --rm \
         --platform "$DOCKER_PLATFORM" \
@@ -108,6 +83,7 @@ echo "==> Creating $HDD_IMG (${HDD_SIZE_MB} MiB)..."
     -e HDD_SIZE_MB="$HDD_SIZE_MB" \
     -e HOST_UID="$(id -u)" \
     -e HOST_GID="$(id -g)" \
+    -e KERNEL_ARGS="${KERNEL_ARGS:-}" \
     -v "$REPO_ROOT:/work" \
     -w /work \
     "$BUILD_IMAGE" \
@@ -160,12 +136,12 @@ if [ -d /work/isodir/apps ]; then
     cp -r /work/isodir/apps/. "$MNT/apps/"
 fi
 
-cat > "$MNT/boot/grub/grub.cfg" << 'GCFG'
+cat > "$MNT/boot/grub/grub.cfg" << GCFG
 set default=0
 set timeout=5
 
 menuentry "Makar OS" {
-    multiboot2 /boot/makar.kernel
+    multiboot2 /boot/makar.kernel${KERNEL_ARGS:+ $KERNEL_ARGS}
     boot
 }
 

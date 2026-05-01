@@ -8,6 +8,7 @@
 
 /* Multiboot 2 tag types. */
 #define MULTIBOOT2_TAG_TYPE_END          0
+#define MULTIBOOT2_TAG_TYPE_CMDLINE      1
 #define MULTIBOOT2_TAG_TYPE_BOOTDEV      5
 #define MULTIBOOT2_TAG_TYPE_MMAP         6
 #define MULTIBOOT2_TAG_TYPE_FRAMEBUFFER  8
@@ -42,6 +43,14 @@ typedef struct
 	uint32_t type;
 	uint32_t reserved;
 } __attribute__((packed)) multiboot2_mmap_entry_t;
+
+/* Command-line tag (type 1). */
+typedef struct
+{
+	uint32_t type;     /* = MULTIBOOT2_TAG_TYPE_CMDLINE */
+	uint32_t size;
+	char     string[]; /* NUL-terminated kernel command line */
+} __attribute__((packed)) multiboot2_tag_cmdline_t;
 
 /* Boot device tag (type 5). */
 typedef struct

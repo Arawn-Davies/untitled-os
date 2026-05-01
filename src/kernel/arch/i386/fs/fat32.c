@@ -1081,6 +1081,19 @@ int fat32_mkdir(const char *path)
 /* -------------------------------------------------------------------------
  * fat32_read_file
  * ---------------------------------------------------------------------- */
+int fat32_file_exists(const char *path)
+{
+    if (!vol.mounted) return 0;
+    uint32_t    parent_cluster;
+    const char *basename;
+    if (path_split(path, &parent_cluster, &basename)) return 0;
+    if (!*basename) return 0;
+    dirent_t ent;
+    if (dir_scan(parent_cluster, DIRSCAN_FIND, basename, &ent, NULL, NULL) != 0)
+        return 0;
+    return 1;
+}
+
 int fat32_read_file(const char *path, void *buf, uint32_t bufsz,
                     uint32_t *out_sz)
 {

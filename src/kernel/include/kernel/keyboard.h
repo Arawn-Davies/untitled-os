@@ -29,6 +29,9 @@ void keyboard_bind_pane(int pane_id, task_t *t);
 void keyboard_focus_pane(int pane_id);
 void keyboard_set_focus(task_t *t);
 
+/* Release a task's keyboard slot so it can be reused. */
+void keyboard_release_task(task_t *t);
+
 /*
  * keyboard_sigint_consume – atomically read and clear the Ctrl+C flag.
  * Returns 1 if Ctrl+C was pressed since the last call, 0 otherwise.

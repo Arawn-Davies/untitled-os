@@ -46,6 +46,9 @@ int iso9660_read_file(uint8_t drive, const char *path,
  * Returns -1 on I/O error.
  * Returns -2 if the path is not found or is not a directory.
  */
+/* Return 1 if path exists on the volume, 0 otherwise. No heap allocation. */
+int iso9660_file_exists(uint8_t drive, const char *path);
+
 int iso9660_ls(uint8_t drive, const char *path);
 
 #endif /* _KERNEL_ISO9660_H */
