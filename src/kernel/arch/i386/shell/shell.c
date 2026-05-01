@@ -62,13 +62,15 @@ static const char *history_get(int ago)
  * VESA is active and the VGA row counter wraps.
  * --------------------------------------------------------------------------- */
 static void readline_redraw(const char *buf, size_t len, size_t cur,
+                             size_t erase_to,
                              size_t vga_start_col, size_t vga_start_row,
                              uint32_t vesa_start_col, uint32_t vesa_start_row)
 {
     uint32_t vcols = vesa_tty_is_ready() ? vesa_tty_get_cols() : VGA_WIDTH;
+    size_t render_to = (erase_to > len) ? erase_to : len;
 
-    for (size_t i = 0; i <= len; i++) {
-        char ch = (i < len) ? buf[i] : ' '; /* trailing space erases deletions */
+    for (size_t i = 0; i <= render_to; i++) {
+        char ch = (i < len) ? buf[i] : ' '; /* spaces erase any previous content */
 
         size_t vga_lp  = vga_start_col + i;
         size_t vga_row = vga_start_row + vga_lp / VGA_WIDTH;
@@ -132,6 +134,7 @@ void shell_readline(char *buf, size_t max)
 {
     size_t len      = 0;
     size_t cur      = 0;             /* cursor position within buf            */
+    size_t drawn    = 0;             /* chars rendered on screen (for erasure)*/
     int    hist_pos = -1;            /* -1 = not in history-navigation mode   */
     char   work[SHELL_MAX_INPUT];    /* in-progress line saved on first ↑     */
 
@@ -171,7 +174,9 @@ void shell_readline(char *buf, size_t max)
                 cur--;
                 buf[len] = '\0';
                 Serial_WriteChar('\b');
-                readline_redraw(buf, len, cur,
+                size_t et = (drawn > len) ? drawn : len;
+                drawn = len;
+                readline_redraw(buf, len, cur, et,
                                 rl_col, rl_row, vesa_rl_col, vesa_rl_row);
             }
             hist_pos = -1;
@@ -237,7 +242,9 @@ void shell_readline(char *buf, size_t max)
             buf[max - 1] = '\0';
             len = strlen(buf);
             cur = len;
-            readline_redraw(buf, len, cur,
+            size_t et2 = (drawn > len) ? drawn : len;
+            drawn = len;
+            readline_redraw(buf, len, cur, et2,
                             rl_col, rl_row, vesa_rl_col, vesa_rl_row);
             continue;
         }
@@ -329,7 +336,9 @@ void shell_readline(char *buf, size_t max)
                     len++;
                 }
                 buf[len] = '\0';
-                readline_redraw(buf, len, cur,
+                size_t et3 = (drawn > len) ? drawn : len;
+                drawn = len;
+                readline_redraw(buf, len, cur, et3,
                                 rl_col, rl_row, vesa_rl_col, vesa_rl_row);
             } else if (nmatches > 1) {
                 /* Print all matches, then redisplay prompt + line. */
@@ -350,7 +359,9 @@ void shell_readline(char *buf, size_t max)
                     vesa_rl_col = vesa_tty_get_col();
                     vesa_rl_row = vesa_tty_get_row();
                 }
-                readline_redraw(buf, len, cur,
+                size_t et4 = (drawn > len) ? drawn : len;
+                drawn = len;
+                readline_redraw(buf, len, cur, et4,
                                 rl_col, rl_row, vesa_rl_col, vesa_rl_row);
             }
             continue;
@@ -370,7 +381,8 @@ void shell_readline(char *buf, size_t max)
             cur++;
             buf[len] = '\0';
             Serial_WriteChar(c);
-            readline_redraw(buf, len, cur,
+            drawn = len;
+            readline_redraw(buf, len, cur, len,
                             rl_col, rl_row, vesa_rl_col, vesa_rl_row);
         }
     }
@@ -427,6 +439,13 @@ static const shell_cmd_entry_t * const cmd_modules[] = {
     NULL,
 };
 
+/* Directories searched in order when a command is not a built-in. */
+static const char *const s_app_path[] = {
+    "/cdrom/apps/",
+    "/hd/apps/",
+    NULL,
+};
+
 static int shell_dispatch(int argc, char **argv)
 {
     for (int m = 0; cmd_modules[m]; m++) {
@@ -437,6 +456,23 @@ static int shell_dispatch(int argc, char **argv)
             }
         }
     }
+
+    /* PATH lookup: try <dir><cmd>.elf for each entry in s_app_path. */
+    static char path_buf[VFS_PATH_MAX];
+    for (int p = 0; s_app_path[p]; p++) {
+        size_t dlen = strlen(s_app_path[p]);
+        size_t nlen = strlen(argv[0]);
+        if (dlen + nlen + 4 >= VFS_PATH_MAX)
+            continue;
+        strncpy(path_buf, s_app_path[p], VFS_PATH_MAX - 1);
+        strncpy(path_buf + dlen, argv[0], VFS_PATH_MAX - 1 - dlen);
+        strncpy(path_buf + dlen + nlen, ".elf", 5);
+        if (vfs_file_exists(path_buf)) {
+            shell_exec_elf(path_buf, argc, argv);
+            return 1;
+        }
+    }
+
     return 0;
 }
 

@@ -46,4 +46,10 @@ void terminal_set_colorscheme(uint8_t color);
  */
 int t_get_rows(void);
 
+/* Move the VGA hardware cursor and VESA software cursor to (col, row). */
+void t_set_cursor(size_t col, size_t row);
+
+/* Fill the screen with spaces using colour attribute clr, reset cursor. */
+void t_fill(uint8_t clr);
+
 #endif

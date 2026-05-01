@@ -12,14 +12,35 @@
  *   EBX = arg1, ECX = arg2, EDX = arg3
  *   Return value written back to EAX (negative errno on error).
  */
-#define SYS_EXIT    1    /* void exit(int status)                         */
-#define SYS_READ    3    /* ssize_t read(int fd, void *buf, size_t len)   */
-#define SYS_WRITE   4    /* ssize_t write(int fd, const void *buf, size_t)*/
-#define SYS_OPEN    5    /* int open(const char *path, int flags)         */
-#define SYS_CLOSE   6    /* int close(int fd)                             */
-#define SYS_BRK     45   /* void *brk(void *addr)                         */
-#define SYS_YIELD   158  /* void sched_yield(void)                        */
-#define SYS_DEBUG   100  /* void debug(uint32_t checkpoint)  [Makar ext]  */
+#define SYS_EXIT       1    /* void exit(int status)                            */
+#define SYS_READ       3    /* ssize_t read(int fd, void *buf, size_t len)      */
+#define SYS_WRITE      4    /* ssize_t write(int fd, const void *buf, size_t)   */
+#define SYS_OPEN       5    /* int open(const char *path, int flags)            */
+#define SYS_CLOSE      6    /* int close(int fd)                                */
+#define SYS_LSEEK      19   /* off_t lseek(int fd, off_t offset, int whence)   */
+#define SYS_BRK        45   /* void *brk(void *addr)                            */
+#define SYS_DEBUG      100  /* void debug(uint32_t cp)      [Makar ext]         */
+#define SYS_YIELD      158  /* void sched_yield(void)                           */
+/* Makar display/input extensions (200+) */
+#define SYS_GETKEY     200  /* int getkey(void)  — raw single-char keyboard     */
+#define SYS_PUTCH_AT   201  /* int putch_at(tty_cell_t*, uint32_t n)            */
+#define SYS_SET_CURSOR 202  /* void set_cursor(uint32_t col, uint32_t row)      */
+#define SYS_TTY_CLEAR  203  /* void tty_clear(uint8_t clr)                      */
+#define SYS_TERM_SIZE  204  /* uint32_t term_size() → (cols<<16)|rows           */
+#define SYS_WRITE_FILE 205  /* int write_file(path, buf, len)                   */
+#define SYS_LS_DIR     206  /* int ls_dir(path, buf, bufsz) → bytes written     */
+#define SYS_DISK_INFO  207  /* int disk_info(buf, bufsz) → bytes written        */
+
+/*
+ * tty_cell_t — one screen cell passed to SYS_PUTCH_AT.
+ * clr is a standard VGA attribute byte: fg = bits[3:0], bg = bits[6:4].
+ */
+typedef struct {
+    uint8_t col;
+    uint8_t row;
+    uint8_t ch;
+    uint8_t clr;
+} tty_cell_t;
 
 /* open() flags */
 #define O_RDONLY    0

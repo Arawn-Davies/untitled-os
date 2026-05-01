@@ -76,27 +76,21 @@ static void exec_task_entry(void)
     task_exit();
 }
 
-static void cmd_exec(int argc, char **argv)
+void shell_exec_elf(const char *path, int argc, char **argv)
 {
-    if (argc < 2) {
-        t_writestring("Usage: exec <path> [args...]\n");
-        return;
-    }
-
-    /* argv[1] is the path; argv[1..] become the app's argv[0..]. */
-    int nargs = argc - 1;
+    int nargs = argc;
     if (nargs > EXEC_MAX_ARGS)
         nargs = EXEC_MAX_ARGS;
 
     s_exec_argc = nargs;
     for (int i = 0; i < nargs; i++) {
-        strncpy(s_exec_argbufs[i], argv[i + 1], EXEC_ARG_MAX - 1);
+        strncpy(s_exec_argbufs[i], argv[i], EXEC_ARG_MAX - 1);
         s_exec_argbufs[i][EXEC_ARG_MAX - 1] = '\0';
         s_exec_argv[i] = s_exec_argbufs[i];
     }
     s_exec_argv[nargs] = NULL;
 
-    strncpy(s_exec_path, argv[1], VFS_PATH_MAX - 1);
+    strncpy(s_exec_path, path, VFS_PATH_MAX - 1);
     s_exec_path[VFS_PATH_MAX - 1] = '\0';
 
     task_t *t = task_create("exec", exec_task_entry);
@@ -119,6 +113,16 @@ static void cmd_exec(int argc, char **argv)
 
     keyboard_release_task(t);
     keyboard_set_focus(self);
+}
+
+static void cmd_exec(int argc, char **argv)
+{
+    if (argc < 2) {
+        t_writestring("Usage: exec <path> [args...]\n");
+        return;
+    }
+    /* argv[1] is the path; argv[1..] become the app's argv[0..]. */
+    shell_exec_elf(argv[1], argc - 1, argv + 1);
 }
 
 static void cmd_eject(int argc, char **argv)
