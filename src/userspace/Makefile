@@ -40,6 +40,7 @@ ls.elf: crt0.o ls.o
 diskinfo.elf: crt0.o diskinfo.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
