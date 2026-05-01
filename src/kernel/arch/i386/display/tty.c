@@ -193,6 +193,25 @@ void terminal_set_colorscheme(uint8_t color)
 	update_cursor(0, 0);
 }
 
+void t_set_cursor(size_t col, size_t row)
+{
+	update_cursor(row, col);
+	if (vesa_tty_is_ready())
+		vesa_tty_set_cursor((uint32_t)col, (uint32_t)row);
+}
+
+void t_fill(uint8_t clr)
+{
+	for (size_t y = 0; y < t_height; y++)
+		for (size_t x = 0; x < VGA_WIDTH; x++)
+			t_buffer[y * VGA_WIDTH + x] = make_vgaentry(' ', clr);
+	t_row    = 0;
+	t_column = 0;
+	update_cursor(0, 0);
+	if (vesa_tty_is_ready())
+		vesa_tty_clear();
+}
+
 void terminal_set_rows(size_t rows)
 {
 	/* Only 25 and 50 are supported. */

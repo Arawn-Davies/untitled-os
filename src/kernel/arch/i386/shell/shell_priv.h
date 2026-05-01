@@ -58,6 +58,9 @@ extern const shell_cmd_entry_t apps_cmds[];
 /* shell.c – REPL core */
 void shell_readline(char *buf, size_t max);
 
+/* shell_cmd_apps.c – shared ELF launcher used by exec and PATH lookup */
+void shell_exec_elf(const char *path, int argc, char **argv);
+
 /* Shared helper: parse decimal or 0x-prefixed hex string to uint32. */
 static inline uint32_t parse_uint(const char *s)
 {
