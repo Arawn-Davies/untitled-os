@@ -11,75 +11,111 @@ native GDB is required on the host.  For Windows-specific setup see
 | Tool | Purpose |
 |---|---|
 | `docker` | Runs the CI image that contains the full cross-toolchain |
-| `qemu-system-i386` (host) | Required only for `docker-qemu.sh` — the container builds, the host runs QEMU |
+| `qemu-system-i386` (host, optional) | Used by `run.sh` in preference to Docker QEMU for interactive and test modes; falls back to container QEMU if absent |
 
 ---
 
 ## Quick start
 
 ```sh
-# Interactive kernel shell (builds inside Docker, QEMU runs on host):
-./docker-qemu.sh
+# Interactive kernel shell (builds in Docker, QEMU runs on host or in Docker):
+./run.sh iso-boot
 
-# Full CI test suite (everything runs inside Docker, no host toolchain needed):
-./docker-ktest.sh
+# Full CI test suite (ktest + GDB boot tests — works with or without host QEMU):
+./run.sh iso-test
+
+# Interactive HDD boot:
+./run.sh hdd-boot
 ```
 
 ---
 
-## Scripts reference
+## run.sh reference
 
-### User-facing scripts
+All build, test, and boot operations go through a single script:
 
-| Script | What it does | Host requirements |
+```
+./run.sh <mode>
+```
+
+### Modes
+
+| Mode | Description | Host requirements |
 |---|---|---|
-| `docker-qemu.sh` | Cleans, builds an interactive debug ISO inside Docker, then launches QEMU on the host with the kernel shell. | Docker, `qemu-system-i386` |
-| `docker-ktest.sh` | Full CI suite: step 1 = TEST_MODE ktest (in-kernel unit tests + ring-3 execution); step 2 = GDB boot-checkpoint verification. Everything runs inside Docker. | Docker |
-| `docker-hdd-boot.sh` | Cleans, builds an interactive kernel, generates `makar-hdd.img`, then launches QEMU on the host booting from the HDD (`-boot c`, no CD-ROM). | Docker, `qemu-system-i386` |
-| `docker-hdd-test.sh` | Cleans, builds, generates `makar-hdd-test.img`, then runs the GDB HDD boot test fully inside Docker. Outputs `hdd-test-gdb.log` and `hdd-test-serial.log`. | Docker |
-| `generate-hdd.sh` | Low-level: creates a raw MBR + FAT32 HDD image with GRUB 2 in the embedding area. Called by the two scripts above; can also be run directly. Accepts `--test` to write `test` kernel arg in `grub.cfg`. | Docker |
+| `iso-boot` | Clean → debug ISO → interactive QEMU | Docker; host QEMU preferred (Docker fallback) |
+| `iso-test` | Full CI suite: ktest + GDB boot tests | Docker |
+| `iso-ktest-gui` | TEST_MODE ISO → ktest with display window | Docker, host QEMU + display server |
+| `iso-release` | Optimised release ISO | Docker |
+| `hdd-boot` | Clean → build kernel → HDD image → interactive QEMU | Docker; host QEMU preferred (Docker fallback) |
+| `hdd-test` | Clean → build kernel → HDD image → GDB boot test | Docker |
+| `hdd-release` | HDD image only | Docker |
+| `clean` | Remove all build artefacts | Docker |
 
-### Internal build scripts (called inside Docker)
+### Execution context
 
-These scripts run inside the container via `docker-iso.sh` — you do not invoke
-them directly.
+`run.sh` picks an execution context automatically, checked in this order:
 
-| Script | What it does |
+| Context | Condition | Effect |
+|---|---|---|
+| **container** | `/.dockerenv` present (GitHub Actions `container:` job, or manual `docker run`) | Steps run directly — no inner `docker run` |
+| **docker** | Docker CLI available on the host | Steps are wrapped in `docker run` |
+| **native** | `i686-elf-gcc` on the host PATH | Steps run directly — no Docker |
+| **none** | None of the above | Error with install hints |
+
+### QEMU strategy
+
+| Step type | Strategy |
 |---|---|
-| `docker-iso.sh` | Entry point for Docker ISO builds; mounts the repo and calls `iso.sh`. |
-| `build.sh` | Compiles the kernel and libc into `sysroot/`. |
-| `iso.sh` | Calls `build.sh`, then packages the kernel into `makar.iso` via `grub-mkrescue`. |
-| `clean.sh` | Removes `sysroot/`, `isodir/`, and all build artifacts. |
+| Headless test (ktest, GDB) | Host `qemu-system-i386` preferred; falls back to container QEMU |
+| GDB test (needs `gdb-multiarch` too) | Host qemu + gdb-multiarch if both present; otherwise fully in container |
+| Interactive boot (`iso-boot`, `hdd-boot`) | Host QEMU preferred; Docker `-it` fallback |
+| `iso-ktest-gui` | Host QEMU + display required; errors if absent |
 
 ### Environment variables
 
 | Variable | Default | Effect |
 |---|---|---|
-| `CFLAGS` | `-O2 -g` | Compiler flags. `docker-ktest.sh` sets `-O0 -g3` automatically. |
-| `CPPFLAGS` | *(empty)* | Preprocessor flags. `docker-ktest.sh` sets `-DTEST_MODE` for step 1. |
-| `DOCKER_BIN` | `docker` | Path or name of the Docker CLI binary. |
-| `DOCKER_IMAGE` | `arawn780/gcc-cross-i686-elf:fast` | Docker image used for ISO build and test steps. |
-| `BUILD_IMAGE` | `arawn780/gcc-cross-i686-elf:fast` | Docker image used by `generate-hdd.sh` for the disk-creation step. |
-| `HDD_IMG` | `makar-hdd.img` | Output filename for `generate-hdd.sh` / `docker-hdd-boot.sh`. |
-| `HDD_TEST_IMG` | `makar-hdd-test.img` | Output filename used by `docker-hdd-test.sh` (kept separate from the interactive image). |
-| `HDD_SIZE_MB` | `512` | Size of the HDD image in MiB. |
+| `CFLAGS` | *(Makefile default)* | Compiler flags forwarded to the build step |
+| `CPPFLAGS` | *(empty)* | Preprocessor flags forwarded to the build step |
+| `DOCKER_BIN` | `docker` | Docker CLI binary |
+| `DOCKER_IMAGE` | `arawn780/gcc-cross-i686-elf:fast` | Build container image |
+| `DOCKER_PLATFORM` | `linux/amd64` | `--platform` flag passed to `docker run` |
+| `HDD_IMG` | `makar-hdd.img` | Output filename for interactive HDD builds |
+| `HDD_TEST_IMG` | `makar-hdd-test.img` | Output filename for CI HDD test builds |
+| `QEMU_DISPLAY` | *(empty)* | Passed to `-display` for `iso-ktest-gui` |
+
+---
+
+## Internal build scripts
+
+These run inside the container and are called by `run.sh` — do not invoke directly.
+
+| Script | What it does |
+|---|---|
+| `build.sh` | Compiles the kernel and libc into `sysroot/` (parallel via `-j$(nproc)`) |
+| `iso.sh` | Calls `build.sh`, then packages into `makar.iso` via `grub-mkrescue` |
+| `clean.sh` | Removes `sysroot/`, `isodir/`, and all build artefacts |
+| `generate-hdd.sh` | Creates a raw MBR + FAT32 + GRUB 2 HDD image; called by `hdd-boot` / `hdd-test` / `hdd-release` |
+
+Old per-task Docker wrappers are preserved in `scripts/` for reference.
 
 ---
 
 ## Docker Compose
 
-The `docker-compose.yml` defines services that wrap the same CI image.
+`docker-compose.yml` is available for workflows that prefer Compose.
+Prefer `run.sh` for day-to-day use.
 
-| Service | Flags | Command inside container |
-|---|---|---|
-| `build` | *(default)* | `bash iso.sh` |
-| `build-debug` | `CFLAGS="-O0 -g3"` | `bash iso.sh` |
-| `test` | `CFLAGS="-O0 -g3"` | `bash iso.sh && qemu-system-i386 … -display none` |
+| Service | Command |
+|---|---|
+| `build` | `bash iso.sh` (release ISO) |
+| `build-debug` | `bash iso.sh` with `CFLAGS=-O0 -g3` |
+| `test` | `bash run.sh iso-test` (full suite) |
 
 ```sh
 docker compose run --rm build          # release ISO
 docker compose run --rm build-debug    # debug ISO
-docker compose run --rm test           # build + headless boot test
+docker compose run --rm test           # full iso-test suite
 ```
 
 ---
@@ -91,29 +127,35 @@ The `arawn780/gcc-cross-i686-elf:fast` image ships everything needed for buildin
 | Tool / package | Purpose |
 |---|---|
 | `i686-elf-gcc` / `i686-elf-binutils` | Bare-metal cross-compiler (GCC 13.2, Binutils 2.41) |
-| `grub-mkimage`, `grub-file`, `grub-pc-bin` | ISO and HDD GRUB image creation; i386-pc modules + `boot.img` |
+| `grub-mkimage`, `grub-file`, `grub-pc-bin` | ISO and HDD GRUB image creation |
 | `xorriso`, `mtools` | `grub-mkrescue` ISO packaging |
-| `dosfstools` | `mkfs.fat` for FAT32 partition creation in HDD images |
-| `fdisk` | `sfdisk` for MBR partition table writing in HDD images |
+| `dosfstools` | `mkfs.fat` for FAT32 partition creation |
+| `fdisk` / `sfdisk` | MBR partition table writing |
 | `qemu-system-i386` | Headless boot testing inside Docker |
 | `gdb-multiarch` | GDB with i386 target for boot-checkpoint tests |
 | `make`, `build-essential`, `nasm` | Host build tools |
 
-The Dockerfile that produced this image is `Dockerfile.compiler` in the repo root.
-To rebuild and push after adding packages: `docker buildx build --platform linux/amd64 -t arawn780/gcc-cross-i686-elf:fast -f Dockerfile.compiler --push .`
+To rebuild and push after adding packages:
+```sh
+docker buildx build --platform linux/amd64 \
+    -t arawn780/gcc-cross-i686-elf:fast \
+    -f Dockerfile.compiler --push .
+```
 
 ---
 
 ## QEMU drive layout
 
-`docker-qemu.sh` launches QEMU with two IDE drives:
+`run.sh iso-boot` launches QEMU with two IDE drives:
 
-| IDE slot | QEMU flag | Purpose |
-|---|---|---|
-| Primary master (index 0) | `-drive file=hdd.img,…,index=0` | Hard disk (512 MiB raw image, auto-created) |
-| Secondary master (index 2) | `-drive file=makar.iso,…,media=cdrom` | Live CD — GRUB boots from here |
+| IDE slot | Purpose |
+|---|---|
+| index 0 | Hard disk — 512 MiB raw image (`hdd.img`, auto-created blank) |
+| index 2 | Live CD — `makar.iso`, GRUB boots from here (`-boot order=d`) |
 
-Boot order is `d` (CD-ROM first).
+`run.sh hdd-boot` attaches only the HDD (`-boot c`, no CD-ROM).
+
+The ISO GDB test (`iso-test` phase 2) adds a 32 MiB FAT32 test disk on index 0 alongside the CD-ROM so the kernel can mount `/hd` and the `hdd_mount` GDB group can be verified on the ISO boot path.
 
 ---
 

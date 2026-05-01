@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 
 #include <kernel/tty.h>
 #include <kernel/vga.h>
@@ -11,6 +12,7 @@
 #include <kernel/pmm.h>
 #include <kernel/vesa.h>
 #include <kernel/vesa_tty.h>
+#include <kernel/bochs_vbe.h>
 #include <kernel/heap.h>
 
 #include <kernel/paging.h>
@@ -100,9 +102,17 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	kprint_ok();
 	vesa_init(mbi);
 
-	t_writestring("Initializing VESA terminal");
+	t_writestring("Initializing display mode");
 	kprint_ok();
-	vesa_tty_init();
+	if (bochs_vbe_available()) {
+		vesa_tty_set_scale(2);
+		bochs_vbe_set_mode(1280, 720, 32);
+		vesa_update_geometry(1280, 720, 32);
+		vesa_tty_init();
+	} else {
+		vesa_tty_disable();
+		terminal_set_rows(50);
+	}
 
 	t_writestring("Starting timer (50 Hz)");
 	kprint_ok();
@@ -119,10 +129,10 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	ide_init();
 	KLOG("ide: ATA PIO scan complete\n");
 
-	/* Parse the Multiboot 2 boot device tag and inform the VFS layer so
-	 * that vfs_auto_mount() can mount the right filesystem automatically. */
+	/* Parse Multiboot 2 tags: boot device and kernel command line. */
+	int test_mode = 0;
 	{
-		uint32_t biosdev = 0xFFu;   /* 0xFF = unknown */
+		uint32_t biosdev = 0xFFu;
 
 		if (magic == MULTIBOOT2_BOOTLOADER_MAGIC) {
 			uint8_t *tag_ptr = (uint8_t *)mbi + sizeof(multiboot2_info_t);
@@ -136,7 +146,12 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 					multiboot2_tag_bootdev_t *bd =
 						(multiboot2_tag_bootdev_t *)tag;
 					biosdev = bd->biosdev;
-					break;
+				}
+				if (tag->type == MULTIBOOT2_TAG_TYPE_CMDLINE) {
+					multiboot2_tag_cmdline_t *cmd =
+						(multiboot2_tag_cmdline_t *)tag;
+					if (strstr(cmd->string, "test_mode"))
+						test_mode = 1;
 				}
 				tag_ptr += (tag->size + 7u) & ~7u;
 			}
@@ -150,9 +165,10 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	t_writestring("Initializing multitasking");
 	kprint_ok();
 	tasking_init();
-#ifndef TEST_MODE
-	task_create("shell", shell_run);
-#endif
+	if (!test_mode) {
+		task_create("shell", shell_run);
+		task_create("ktest", ktest_bg_task);
+	}
 
 	t_writestring("Initializing syscalls (int 0x80)");
 	kprint_ok();
@@ -162,36 +178,17 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	kprint_ok();
 	acpi_init();
 
-#ifdef TEST_MODE
-	/*
-	 * Automated test mode: run the full in-kernel test suite, emit a
-	 * machine-readable result to serial, then signal QEMU to exit cleanly
-	 * via the isa-debug-exit device (port 0xF4).
-	 *
-	 * isa-debug-exit maps written value v to QEMU exit code (v << 1) | 1:
-	 *   v=0 → exit 1  (pass convention used by docker-ktest.sh)
-	 *   v=1 → exit 3  (fail)
-	 *
-	 * If the device is absent (interactive QEMU) the kernel halts cleanly.
-	 */
-	{
+	if (test_mode) {
 		int fails = ktest_run_all();
 		uint8_t exit_val = (fails > 0) ? 1 : 0;
 		Serial_WriteString(exit_val ? "KTEST_RESULT: FAIL\n"
 		                            : "KTEST_RESULT: PASS\n");
 		asm volatile("outb %b0, %w1" :: "a"(exit_val), "Nd"((uint16_t)0xF4));
+		for (;;) asm volatile("cli; hlt");
 	}
-	for (;;) asm volatile("cli; hlt");
-#else
-	/*
-	 * Transfer control to the scheduler.  The shell task starts running and
-	 * the idle task (this context) resumes here whenever no other task is
-	 * runnable.  We simply keep yielding and halting between ticks so that
-	 * the CPU is not needlessly busy.
-	 */
+
 	for (;;) {
 		task_yield();
 		asm volatile("hlt");
 	}
-#endif
 }

@@ -175,7 +175,7 @@ static void cmd_setmode(int argc, char **argv)
         vesa_disable();
         vesa_tty_disable();
         terminal_set_rows(25);
-        terminal_set_colorscheme(SHELL_COLOR_VGA);
+        terminal_set_colorscheme((uint8_t)((s_vga_bg << 4) | (s_vga_fg & 0x0F)));
         t_writestring("Mode: VGA 80x25 text\n");
         return;
     }
@@ -185,7 +185,7 @@ static void cmd_setmode(int argc, char **argv)
         vesa_disable();
         vesa_tty_disable();
         terminal_set_rows(50);
-        terminal_set_colorscheme(SHELL_COLOR_VGA);
+        terminal_set_colorscheme((uint8_t)((s_vga_bg << 4) | (s_vga_fg & 0x0F)));
         t_writestring("Mode: VGA 80x50 text\n");
         return;
     }

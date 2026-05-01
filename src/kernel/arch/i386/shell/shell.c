@@ -18,6 +18,9 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/serial.h>
 #include <kernel/vfs.h>
+#include <kernel/timer.h>
+#include <kernel/task.h>
+#include <kernel/ktest.h>
 
 #include <string.h>
 
@@ -87,6 +90,29 @@ static void readline_redraw(const char *buf, size_t len, size_t cur,
         uint32_t vcp = vesa_start_col + (uint32_t)cur;
         vesa_tty_set_cursor(vcp % vcols, vesa_start_row + vcp / vcols);
     }
+}
+
+/* ---------------------------------------------------------------------------
+ * Tab-completion VFS callback and context
+ * --------------------------------------------------------------------------- */
+
+typedef struct {
+    const char *pfx;
+    size_t      pfxlen;
+    int         n;
+    char        matches[32][64];
+    int         is_dir[32];
+} tab_vctx_t;
+
+static void tab_complete_cb(const char *name, int is_dir, void *ctx)
+{
+    tab_vctx_t *v = (tab_vctx_t *)ctx;
+    if (v->n >= 32) return;
+    if (strncmp(name, v->pfx, v->pfxlen) != 0) return;
+    strncpy(v->matches[v->n], name, 63);
+    v->matches[v->n][63] = '\0';
+    v->is_dir[v->n] = is_dir;
+    v->n++;
 }
 
 /* ---------------------------------------------------------------------------
@@ -216,6 +242,120 @@ void shell_readline(char *buf, size_t max)
             continue;
         }
 
+        /* Ctrl+C: abort current line. */
+        if (c == KEY_CTRL_C) {
+            t_writestring("^C\n");
+            buf[0] = '\0';
+            return;
+        }
+
+        /* Tab completion. */
+        if (c == '\t') {
+            /* Find word start (scan left for space or start of buf). */
+            size_t ws = cur;
+            while (ws > 0 && buf[ws - 1] != ' ') ws--;
+            const char *word = buf + ws;
+            size_t wlen = cur - ws;
+
+            /* Is this the first (command) token? */
+            int is_cmd = 1;
+            for (size_t i = 0; i < ws; i++) {
+                if (buf[i] != ' ') { is_cmd = 0; break; }
+            }
+
+            /* Collect matches using tab_vctx_t / tab_complete_cb defined above. */
+            tab_vctx_t vctx;
+            vctx.pfx    = word;
+            vctx.pfxlen = wlen;
+            vctx.n      = 0;
+            int nmatches = 0;
+
+            if (is_cmd) {
+                /* Complete from command tables. */
+                static const shell_cmd_entry_t *mods[] = {
+                    help_cmds, display_cmds, system_cmds,
+                    disk_cmds, fs_cmds, apps_cmds, NULL
+                };
+                for (int mi = 0; mods[mi] && vctx.n < 32; mi++) {
+                    for (const shell_cmd_entry_t *e = mods[mi];
+                         e->name && vctx.n < 32; e++) {
+                        tab_complete_cb(e->name, 0, &vctx);
+                    }
+                }
+                nmatches = vctx.n;
+            } else {
+                /* Complete from VFS: split word into dir_part + file_prefix. */
+                char dir_part[128];
+                const char *file_prefix;
+                const char *last_slash = NULL;
+                for (size_t i = 0; i < wlen; i++)
+                    if (word[i] == '/') last_slash = word + i;
+
+                if (last_slash) {
+                    size_t dlen = (size_t)(last_slash - word);
+                    if (dlen == 0) {
+                        dir_part[0] = '/'; dir_part[1] = '\0';
+                    } else {
+                        if (dlen > 127) dlen = 127;
+                        memcpy(dir_part, word, dlen);
+                        dir_part[dlen] = '\0';
+                    }
+                    file_prefix = last_slash + 1;
+                } else {
+                    strncpy(dir_part, vfs_getcwd(), 127);
+                    dir_part[127] = '\0';
+                    file_prefix = word;
+                }
+
+                vctx.pfx    = file_prefix;
+                vctx.pfxlen = strlen(file_prefix);
+                vfs_complete(dir_part, file_prefix, tab_complete_cb, &vctx);
+                nmatches = vctx.n;
+            }
+
+            if (nmatches == 1) {
+                /* Insert remainder of the single match. */
+                size_t mlen = strlen(vctx.matches[0]);
+                for (size_t i = wlen; i < mlen && len < max - 1; i++) {
+                    for (size_t j = len; j > cur; j--)
+                        buf[j] = buf[j - 1];
+                    buf[cur++] = vctx.matches[0][i];
+                    len++;
+                }
+                if (vctx.is_dir[0] && len < max - 1) {
+                    for (size_t j = len; j > cur; j--)
+                        buf[j] = buf[j - 1];
+                    buf[cur++] = '/';
+                    len++;
+                }
+                buf[len] = '\0';
+                readline_redraw(buf, len, cur,
+                                rl_col, rl_row, vesa_rl_col, vesa_rl_row);
+            } else if (nmatches > 1) {
+                /* Print all matches, then redisplay prompt + line. */
+                t_putchar('\n');
+                for (int i = 0; i < nmatches; i++) {
+                    t_writestring(vctx.matches[i]);
+                    if (vctx.is_dir[i]) t_putchar('/');
+                    t_putchar(' ');
+                }
+                t_putchar('\n');
+                /* Reprint prompt and update readline anchor. */
+                t_writestring(SHELL_USERNAME "@" SHELL_HOSTNAME " ");
+                t_writestring(vfs_getcwd());
+                t_writestring("~> ");
+                rl_col = t_column;
+                rl_row = t_row;
+                if (vesa_tty_is_ready()) {
+                    vesa_rl_col = vesa_tty_get_col();
+                    vesa_rl_row = vesa_tty_get_row();
+                }
+                readline_redraw(buf, len, cur,
+                                rl_col, rl_row, vesa_rl_col, vesa_rl_row);
+            }
+            continue;
+        }
+
         /* Accept printable ASCII; silently drop everything else. */
         if (c < 0x20 || c > 0x7E)
             continue;
@@ -325,15 +465,19 @@ void shell_run(void)
         vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
         vesa_tty_clear();
 
-#ifndef TEST_MODE
-        /* Splash screen: blit the logo centred, prompt for a keypress, then
-         * clear back to the normal shell background before printing the banner. */
         vesa_blit_logo(SHELL_FG_RGB, SHELL_BG_RGB);
 
-        ksleep(250); /* 5 s at 50 Hz */
+        while (!ktest_bg_done) {
+            vesa_tty_spinner_tick(timer_get_ticks());
+            task_yield();
+        }
         vesa_tty_clear();
-#endif
     }
+
+    while (!ktest_bg_done)
+        task_yield();
+
+    while (keyboard_poll()) {}
 
     t_writestring("Makar -- version " SHELL_VERSION
                   ", build: " BUILD_DATE " " BUILD_TIME "\n");

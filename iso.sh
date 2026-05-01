@@ -7,13 +7,14 @@ mkdir -p isodir/boot/grub/i386-pc isodir/apps
 cp sysroot/boot/makar.kernel isodir/boot/makar.kernel
 cat > isodir/boot/grub/grub.cfg << EOF
 set default=0
-set timeout=0
+set timeout=5
 
-# CD grub.cfg: boots the live CD image directly.
-# The HDD grub.cfg (written by the installer) uses "Makar OS" and
-# boots from the FAT32 partition — this title distinguishes the two.
-menuentry "Makar (Live CD)" {
-	multiboot2 /boot/makar.kernel
+menuentry "Makar OS" {
+	multiboot2 /boot/makar.kernel${KERNEL_ARGS:+ $KERNEL_ARGS}
+}
+
+menuentry "Next available device" {
+	exit
 }
 EOF
 

@@ -3,10 +3,10 @@
 Verifies that vfs_auto_mount() successfully mounted the FAT32 partition
 from the boot HDD at /hd.
 
-The shell calls vfs_init() and vfs_auto_mount() near the top of shell_run(),
-then enters its read loop which calls keyboard_getchar().  This group
-continues execution until keyboard_getchar() is first entered — guaranteeing
-that vfs_auto_mount() has completed — then checks fat32_mounted().
+The ktest_bg group runs before this one and always advances execution to
+keyboard_getchar() — guaranteeing that vfs_auto_mount() has already completed
+and the inferior is stopped in normal task context.  This group therefore
+checks fat32_mounted() directly without issuing another continue.
 
 A pass confirms the full HDD boot path:
   grub-install core.img → Multiboot2 → IDE detected ATA drive →
@@ -19,19 +19,8 @@ NAME = 'HDD Mount'
 
 
 def run():
-    # Continue until the shell blocks in keyboard_getchar(), which is called
-    # after vfs_auto_mount() completes.  This avoids a race where
-    # timer_callback (the previous stopping point) fires before vfs_auto_mount
-    # finishes, causing fat32_mounted() to return 0 spuriously.
-    kbp = gdb.Breakpoint('keyboard_getchar', internal=True, temporary=True)
-    kbp.silent = True
-    try:
-        gdb.execute('continue')
-    except gdb.error as exc:
-        print('FAIL: GDB error waiting for keyboard_getchar: ' + str(exc),
-              flush=True)
-        return False
-
+    # ktest_bg already stopped at keyboard_getchar (after vfs_auto_mount),
+    # so fat32_mounted() can be called directly via an inferior function call.
     try:
         mounted = int(gdb.parse_and_eval('fat32_mounted()'))
     except gdb.error as exc:

@@ -15,6 +15,7 @@
  */
 
 #include <kernel/types.h>
+#include <kernel/fat32.h>
 
 /* Maximum length of any VFS path string (including NUL terminator). */
 #define VFS_PATH_MAX  256
@@ -104,5 +105,19 @@ int vfs_mkdir(const char *path);
  */
 int vfs_read_file(const char *path, void *buf, uint32_t bufsz, uint32_t *out_sz);
 int vfs_write_file(const char *path, const void *buf, uint32_t size);
+
+/* Return 1 if path exists and is readable, 0 otherwise. */
+int vfs_file_exists(const char *path);
+
+/*
+ * vfs_complete – enumerate directory entries for tab completion.
+ * dir    : VFS path to enumerate (NULL → CWD).
+ * prefix : passed through to cb context for caller-side filtering.
+ * cb     : called for each entry (name, is_dir, ctx).
+ * ctx    : opaque pointer forwarded to cb.
+ * Returns 0 on success, -1 on error.
+ */
+int vfs_complete(const char *dir, const char *prefix,
+                 fat32_complete_cb_t cb, void *ctx);
 
 #endif /* _KERNEL_VFS_H */

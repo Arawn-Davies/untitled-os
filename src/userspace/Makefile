@@ -16,6 +16,7 @@ ISODIR?=$(CURDIR)/../../isodir
 
 PROGS=hello.elf echo.elf help.elf
 
+
 all: $(PROGS)
 
 hello.elf: crt0.o hello.o
@@ -25,6 +26,8 @@ echo.elf: crt0.o echo.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
 help.elf: crt0.o help.o
+calc.elf: crt0.o calc.o
+
 	$(LD) $(LDFLAGS) -o $@ $^
 
 %.o: %.c

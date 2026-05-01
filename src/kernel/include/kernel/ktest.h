@@ -3,6 +3,7 @@
 
 #include <kernel/tty.h>
 #include <kernel/types.h>
+#include <kernel/debug.h>
 
 /*
  * Minimal in-kernel unit-test harness.
@@ -32,10 +33,34 @@ void ktest_assert(int cond, const char *expr, const char *file, uint32_t line);
     ktest_assert((a) == (b), #a " == " #b, __FILE__, __LINE__)
 
 /*
+ * KTEST_ASSERT_MAJOR – like KTEST_ASSERT but triggers kpanic_at on failure.
+ * Use for assertions that indicate kernel corruption if false.
+ */
+#define KTEST_ASSERT_MAJOR(expr) \
+    do { \
+        ktest_assert(!!(expr), #expr, __FILE__, __LINE__); \
+        if (!(expr)) kpanic_at("ktest major failure: " #expr, \
+                                __FILE__, __func__, __LINE__); \
+    } while (0)
+
+/*
  * ktest_run_all – run every registered test suite and print a summary.
  * Returns the total number of failed assertions (0 = all passed).
  * Called by the shell's `ktest` command and by TEST_MODE kernel_main.
  */
 int ktest_run_all(void);
+
+/*
+ * ktest_bg_task – task entry for silent background ktest at boot.
+ * Suppresses per-assertion VGA output; prints only on failure.
+ * Sets ktest_bg_done = 1 when finished.
+ */
+void ktest_bg_task(void);
+
+/* When non-zero, suppress VGA output from ktest and syscall handlers. */
+extern int ktest_muted;
+
+/* Set to 1 by ktest_bg_task when the background run completes. */
+extern volatile int ktest_bg_done;
 
 #endif /* _KERNEL_KTEST_H */

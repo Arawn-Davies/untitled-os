@@ -47,26 +47,11 @@ jobs:
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Build the release ISO (interactive kernel, default -O2 -g flags).
-      # Runs inside the compiler container; output lands in the bind-mounted
-      # working directory on the host runner.
       - name: Build release ISO
-        run: |
-          docker run --rm \
-            --platform linux/amd64 \
-            -u "$(id -u):$(id -g)" \
-            -v "$PWD:/work" \
-            -w /work \
-            arawn780/gcc-cross-i686-elf:fast \
-            bash iso.sh
+        run: ./run.sh iso-release
 
-      # Build the release HDD image.
-      # generate-hdd.sh finds sysroot/boot/makar.kernel (just built above)
-      # and skips the rebuild step, so both artifacts use the same binary.
       - name: Build release HDD image
-        run: |
-          rm -f makar-hdd.img
-          ./generate-hdd.sh
+        run: ./run.sh hdd-release
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
