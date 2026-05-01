@@ -173,7 +173,7 @@ static volatile int g_sigint      = 0;
 // IRQ1 handler
 // ---------------------------------------------------------------------------
 
-static void keyboard_irq_handler(registers_t regs)
+static void keyboard_irq_handler(registers_t *regs)
 {
     (void)regs;
 

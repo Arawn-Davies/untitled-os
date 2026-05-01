@@ -2,6 +2,7 @@
 #define _KERNEL_KEYBOARD_H
 
 #include <stdint.h>
+#include <kernel/task.h>
 
 /*
  * Sentinels for extended (non-ASCII) keys — high-byte range so they never
@@ -24,9 +25,9 @@ char keyboard_getchar(void);
 char keyboard_poll(void);
 
 /* Per-task input routing (Phase 2 / split-panes). */
-void keyboard_bind_pane(int pane_id, struct task *t);
+void keyboard_bind_pane(int pane_id, task_t *t);
 void keyboard_focus_pane(int pane_id);
-void keyboard_set_focus(struct task *t);
+void keyboard_set_focus(task_t *t);
 
 /*
  * keyboard_sigint_consume – atomically read and clear the Ctrl+C flag.
