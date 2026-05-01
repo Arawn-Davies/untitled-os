@@ -84,14 +84,15 @@ typedef struct {
  * elf_exec – load an ELF32 executable from the VFS and drop to ring 3.
  *
  * Reads the file at `path`, validates it as an i386 ET_EXEC ELF, maps each
- * PT_LOAD segment into a fresh VMM page directory, sets up a user stack at
- * USER_STACK_TOP, and transfers control via ring3_enter().  Never returns on
- * success; returns -1 on any error (bad magic, unsupported format, OOM, etc.).
+ * PT_LOAD segment into a fresh VMM page directory, writes argc/argv onto the
+ * user stack following the i386 cdecl ABI, and transfers control via
+ * ring3_enter().  Never returns on success; returns -1 on any error.
  *
- * All PT_LOAD segment virtual addresses must be >= 0x10000000 (above the
- * kernel 256 MiB identity window).  Link user programs with:
- *   -Wl,-Ttext-segment=0x40000000  or a custom linker script.
+ * argc/argv are passed to the process exactly as they reach main():
+ *   argv[0] is conventionally the program name (typically the path).
+ *
+ * All PT_LOAD segment virtual addresses must be >= 0x10000000.
  */
-int elf_exec(const char *path);
+int elf_exec(const char *path, int argc, const char *const *argv);
 
 #endif /* _KERNEL_ELF_H */

@@ -45,7 +45,10 @@ static inline uint32_t align_up  (uint32_t v, uint32_t a) { return (v + a - 1u) 
  * elf_exec
  * ------------------------------------------------------------------------- */
 
-int elf_exec(const char *path)
+#define ELF_MAX_ARGC  16
+#define ELF_ARG_MAX   256
+
+int elf_exec(const char *path, int argc, const char *const *argv)
 {
     /* 1. Read file into staging buffer. */
     uint32_t filesz = 0;
@@ -173,7 +176,7 @@ int elf_exec(const char *path)
     }
     task_current()->user_brk = top_vaddr;
 
-    /* 6. Map user stack (one page, read-write). */
+    /* 6. Map user stack (one page, read-write) and write argc/argv. */
     uint32_t stack_phys = pmm_alloc_frame();
     if (stack_phys == PMM_ALLOC_ERROR) {
         t_writestring("exec: out of physical memory (stack)\n");
@@ -181,12 +184,88 @@ int elf_exec(const char *path)
         return -1;
     }
     memset((void *)stack_phys, 0, PAGE_SIZE);
-    vmm_map_page(pd, ELF_STACK_TOP - PAGE_SIZE, stack_phys,
-                 VMM_FLAG_USER | VMM_FLAG_WRITABLE);
+
+    uint32_t stack_virt = ELF_STACK_TOP - PAGE_SIZE;   /* = 0xBFFE0000 */
+    vmm_map_page(pd, stack_virt, stack_phys, VMM_FLAG_USER | VMM_FLAG_WRITABLE);
+
+    /*
+     * Build the initial user stack following the Linux i386 / ELKS / Fuzix ABI
+     * so that standard crt0 code works unchanged:
+     *
+     *   high addr (ELF_STACK_TOP)
+     *     argv strings, NUL-terminated, packed from the top
+     *     [4-byte aligned gap]
+     *     envp[0] = NULL            (empty environment)
+     *     argv[argc] = NULL
+     *     argv[argc-1]  ...  argv[0]
+     *   [initial_esp]:  argc        <- _start reads this
+     *   low addr (stack grows down from initial_esp)
+     *
+     * _start reads argc from [esp], computes argv as &[esp+4], and calls
+     * main(argc, argv, envp) conventionally.
+     */
+    if (argc < 0) argc = 0;
+    if (argc > ELF_MAX_ARGC) argc = ELF_MAX_ARGC;
+
+    uint8_t  *spage = (uint8_t *)stack_phys;
+    uint32_t  off   = PAGE_SIZE;          /* byte offset from spage[0], grows down */
+    uint32_t  uargv[ELF_MAX_ARGC + 1];   /* virtual addresses of argv strings      */
+
+    /* Pack argv strings from the top of the page downward. */
+    for (int i = argc - 1; i >= 0; i--) {
+        const char *s = (argv && argv[i]) ? argv[i] : "";
+        uint32_t len = 0;
+        while (s[len] && len < (uint32_t)(ELF_ARG_MAX - 1))
+            len++;
+        if (off < len + 1u) {
+            /* Strings overflow the page — truncate argument list. */
+            argc = i;
+            break;
+        }
+        off -= len + 1u;
+        memcpy(spage + off, s, len);
+        spage[off + len] = '\0';
+        uargv[i] = stack_virt + off;
+    }
+
+    /* Align down to 4 bytes before writing pointer-sized values. */
+    off &= ~3u;
+
+    /*
+     * Minimum space required below 'off' for the pointer table + argc:
+     *   1 word  envp[0]=NULL
+     *   1 word  argv[argc]=NULL
+     *   argc words  argv[0..argc-1]
+     *   1 word  argc
+     */
+    uint32_t needed = (uint32_t)(argc + 3) * 4u;
+    if (off < needed) {
+        /* Pathological case — give up on arguments rather than corrupt memory. */
+        argc = 0;
+        off  = PAGE_SIZE & ~3u;
+    }
+
+    /* envp[0] = NULL (empty environment). */
+    off -= 4u; *(uint32_t *)(spage + off) = 0u;
+
+    /* argv[argc] = NULL sentinel. */
+    off -= 4u; *(uint32_t *)(spage + off) = 0u;
+
+    /* argv[0..argc-1] pointers (argv[argc-1] written first → argv[0] at lowest). */
+    for (int i = argc - 1; i >= 0; i--) {
+        off -= 4u;
+        *(uint32_t *)(spage + off) = uargv[i];
+    }
+
+    /* argc — _start reads this at the initial ESP. */
+    off -= 4u;
+    *(uint32_t *)(spage + off) = (uint32_t)argc;
+
+    uint32_t initial_esp = stack_virt + off;
 
     /* 7. Activate the address space and enter ring 3. */
     task_current()->page_dir = pd;
     tss_set_kernel_stack((uint32_t)(task_current()->stack + TASK_STACK_SIZE));
     vmm_switch(pd);
-    ring3_enter(ehdr->e_entry, ELF_STACK_TOP);   /* never returns */
+    ring3_enter(ehdr->e_entry, initial_esp);   /* never returns */
 }

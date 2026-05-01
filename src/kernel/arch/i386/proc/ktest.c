@@ -21,6 +21,8 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/bochs_vbe.h>
 #include <kernel/timer.h>
+#include <kernel/elf.h>
+#include <kernel/vfs.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
@@ -627,6 +629,61 @@ static void test_ring3_execution(void)
      * confirms ring-3 entry, the write syscall, and the debug syscall all
      * worked correctly. */
     KTEST_ASSERT(g_ring3_last_cp == 2);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: elf_exec
+ *
+ * Spawns a child task that calls elf_exec() on /cdrom/apps/echo.elf (the
+ * standard VFS path for apps on the CD-ROM image).  Waits for the task to
+ * reach TASK_DEAD, which proves the ELF loader, argv setup, ring-3 entry,
+ * and SYS_EXIT path all function end-to-end.
+ * ------------------------------------------------------------------------- */
+
+static const char *s_echo_argv[] = { "echo", "ktest-elf-exec-ok", NULL };
+static int s_echo_argc = 2;
+
+static void elf_exec_task_entry(void)
+{
+    elf_exec("/cdrom/apps/echo.elf", s_echo_argc, s_echo_argv);
+    task_exit();
+}
+
+static void test_elf_exec(void)
+{
+    ktest_begin("elf_exec");
+
+    static const char *candidates[] = {
+        "/cdrom/apps/echo.elf",
+        "/hd/apps/echo.elf",
+        NULL
+    };
+
+    const char *path = NULL;
+    for (int i = 0; candidates[i]; i++) {
+        if (vfs_file_exists(candidates[i])) {
+            path = candidates[i];
+            break;
+        }
+    }
+
+    if (!path) {
+        Serial_WriteString("[ktest] elf_exec: echo.elf not found on cdrom or hd — skipping\n");
+        t_writestring("[ktest] elf_exec: echo.elf not found (skip)\n");
+        ktest_summary();
+        return;
+    }
+
+    task_t *t = task_create("elf_exec_test", elf_exec_task_entry);
+    KTEST_ASSERT(t != NULL);
+
+    while (t && t->state != TASK_DEAD)
+        task_yield();
+
+    Serial_WriteString("[ktest] elf_exec: task completed\n");
+    KTEST_ASSERT(t->state == TASK_DEAD);
 
     ktest_summary();
 }

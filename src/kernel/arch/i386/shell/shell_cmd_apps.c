@@ -61,20 +61,39 @@ static void cmd_install(int argc, char **argv)
     installer_run();
 }
 
-static char s_exec_path[VFS_PATH_MAX];
+#define EXEC_MAX_ARGS  16
+#define EXEC_ARG_MAX   256
+
+static char        s_exec_path[VFS_PATH_MAX];
+static char        s_exec_argbufs[EXEC_MAX_ARGS][EXEC_ARG_MAX];
+static const char *s_exec_argv[EXEC_MAX_ARGS + 1];
+static int         s_exec_argc;
 
 static void exec_task_entry(void)
 {
-    elf_exec(s_exec_path);
+    elf_exec(s_exec_path, s_exec_argc, s_exec_argv);
     task_exit();
 }
 
 static void cmd_exec(int argc, char **argv)
 {
     if (argc < 2) {
-        t_writestring("Usage: exec <path>\n");
+        t_writestring("Usage: exec <path> [args...]\n");
         return;
     }
+
+    /* argv[1] is the path; argv[1..] become the app's argv[0..]. */
+    int nargs = argc - 1;
+    if (nargs > EXEC_MAX_ARGS)
+        nargs = EXEC_MAX_ARGS;
+
+    s_exec_argc = nargs;
+    for (int i = 0; i < nargs; i++) {
+        strncpy(s_exec_argbufs[i], argv[i + 1], EXEC_ARG_MAX - 1);
+        s_exec_argbufs[i][EXEC_ARG_MAX - 1] = '\0';
+        s_exec_argv[i] = s_exec_argbufs[i];
+    }
+    s_exec_argv[nargs] = NULL;
 
     strncpy(s_exec_path, argv[1], VFS_PATH_MAX - 1);
     s_exec_path[VFS_PATH_MAX - 1] = '\0';

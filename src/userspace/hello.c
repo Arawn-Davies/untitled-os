@@ -7,7 +7,7 @@ static void write_str(const char *s)
     sys_write(1, s, len);
 }
 
-int main(void)
+int main(int argc, char **argv, char **envp)
 {
     char name[64];
 
