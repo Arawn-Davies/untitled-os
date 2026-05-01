@@ -42,8 +42,9 @@
 #define ATTR_ARCH    0x20u
 #define ATTR_LFN     0x0Fu  /* all four low attribute bits set */
 
-#define DIRSCAN_LIST 0      /* list all entries to the terminal */
-#define DIRSCAN_FIND 1      /* find a named entry */
+#define DIRSCAN_LIST     0  /* list all entries to the terminal */
+#define DIRSCAN_FIND     1  /* find a named entry */
+#define DIRSCAN_COMPLETE 2  /* collect entries matching a prefix into a callback */
 
 /* -------------------------------------------------------------------------
  * Volume state
@@ -578,7 +579,8 @@ static uint32_t dir_add_with_lfn(uint32_t       dir_cluster,
  * ---------------------------------------------------------------------- */
 
 static int dir_scan(uint32_t dir_cluster, int mode,
-                    const char *find_name, dirent_t *out)
+                    const char *find_name, dirent_t *out,
+                    fat32_complete_cb_t cb, void *cb_ctx)
 {
     s_lfn_valid = 0;
     int end_of_dir = 0;
@@ -662,6 +664,8 @@ static int dir_scan(uint32_t dir_cluster, int mode,
                         t_writestring(" B)");
                     }
                     t_putchar('\n');
+                } else if (mode == DIRSCAN_COMPLETE) {
+                    if (cb) cb(disp, (attr & ATTR_DIR) ? 1 : 0, cb_ctx);
                 } else {
                     /* Match either the long name or the short name. */
                     if (fat_strcasecmp(disp, find_name) == 0 ||
@@ -724,7 +728,7 @@ static uint32_t path_resolve_dir(const char *path)
 
         /* Look up component in current cluster. */
         dirent_t ent;
-        if (dir_scan(cluster, DIRSCAN_FIND, comp, &ent) != 0)
+        if (dir_scan(cluster, DIRSCAN_FIND, comp, &ent, NULL, NULL) != 0)
             return 0;
         if (!(ent.attr & ATTR_DIR))
             return 0;
@@ -938,7 +942,7 @@ int fat32_ls(const char *path)
         return -1;
     }
 
-    return dir_scan(cluster, DIRSCAN_LIST, NULL, NULL);
+    return dir_scan(cluster, DIRSCAN_LIST, NULL, NULL, NULL, NULL);
 }
 
 /* -------------------------------------------------------------------------
@@ -1024,7 +1028,7 @@ int fat32_mkdir(const char *path)
 
     /* Fail if an entry with this name already exists. */
     dirent_t existing;
-    if (dir_scan(parent_cluster, DIRSCAN_FIND, basename, &existing) == 0)
+    if (dir_scan(parent_cluster, DIRSCAN_FIND, basename, &existing, NULL, NULL) == 0)
         return -6;
 
     /* Allocate one cluster for the new directory. */
@@ -1088,7 +1092,7 @@ int fat32_read_file(const char *path, void *buf, uint32_t bufsz,
     if (!*basename) return -1;
 
     dirent_t ent;
-    if (dir_scan(parent_cluster, DIRSCAN_FIND, basename, &ent) != 0)
+    if (dir_scan(parent_cluster, DIRSCAN_FIND, basename, &ent, NULL, NULL) != 0)
         return -1;
     if (ent.attr & ATTR_DIR) return -1;
 
@@ -1132,7 +1136,7 @@ int fat32_write_file(const char *path, const void *buf, uint32_t size)
     /* Check for an existing entry. */
     dirent_t existing;
     int exists = (dir_scan(parent_cluster, DIRSCAN_FIND,
-                           basename, &existing) == 0);
+                           basename, &existing, NULL, NULL) == 0);
     if (exists && (existing.attr & ATTR_DIR)) return -1;
 
     /* Free the old cluster chain if overwriting. */
@@ -1291,5 +1295,21 @@ int fat32_mkfs(uint8_t drive, uint32_t part_lba, uint32_t part_sectors)
         if (ide_write_sectors(drive, root_lba + s, 1u, s_sec)) return -2;
     }
 
+    return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * fat32_complete — enumerate entries in dir_path, calling cb for each.
+ * The callback receives the entry name, a is_dir flag, and the ctx pointer.
+ * Prefix filtering is left to the caller.
+ * ---------------------------------------------------------------------- */
+int fat32_complete(const char *dir_path, const char *prefix,
+                   fat32_complete_cb_t cb, void *ctx)
+{
+    (void)prefix;   /* caller does prefix filtering in the callback */
+    if (!vol.mounted) return -1;
+    uint32_t cluster = path_resolve_dir(dir_path);
+    if (!cluster) return -1;
+    dir_scan(cluster, DIRSCAN_COMPLETE, NULL, NULL, cb, ctx);
     return 0;
 }

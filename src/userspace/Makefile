@@ -14,11 +14,14 @@ LDFLAGS=-T link.ld -nostdlib
 DESTDIR?=
 ISODIR?=$(CURDIR)/../../isodir
 
-PROGS=hello.elf
+PROGS=hello.elf calc.elf
 
 all: $(PROGS)
 
 hello.elf: crt0.o hello.o
+	$(LD) $(LDFLAGS) -o $@ $^
+
+calc.elf: crt0.o calc.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
 %.o: %.c

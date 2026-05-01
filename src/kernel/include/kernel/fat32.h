@@ -119,4 +119,22 @@ int fat32_write_file(const char *path, const void *buf, uint32_t size);
  */
 int fat32_mkfs(uint8_t drive, uint32_t part_lba, uint32_t part_sectors);
 
+/* -------------------------------------------------------------------------
+ * Tab completion
+ * ---------------------------------------------------------------------- */
+
+/*
+ * fat32_complete_cb_t – callback invoked for each directory entry during
+ * completion scanning.  name is the entry name, is_dir is 1 for directories.
+ */
+typedef void (*fat32_complete_cb_t)(const char *name, int is_dir, void *ctx);
+
+/*
+ * fat32_complete – enumerate all entries in dir_path, invoking cb for each.
+ * prefix is passed through to the callback context; the caller filters by it.
+ * Returns 0 on success, negative on error.
+ */
+int fat32_complete(const char *dir_path, const char *prefix,
+                   fat32_complete_cb_t cb, void *ctx);
+
 #endif /* _KERNEL_FAT32_H */

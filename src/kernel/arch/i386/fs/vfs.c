@@ -536,3 +536,25 @@ int vfs_write_file(const char *path, const void *buf, uint32_t size)
     if (!fat32_mounted()) return -1;
     return fat32_write_file(drv, buf, size);
 }
+
+/* -------------------------------------------------------------------------
+ * vfs_complete — enumerate directory entries for tab completion.
+ *
+ * dir    : VFS directory path to enumerate (NULL → use CWD).
+ * prefix : passed through to the callback context (caller filters by it).
+ * cb     : invoked for each entry found.
+ * ctx    : opaque pointer forwarded to cb.
+ *
+ * Returns 0 on success, -1 if the path is not under /hd or not mounted.
+ * ---------------------------------------------------------------------- */
+int vfs_complete(const char *dir, const char *prefix,
+                 fat32_complete_cb_t cb, void *ctx)
+{
+    char abs[VFS_PATH_MAX];
+    path_resolve(dir ? dir : s_cwd, abs);
+
+    const char *drv;
+    if (vfs_route(abs, &drv) != VFS_FS_HD) return -1;
+    if (!fat32_mounted()) return -1;
+    return fat32_complete(drv, prefix, cb, ctx);
+}
