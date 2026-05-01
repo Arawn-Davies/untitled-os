@@ -8,62 +8,82 @@ Makar is a hobby x86 (i386) bare-metal OS kernel written in C and AT&T assembly,
 
 ## Build commands
 
+All build, test, and boot operations go through a single entrypoint:
+
 ```sh
-./docker-qemu.sh         # build interactive ISO + run in QEMU with shell
-./docker-ktest.sh        # full CI suite: ktest (TEST_MODE) + GDB boot tests
-./generate-hdd.sh        # build installed HDD image (makar-hdd.img, bootable with -boot c)
-./generate-hdd.sh --test # build HDD image with "test" kernel arg in grub.cfg
-./docker-hdd-boot.sh     # clean-build + boot QEMU interactively from the HDD image
-./docker-hdd-test.sh     # clean-build + GDB boot test for the HDD image (makar-hdd-test.img)
+./run.sh iso-boot       # clean → debug ISO → interactive QEMU
+./run.sh iso-test       # full CI suite: ktest + GDB boot-checkpoint tests
+./run.sh iso-ktest-gui  # TEST_MODE ISO → ktest with display window (needs host QEMU)
+./run.sh iso-release    # optimised release ISO
 
-# Internal (called inside Docker — do not invoke directly):
-./docker-iso.sh          # Docker ISO build entry point
-./build.sh               # compile kernel + libc (parallel via -j$(nproc))
-./iso.sh                 # package into makar.iso
-./clean.sh               # remove build artifacts
+./run.sh hdd-boot       # clean → build kernel → HDD image → interactive QEMU
+./run.sh hdd-test       # clean → build kernel → HDD image → GDB boot test
+./run.sh hdd-release    # HDD image only
 
-# Docker Compose equivalents
+./run.sh clean          # remove all build artefacts
+
+# Internal scripts (called inside the Docker container — do not invoke directly):
+./build.sh              # compile kernel + libc (parallel via -j$(nproc))
+./iso.sh                # build + package into makar.iso
+./clean.sh              # remove build artefacts
+./generate-hdd.sh       # create raw MBR + FAT32 HDD image with GRUB 2
+
+# Docker Compose equivalents (prefer run.sh for day-to-day use):
 docker compose run --rm build          # release ISO
 docker compose run --rm build-debug    # debug ISO (-O0 -g3)
-docker compose run --rm test           # debug build + headless boot test
+docker compose run --rm test           # full iso-test suite
 ```
 
 Debug builds use `-O0 -g3`; release uses `-O2 -g`. Override via `CFLAGS`.
 Test mode uses `-DTEST_MODE`: kernel runs `ktest_run_all()` then exits QEMU via `isa-debug-exit`.
 `build.sh` uses `-j$(nproc)` for parallel compilation automatically.
 
+`run.sh` execution context (checked in order):
+1. `/.dockerenv` present (container / CI) → run steps directly
+2. Docker CLI available → wrap in `docker run`
+3. `i686-elf-gcc` on PATH (native tools) → run steps directly
+4. None of the above → error with install hints
+
+QEMU steps prefer host `qemu-system-i386` when Docker is the build context; fall back to the container. GDB test steps use host qemu + gdb-multiarch together if both present; otherwise run inside the container.
+
 ## Testing
 
-**Full CI suite** (ktest + GDB boot checkpoints, auto-exits):
+**Full CI suite** (`iso-test`: ktest + GDB boot checkpoints):
 ```sh
-./docker-ktest.sh
-# Step 1: TEST_MODE ISO → ktest_run_all() → QEMU exits.  Output: ktest.log
-# Step 2: debug ISO → GDB boot-checkpoint verification.  Output: gdb-test.log
+./run.sh iso-test
+# Phase 1: TEST_MODE ISO → ktest_run_all() → QEMU exits.  Output: ktest.log
+# Phase 2: debug ISO + FAT32 test disk → full GDB test suite.  Output: gdb-test.log
 # exits 0 on pass, 1 on any failure
 ```
 
-GDB test script: `tests/gdb_boot_test.py`. Connects to `:1234`, verifies Multiboot 2 magic, symbol addresses, memory layout, boot checkpoints. Output: `gdb-test.log`.
+**HDD boot test:**
+```sh
+./run.sh hdd-test
+# Builds kernel → generates makar-hdd-test.img → GDB boot test (no CD-ROM)
+# outputs: hdd-test-gdb.log, hdd-test-serial.log
+```
+
+Both GDB test scripts (`tests/gdb_boot_test.py`, `tests/gdb_hdd_test.py`) run all four groups:
+
+| Group | What it verifies |
+|---|---|
+| `boot_checkpoints` | Every major boot function reached (`kernel_main` → `shell_run`) |
+| `hardware_state` | CR0.PG set, CR3 non-zero, PIT is ticking |
+| `vesa` | VESA framebuffer / TTY init state |
+| `hdd_mount` | `fat32_mounted()` non-zero — FAT32 auto-mounted at `/hd` |
+
+The ISO GDB test attaches a 32 MiB FAT32 test disk (created via `mkfs.fat --offset`, no losetup needed) so `hdd_mount` is valid on the CD-ROM boot path too.
 
 **Interactive GDB debug** (inside Docker container manually):
 ```sh
-# Run QEMU with GDB stub from inside the Docker container
 docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
     bash -c 'qemu-system-i386 -cdrom makar.iso -s -S -display none -serial stdio &
              gdb-multiarch src/kernel/makar.kernel -ex "target remote :1234"'
 ```
 
-**HDD boot test** (installed image, no CD-ROM):
-```sh
-./generate-hdd.sh        # build makar-hdd.img (grub-mkimage, explicit (hd0,msdos1) prefix)
-./generate-hdd.sh --test # same image but grub.cfg passes "test" kernel arg → ktest mode
-./docker-hdd-boot.sh     # clean-build + boot interactively from HDD on host QEMU
-./docker-hdd-test.sh     # clean-build + GDB test (uses makar-hdd-test.img, not makar-hdd.img)
-# outputs: hdd-test-gdb.log, hdd-test-serial.log
-```
+**In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 
-`generate-hdd.sh` uses the compiler image (`arawn780/gcc-cross-i686-elf:fast`) for the disk-creation step — `dosfstools`, `fdisk`, `grub-pc-bin`, and `grub-common` are all pre-installed. It uses `grub-mkimage` directly (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker. The FAT32 partition receives the kernel at `/boot/makar.kernel` and the userspace binaries from `isodir/apps/` at `/apps/`, making the HDD image self-contained (no CD-ROM required).
-
-`docker-hdd-test.sh` always generates a fresh `makar-hdd-test.img` (separate from the interactive `makar-hdd.img`) so test and interactive images never share state. The GDB test continues to `keyboard_getchar` before checking `fat32_mounted()` to guarantee `vfs_auto_mount()` has completed.
+`generate-hdd.sh` uses `grub-mkimage` (not `grub-install`) to avoid the UUID-search failure that `grub-install` produces when probing loop devices inside Docker. The FAT32 partition receives the kernel at `/boot/makar.kernel` and userspace binaries from `isodir/apps/` at `/apps/`.
 
 **TODO (next):** HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
 - `generate-hdd.sh --test` already writes `multiboot2 /boot/makar.kernel test` in grub.cfg.
