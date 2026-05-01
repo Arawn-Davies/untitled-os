@@ -38,4 +38,10 @@ void ktest_assert(int cond, const char *expr, const char *file, uint32_t line);
  */
 int ktest_run_all(void);
 
+/*
+ * ktest_bg_task – task entry for silent background ktest at boot.
+ * Suppresses per-assertion VGA output; prints only on failure.
+ */
+void ktest_bg_task(void);
+
 #endif /* _KERNEL_KTEST_H */

@@ -152,6 +152,7 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	tasking_init();
 #ifndef TEST_MODE
 	task_create("shell", shell_run);
+	task_create("ktest", ktest_bg_task);
 #endif
 
 	t_writestring("Initializing syscalls (int 0x80)");

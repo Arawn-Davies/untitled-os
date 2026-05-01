@@ -162,11 +162,15 @@ fi
 
 cat > "$MNT/boot/grub/grub.cfg" << 'GCFG'
 set default=0
-set timeout=0
+set timeout=5
 
 menuentry "Makar OS" {
     multiboot2 /boot/makar.kernel
     boot
+}
+
+menuentry "Next available device" {
+    exit
 }
 GCFG
 

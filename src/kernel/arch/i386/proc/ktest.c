@@ -30,21 +30,28 @@
 int ktest_pass_count = 0;
 int ktest_fail_count = 0;
 
+/* When set, suppress VGA output for pass lines and suite headers. */
+static int ktest_muted = 0;
+
 void ktest_begin(const char *suite)
 {
     ktest_pass_count = 0;
     ktest_fail_count = 0;
-    t_writestring("\n[ktest] suite: ");
-    t_writestring(suite);
-    t_putchar('\n');
+    if (!ktest_muted) {
+        t_writestring("\n[ktest] suite: ");
+        t_writestring(suite);
+        t_putchar('\n');
+    }
 }
 
 void ktest_assert(int cond, const char *expr, const char *file, uint32_t line)
 {
     if (cond) {
-        t_writestring("  PASS: ");
-        t_writestring(expr);
-        t_putchar('\n');
+        if (!ktest_muted) {
+            t_writestring("  PASS: ");
+            t_writestring(expr);
+            t_putchar('\n');
+        }
         ktest_pass_count++;
     } else {
         t_writestring("  FAIL: ");
@@ -861,4 +868,21 @@ int ktest_run_all(void)
     t_dec((uint32_t)total_fail);
     t_writestring(" failed\n");
     return total_fail;
+}
+
+/* Background task entry: run all tests silently, only surface failures. */
+void ktest_bg_task(void)
+{
+    ktest_muted = 1;
+    int fails = ktest_run_all();
+    ktest_muted = 0;
+
+    if (fails > 0) {
+        t_writestring("[ktest] ");
+        t_dec((uint32_t)fails);
+        t_writestring(" failure(s) — run `ktest` for details\n");
+        Serial_WriteString("KTEST_BG: FAIL\n");
+    } else {
+        Serial_WriteString("KTEST_BG: PASS\n");
+    }
 }
