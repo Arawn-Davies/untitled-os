@@ -29,6 +29,7 @@
 
 int ktest_pass_count = 0;
 int ktest_fail_count = 0;
+volatile int ktest_bg_done = 0;
 
 /* When set, suppress VGA output for pass lines and suite headers. */
 static int ktest_muted = 0;
@@ -870,19 +871,50 @@ int ktest_run_all(void)
     return total_fail;
 }
 
-/* Background task entry: run all tests silently, only surface failures. */
+/* Background task entry: run safe suites silently during the loading screen.
+ * Skips test_vesa_resolution and test_vesa_colour — both switch display modes
+ * and have multi-second sleeps that would corrupt the loading screen.
+ * Sets ktest_bg_done = 1 when finished so shell_run can proceed. */
 void ktest_bg_task(void)
 {
+    int total_pass = 0;
+    int total_fail = 0;
+
     ktest_muted = 1;
-    int fails = ktest_run_all();
+
+    #define RUN(suite) do { \
+        suite(); \
+        total_pass += ktest_pass_count; \
+        total_fail += ktest_fail_count; \
+    } while (0)
+
+    RUN(test_acpi_checksum);
+    RUN(test_string);
+    RUN(test_partition);
+    RUN(test_pmm);
+    RUN(test_heap);
+    RUN(test_vmm);
+    RUN(test_task);
+    RUN(test_syscall);
+    RUN(test_gdt);
+    RUN(test_ring3_prereqs);
+    RUN(test_idt);
+    RUN(test_ring3_execution);
+    /* test_vesa_resolution and test_vesa_colour are skipped: they switch
+     * display modes with multi-second countdowns — run manually via `ktest`. */
+
+    #undef RUN
+
     ktest_muted = 0;
 
-    if (fails > 0) {
+    if (total_fail > 0) {
         t_writestring("[ktest] ");
-        t_dec((uint32_t)fails);
+        t_dec((uint32_t)total_fail);
         t_writestring(" failure(s) — run `ktest` for details\n");
         Serial_WriteString("KTEST_BG: FAIL\n");
     } else {
         Serial_WriteString("KTEST_BG: PASS\n");
     }
+
+    ktest_bg_done = 1;
 }

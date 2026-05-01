@@ -18,6 +18,9 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/serial.h>
 #include <kernel/vfs.h>
+#include <kernel/timer.h>
+#include <kernel/task.h>
+#include <kernel/ktest.h>
 
 #include <string.h>
 
@@ -463,12 +466,19 @@ void shell_run(void)
         vesa_tty_clear();
 
 #ifndef TEST_MODE
-        /* Splash screen: blit the logo centred, prompt for a keypress, then
-         * clear back to the normal shell background before printing the banner. */
+        /* Loading screen: show logo + spinner while ktest_bg_task runs.
+         * No keyboard input is processed here — any keys typed are discarded
+         * after the loop so they don't bleed into the first shell readline. */
         vesa_blit_logo(SHELL_FG_RGB, SHELL_BG_RGB);
 
-        ksleep(250); /* 5 s at 50 Hz */
+        while (!ktest_bg_done) {
+            vesa_tty_spinner_tick(timer_get_ticks());
+            task_yield();
+        }
         vesa_tty_clear();
+
+        /* Drain any keys typed during the loading screen. */
+        while (keyboard_poll()) {}
 #endif
     }
 

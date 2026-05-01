@@ -53,7 +53,11 @@ int ktest_run_all(void);
 /*
  * ktest_bg_task – task entry for silent background ktest at boot.
  * Suppresses per-assertion VGA output; prints only on failure.
+ * Sets ktest_bg_done = 1 when finished.
  */
 void ktest_bg_task(void);
+
+/* Set to 1 by ktest_bg_task when the background run completes. */
+extern volatile int ktest_bg_done;
 
 #endif /* _KERNEL_KTEST_H */

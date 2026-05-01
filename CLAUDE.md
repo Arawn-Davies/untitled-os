@@ -86,9 +86,17 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 At boot (non-TEST_MODE), `ktest_bg_task` runs all suites silently in the background — only prints to VGA on failure; always writes `KTEST_BG: PASS/FAIL` to serial.
 
-**TODO:** HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
+**TODO:** 
+
+HDD test/interactive should use the same kernel binary — mode controlled by a GRUB kernel argument rather than a separate `-DTEST_MODE` build.
 - `kernel.c` needs to parse `MULTIBOOT2_TAG_TYPE_CMDLINE` (type 1) and set a runtime `test_mode` flag, replacing `#ifdef TEST_MODE` guards with `if (test_mode)`.
 - `multiboot.h` needs `#define MULTIBOOT2_TAG_TYPE_CMDLINE 1`.
+
+Startup ktests: On startup, before we start the shell task we need to run background ktests that test capabilities without affecting the loading screen output. 
+Only once all ktests silently pass may the loading screen progress and we start the shell. 
+Make sure it's a bit of a delay between each test so the startup screen is visible. Print to serial should be remain. 
+- The spinner loop is inside ```if (vesa_tty_is_ready())``` — if VBE isn't active (VGA fallback), the whole block is skipped and we drop straight into the REPL.  
+- The wait must be outside that conditional. 
 
 ## Architecture
 
