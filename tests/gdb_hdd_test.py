@@ -9,19 +9,19 @@ QEMU must be started with:
 
 The runner:
   1. Connects to a QEMU GDB stub on localhost:1234.
-  2. Verifies the Multiboot 2 magic value in %eax at _start — confirms
-     GRUB on the HDD image passed the correct magic to the kernel.
+  2. Verifies the Multiboot 2 magic value in %eax at _start.
   3. Runs each test group in order.
 
-Test groups (all groups run on both ISO and HDD boot paths)
------------
+Test groups:
   boot_checkpoints  – sequential breakpoints through the boot sequence
   hardware_state    – CR0/CR3 paging state and PIT liveness
   vesa              – VESA framebuffer driver state and TTY output-path check
+  ktest_bg          – background ktest completed (ktest_bg_done == 1)
   hdd_mount         – fat32_mounted() non-zero, confirming /hd is up
+  hdd_content       – expected files exist on the FAT32 filesystem
 
 Adding a new group: create tests/groups/<name>.py with NAME and run(), then
-import it into both gdb_boot_test.py and gdb_hdd_test.py.
+import it here.
 """
 
 import os
@@ -37,7 +37,9 @@ import gdb  # noqa: E402
 from groups import boot_checkpoints  # noqa: E402
 from groups import hardware_state    # noqa: E402
 from groups import vesa              # noqa: E402
+from groups import ktest_bg          # noqa: E402
 from groups import hdd_mount         # noqa: E402
+from groups import hdd_content       # noqa: E402
 
 MULTIBOOT2_MAGIC = 0x36D76289
 
@@ -45,7 +47,9 @@ GROUPS = [
     boot_checkpoints,
     hardware_state,
     vesa,
+    ktest_bg,
     hdd_mount,
+    hdd_content,
 ]
 
 

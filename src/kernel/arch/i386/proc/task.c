@@ -89,22 +89,44 @@ void tasking_init(void)
 
 task_t *task_create(const char *name, void (*entry)(void))
 {
-    if (task_pool_count >= MAX_TASKS)
-        return NULL;
+    task_t *t = NULL;
 
-    uint8_t *stack = (uint8_t *)kmalloc(TASK_STACK_SIZE);
-    if (!stack)
-        return NULL;
+    /* Try to reclaim a DEAD slot before allocating a new one. */
+    for (int i = 1; i < task_pool_count; i++) {
+        if (task_pool[i].state == TASK_DEAD) {
+            t = &task_pool[i];
 
-    task_t *t = &task_pool[task_pool_count++];
-    t->stack    = stack;
-    t->page_dir = paging_kernel_pd();  /* kernel task by default */
+            /* Unlink from the circular list so we can re-insert after current. */
+            task_t *prev = current_task;
+            while (prev->next != t)
+                prev = prev->next;
+            prev->next = t->next;
+
+            /* Reuse the existing kernel stack. */
+            memset(t->stack, 0, TASK_STACK_SIZE);
+            break;
+        }
+    }
+
+    if (!t) {
+        if (task_pool_count >= MAX_TASKS)
+            return NULL;
+
+        uint8_t *stack = (uint8_t *)kmalloc(TASK_STACK_SIZE);
+        if (!stack)
+            return NULL;
+
+        t = &task_pool[task_pool_count++];
+        t->stack = stack;
+    }
+
+    t->page_dir = paging_kernel_pd();
     t->state    = TASK_READY;
     t->name     = name;
+    t->user_brk = 0;
 
     init_task_stack(t, entry);
 
-    /* Insert the new task into the circular list immediately after current. */
     t->next            = current_task->next;
     current_task->next = t;
 

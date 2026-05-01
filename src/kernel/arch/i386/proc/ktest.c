@@ -21,6 +21,7 @@
 #include <kernel/vesa_tty.h>
 #include <kernel/bochs_vbe.h>
 #include <kernel/timer.h>
+#include <kernel/asm.h>
 #include <string.h>
 
 /* ---------------------------------------------------------------------------
@@ -29,22 +30,30 @@
 
 int ktest_pass_count = 0;
 int ktest_fail_count = 0;
+volatile int ktest_bg_done = 0;
+
+/* When set, suppress VGA output for pass lines and suite headers. */
+int ktest_muted = 0;
 
 void ktest_begin(const char *suite)
 {
     ktest_pass_count = 0;
     ktest_fail_count = 0;
-    t_writestring("\n[ktest] suite: ");
-    t_writestring(suite);
-    t_putchar('\n');
+    if (!ktest_muted) {
+        t_writestring("\n[ktest] suite: ");
+        t_writestring(suite);
+        t_putchar('\n');
+    }
 }
 
 void ktest_assert(int cond, const char *expr, const char *file, uint32_t line)
 {
     if (cond) {
-        t_writestring("  PASS: ");
-        t_writestring(expr);
-        t_putchar('\n');
+        if (!ktest_muted) {
+            t_writestring("  PASS: ");
+            t_writestring(expr);
+            t_putchar('\n');
+        }
         ktest_pass_count++;
     } else {
         t_writestring("  FAIL: ");
@@ -60,6 +69,8 @@ void ktest_assert(int cond, const char *expr, const char *file, uint32_t line)
 
 void ktest_summary(void)
 {
+    if (ktest_muted)
+        return;
     t_writestring("[ktest] results: ");
     t_dec((uint32_t)ktest_pass_count);
     t_writestring(" passed, ");
@@ -361,25 +372,31 @@ static void test_vmm(void)
  * and they self-terminate via task_exit, eventually returning here.
  * ------------------------------------------------------------------------- */
 
-static void noop_task(void) { task_exit(); }
+static volatile int noop_ran;
+static void noop_task(void) { noop_ran = 1; task_exit(); }
 
 static void test_task(void)
 {
     ktest_begin("task");
 
-    /* task_create must return a non-NULL pointer. */
+    /* Disable interrupts across both creates so the timer cannot preempt
+     * noop1 before noop2 exists — otherwise noop1 runs, dies, and its slot
+     * gets recycled for noop2, making t1 == t2. */
+    disable_interrupts();
+    noop_ran = 0;
     task_t *t1 = task_create("ktest_noop1", noop_task);
-    KTEST_ASSERT(t1 != NULL);
-
-    /* A second create must return a different (distinct) task slot. */
     task_t *t2 = task_create("ktest_noop2", noop_task);
+    enable_interrupts();
+
+    KTEST_ASSERT(t1 != NULL);
     KTEST_ASSERT(t2 != NULL);
     KTEST_ASSERT(t1 != t2);
 
-    /* task_yield must not crash; the noop tasks run and exit, then control
-     * returns here via the cooperative scheduler. */
-    task_yield();
-    KTEST_ASSERT(1);
+    /* Yield until at least one noop task has run and exited. */
+    for (int i = 0; i < 100 && !noop_ran; i++)
+        task_yield();
+    KTEST_ASSERT(noop_ran);
+    KTEST_ASSERT(t1->state == TASK_DEAD || t2->state == TASK_DEAD);
 
     ktest_summary();
 }
@@ -621,7 +638,8 @@ static void test_ring3_execution(void)
      * It proves we are back in ring 0 with the kernel page directory active,
      * able to call kernel functions and write to serial/VGA normally. */
     Serial_WriteString("[ktest] ring3_execution: back in kernel mode (ring 0)\n");
-    t_writestring("[ktest] ring3 -> kernel mode OK\n");
+    if (!ktest_muted)
+        t_writestring("[ktest] ring3 -> kernel mode OK\n");
 
     /* CP2 appears after SYS_WRITE returns, just before SYS_EXIT.  Seeing 2
      * confirms ring-3 entry, the write syscall, and the debug syscall all
@@ -861,4 +879,55 @@ int ktest_run_all(void)
     t_dec((uint32_t)total_fail);
     t_writestring(" failed\n");
     return total_fail;
+}
+
+/* Background task entry: run safe suites silently during the loading screen.
+ * Skips test_vesa_resolution and test_vesa_colour — both switch display modes
+ * and have multi-second sleeps that would corrupt the loading screen.
+ * Sets ktest_bg_done = 1 when finished so shell_run can proceed. */
+void ktest_bg_task(void)
+{
+    int total_pass = 0;
+    int total_fail = 0;
+
+    ktest_muted = 1;
+
+    #define RUN(suite) do { \
+        suite(); \
+        total_pass += ktest_pass_count; \
+        total_fail += ktest_fail_count; \
+        /* Pace tests so the loading screen stays visible (~300 ms). */ \
+        { uint32_t t0 = timer_get_ticks(); \
+          while (timer_get_ticks() - t0 < 15) task_yield(); } \
+    } while (0)
+
+    RUN(test_acpi_checksum);
+    RUN(test_string);
+    RUN(test_partition);
+    RUN(test_pmm);
+    RUN(test_heap);
+    RUN(test_vmm);
+    RUN(test_task);
+    RUN(test_syscall);
+    RUN(test_gdt);
+    RUN(test_ring3_prereqs);
+    RUN(test_idt);
+    RUN(test_ring3_execution);
+    /* test_vesa_resolution and test_vesa_colour are skipped: they switch
+     * display modes with multi-second countdowns — run manually via `ktest`. */
+
+    #undef RUN
+
+    ktest_muted = 0;
+
+    if (total_fail > 0) {
+        t_writestring("[ktest] ");
+        t_dec((uint32_t)total_fail);
+        t_writestring(" failure(s) — run `ktest` for details\n");
+        Serial_WriteString("KTEST_BG: FAIL\n");
+    } else {
+        Serial_WriteString("KTEST_BG: PASS\n");
+    }
+
+    ktest_bg_done = 1;
 }

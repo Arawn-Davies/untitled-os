@@ -162,38 +162,33 @@ _run_qemu_interactive() {
 }
 
 # Run the ktest suite (headless QEMU + serial capture).
-# Prefers host QEMU; falls back to the build container.
+# QEMU exits via isa-debug-exit when the kernel finishes, or via -no-reboot
+# on panic/triple-fault.  No timeout needed.
 _run_ktest() {
     echo "==> Running ktest suite (headless QEMU)..."
     local _qemu
     _qemu=$(_host_qemu)
+    rm -f "$REPO_ROOT/ktest.log"
 
     if [ -n "$_qemu" ]; then
-        timeout 30 "$_qemu" \
+        "$_qemu" \
             -cdrom "$REPO_ROOT/makar.iso" \
-            -serial stdio \
+            -serial "file:$REPO_ROOT/ktest.log" \
             -display none \
             -no-reboot \
             -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-            2>/dev/null | tee "$REPO_ROOT/ktest.log" || true
-        _check_ktest
+            2>/dev/null || true
     else
         _drun --as-root -- \
-            'timeout 30 qemu-system-i386 \
+            'qemu-system-i386 \
                  -cdrom makar.iso \
-                 -serial stdio \
+                 -serial file:/work/ktest.log \
                  -display none \
                  -no-reboot \
                  -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-                 2>/dev/null | tee /work/ktest.log || true
-             if grep -q "KTEST_RESULT: PASS" /work/ktest.log; then
-                 echo "==> ktest: ALL PASSED"
-             elif grep -q "KTEST_RESULT: FAIL" /work/ktest.log; then
-                 echo "==> ktest: FAILED"; exit 1
-             else
-                 echo "==> ktest: TIMEOUT or no result"; exit 1
-             fi'
+                 2>/dev/null || true'
     fi
+    _check_ktest
 }
 
 _check_ktest() {
@@ -222,20 +217,16 @@ _make_fat32_disk() {
 }
 
 # Run the GDB ISO boot-checkpoint test.
-# Attaches a minimal FAT32 disk so the kernel can mount /hd during the run,
-# making the hdd_mount group valid for ISO-boot context too.
-# If host has both qemu and gdb-multiarch, run entirely on the host.
-# Otherwise run entirely inside the build container.
+# Boots from CD-ROM only — verifies boot sequence, background ktest, and
+# CD-ROM filesystem content.
 _run_gdb_iso_test() {
-    _make_fat32_disk "iso-test-hdd.img"
-    echo "==> Running GDB boot tests (ISO boot + FAT32 test disk)..."
+    echo "==> Running GDB boot tests (ISO boot)..."
     local _qemu _gdb
     _qemu=$(_host_qemu)
     _gdb=$(_host_gdb)
 
     if [ -n "$_qemu" ] && [ -n "$_gdb" ]; then
         "$_qemu" \
-            -drive "file=$REPO_ROOT/iso-test-hdd.img,format=raw,if=ide,index=0" \
             -drive "file=$REPO_ROOT/makar.iso,if=ide,index=2,media=cdrom" \
             -boot order=d \
             -serial "file:$REPO_ROOT/gdb-serial.log" \
@@ -254,7 +245,6 @@ _run_gdb_iso_test() {
     else
         _drun --as-root -- \
             'qemu-system-i386 \
-                 -drive file=/work/iso-test-hdd.img,format=raw,if=ide,index=0 \
                  -drive file=/work/makar.iso,if=ide,index=2,media=cdrom \
                  -boot order=d \
                  -serial file:/work/gdb-serial.log \
@@ -360,9 +350,8 @@ iso-boot)
 # ── iso-test ──────────────────────────────────────────────────────────────────
 iso-test)
     _clean
-    _build_iso "CFLAGS='-O0 -g3' CPPFLAGS='-DTEST_MODE'"
+    _build_iso "CFLAGS='-O0 -g3' KERNEL_ARGS=test_mode"
     _run_ktest
-    _clean
     _build_iso "CFLAGS='-O0 -g3'"
     _run_gdb_iso_test
     echo "==> All ISO tests PASSED."
@@ -378,7 +367,7 @@ iso-ktest-gui)
         exit 1
     fi
     _clean
-    _build_iso "CFLAGS='-O0 -g3' CPPFLAGS='-DTEST_MODE'"
+    _build_iso "CFLAGS='-O0 -g3' KERNEL_ARGS=test_mode"
     echo "==> Running ktest suite (graphical QEMU — window closes on completion)..."
     rm -f "$REPO_ROOT/ktest.log"
     "$QEMU_BIN" \

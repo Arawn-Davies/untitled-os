@@ -150,3 +150,9 @@ size_t heap_free(void)
             free_bytes += b->size;
     return free_bytes;
 }
+
+/* GDB calls vfs_file_exists("literal") which requires malloc/free to exist
+ * in the target so GDB can allocate space for the string.  Map them to the
+ * kernel allocator. */
+void *malloc(size_t size) { return kmalloc(size); }
+void  free(void *ptr)     { kfree(ptr); }

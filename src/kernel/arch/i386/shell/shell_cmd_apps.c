@@ -14,6 +14,7 @@
 #include <kernel/task.h>
 #include <kernel/ide.h>
 #include <kernel/fat32.h>
+#include <kernel/keyboard.h>
 
 /* cmd_ring3test is defined in proc/usertest.c. */
 void cmd_ring3test(int argc, char **argv);
@@ -85,8 +86,20 @@ static void cmd_exec(int argc, char **argv)
         return;
     }
 
-    while (t->state != TASK_DEAD)
+    task_t *self = task_current();
+    keyboard_set_focus(t);
+
+    while (t->state != TASK_DEAD) {
+        if (keyboard_sigint_consume()) {
+            t->state = TASK_DEAD;
+            t_writestring("\n^C\n");
+            break;
+        }
         task_yield();
+    }
+
+    keyboard_release_task(t);
+    keyboard_set_focus(self);
 }
 
 static void cmd_eject(int argc, char **argv)
