@@ -161,6 +161,9 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 		vfs_set_boot_drive(biosdev);
 	}
 
+	vfs_init();
+	vfs_auto_mount();
+
 	t_writestring("\nAll subsystems ready.\n\n");
 
 	t_writestring("Initializing multitasking");

@@ -547,8 +547,6 @@ void shell_run(void)
         t_writestring("Type 'lsman' for a list of commands.\n");
         t_writestring("Welcome back, " SHELL_USERNAME "!\n\n");
 
-        vfs_init();
-        vfs_auto_mount();
     } else {
         /* Non-primary TTYs: wait for bg tests, then sleep until Alt+Fn focus. */
         while (!ktest_bg_done)
