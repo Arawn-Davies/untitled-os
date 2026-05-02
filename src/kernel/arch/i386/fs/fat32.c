@@ -1215,6 +1215,142 @@ int fat32_write_file(const char *path, const void *buf, uint32_t size)
 }
 
 /* -------------------------------------------------------------------------
+ * fat32_delete_file — delete a file, freeing its cluster chain.
+ * Returns 0 on success, negative on error.
+ * ---------------------------------------------------------------------- */
+int fat32_delete_file(const char *path)
+{
+    if (!vol.mounted) return -3;
+
+    uint32_t    parent_cluster;
+    const char *basename;
+    if (path_split(path, &parent_cluster, &basename)) return -1;
+    if (!*basename) return -1;
+
+    dirent_t ent;
+    if (dir_scan(parent_cluster, DIRSCAN_FIND, basename, &ent, NULL, NULL)) return -1;
+    if (ent.attr & ATTR_DIR) return -1; /* is a directory, not a file */
+
+    /* Mark the 8.3 directory entry as deleted (0xE5). */
+    if (ide_read_sectors(vol.drive, ent.ent_lba, 1, s_sec)) return -2;
+    s_sec[ent.ent_off] = 0xE5u;
+    if (ide_write_sectors(vol.drive, ent.ent_lba, 1, s_sec)) return -2;
+
+    /* Free the data cluster chain. */
+    if (ent.first_cluster >= 2u)
+        fat_free_chain(ent.first_cluster);
+    return fat_flush();
+}
+
+/* -------------------------------------------------------------------------
+ * fat32_delete_dir — delete an empty directory.
+ * Returns 0 on success, -5 if not empty, negative on other errors.
+ * ---------------------------------------------------------------------- */
+int fat32_delete_dir(const char *path)
+{
+    if (!vol.mounted) return -3;
+
+    uint32_t    parent_cluster;
+    const char *basename;
+    if (path_split(path, &parent_cluster, &basename)) return -1;
+    if (!*basename) return -1;
+
+    dirent_t ent;
+    if (dir_scan(parent_cluster, DIRSCAN_FIND, basename, &ent, NULL, NULL)) return -1;
+    if (!(ent.attr & ATTR_DIR)) return -1; /* not a directory */
+
+    /* Verify the directory is empty (only . and .. entries allowed). */
+    uint32_t dir_cluster = ent.first_cluster ? ent.first_cluster : vol.root_cluster;
+    int empty = 0;
+
+    for (uint32_t c = dir_cluster; !empty && c >= 2u && c < FAT32_BAD; c = fat_read(c)) {
+        uint32_t base_lba = clus_to_lba(c);
+        for (uint8_t s = 0; !empty && s < vol.spc; s++) {
+            if (ide_read_sectors(vol.drive, base_lba + s, 1, s_sec)) return -2;
+            for (int i = 0; i < 16; i++) {
+                uint8_t *e = s_sec + i * 32;
+                if (e[0] == 0x00u) { empty = 1; break; }
+                if ((uint8_t)e[0] == 0xE5u) continue;
+                uint8_t a = e[11];
+                if ((a & 0x3Fu) == ATTR_LFN || (a & ATTR_VOLID)) continue;
+                /* . and .. entries */
+                if (e[0] == '.' && e[1] == ' ') continue;
+                if (e[0] == '.' && e[1] == '.') continue;
+                return -5; /* not empty */
+            }
+        }
+    }
+
+    /* Mark the directory entry as deleted. */
+    if (ide_read_sectors(vol.drive, ent.ent_lba, 1, s_sec)) return -2;
+    s_sec[ent.ent_off] = 0xE5u;
+    if (ide_write_sectors(vol.drive, ent.ent_lba, 1, s_sec)) return -2;
+
+    /* Free the directory cluster chain. */
+    if (dir_cluster >= 2u)
+        fat_free_chain(dir_cluster);
+    return fat_flush();
+}
+
+/* -------------------------------------------------------------------------
+ * fat32_rename_file / fat32_rename_dir
+ *
+ * Both use the same logic: create a new directory entry at new_path pointing
+ * to the same cluster chain, then mark the old entry as deleted.
+ * The cluster chain data is not touched.
+ *
+ * Returns 0 on success, negative on error.
+ * ---------------------------------------------------------------------- */
+static int fat32_rename_internal(const char *old_path, const char *new_path)
+{
+    if (!vol.mounted) return -3;
+
+    uint32_t    old_parent;
+    const char *old_base;
+    if (path_split(old_path, &old_parent, &old_base)) return -1;
+    if (!*old_base) return -1;
+
+    uint32_t    new_parent;
+    const char *new_base;
+    if (path_split(new_path, &new_parent, &new_base)) return -1;
+    if (!*new_base) return -1;
+
+    /* Find the source entry. */
+    dirent_t ent;
+    if (dir_scan(old_parent, DIRSCAN_FIND, old_base, &ent, NULL, NULL)) return -1;
+
+    /* Destination must not already exist. */
+    dirent_t existing;
+    if (dir_scan(new_parent, DIRSCAN_FIND, new_base, &existing, NULL, NULL) == 0) return -6;
+
+    /* Create the new directory entry with the same cluster/size/attr. */
+    uint32_t dummy;
+    if (!dir_add_with_lfn(new_parent, new_base, ent.attr,
+                          ent.first_cluster, ent.file_size, &dummy))
+        return -5;
+
+    /* Re-find the old entry (dir_add_with_lfn may have flushed FAT/sector cache). */
+    if (dir_scan(old_parent, DIRSCAN_FIND, old_base, &ent, NULL, NULL)) return -7;
+
+    /* Mark the old 8.3 entry as deleted. */
+    if (ide_read_sectors(vol.drive, ent.ent_lba, 1, s_sec)) return -2;
+    s_sec[ent.ent_off] = 0xE5u;
+    if (ide_write_sectors(vol.drive, ent.ent_lba, 1, s_sec)) return -2;
+
+    return fat_flush();
+}
+
+int fat32_rename_file(const char *old_path, const char *new_path)
+{
+    return fat32_rename_internal(old_path, new_path);
+}
+
+int fat32_rename_dir(const char *old_path, const char *new_path)
+{
+    return fat32_rename_internal(old_path, new_path);
+}
+
+/* -------------------------------------------------------------------------
  * fat32_mkfs — format a partition as FAT32
  * ---------------------------------------------------------------------- */
 int fat32_mkfs(uint8_t drive, uint32_t part_lba, uint32_t part_sectors)

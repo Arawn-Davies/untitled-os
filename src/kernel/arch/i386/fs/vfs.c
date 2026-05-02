@@ -537,6 +537,45 @@ int vfs_write_file(const char *path, const void *buf, uint32_t size)
     return fat32_write_file(drv, buf, size);
 }
 
+int vfs_delete_file(const char *path)
+{
+    char abs[VFS_PATH_MAX];
+    path_resolve(path, abs);
+
+    const char *drv;
+    if (vfs_route(abs, &drv) != VFS_FS_HD) return -1;
+    if (!fat32_mounted()) return -1;
+    return fat32_delete_file(drv);
+}
+
+int vfs_delete_dir(const char *path)
+{
+    char abs[VFS_PATH_MAX];
+    path_resolve(path, abs);
+
+    const char *drv;
+    if (vfs_route(abs, &drv) != VFS_FS_HD) return -1;
+    if (!fat32_mounted()) return -1;
+    return fat32_delete_dir(drv);
+}
+
+int vfs_rename(const char *old_path, const char *new_path)
+{
+    char old_abs[VFS_PATH_MAX], new_abs[VFS_PATH_MAX];
+    path_resolve(old_path, old_abs);
+    path_resolve(new_path, new_abs);
+
+    const char *old_drv, *new_drv;
+    if (vfs_route(old_abs, &old_drv) != VFS_FS_HD) return -1;
+    if (vfs_route(new_abs, &new_drv) != VFS_FS_HD) return -1;
+    if (!fat32_mounted()) return -1;
+
+    /* Check if source is a file or directory, then call appropriate rename. */
+    if (fat32_file_exists(old_drv))
+        return fat32_rename_file(old_drv, new_drv);
+    return fat32_rename_dir(old_drv, new_drv);
+}
+
 int vfs_file_exists(const char *path)
 {
     char abs[VFS_PATH_MAX];

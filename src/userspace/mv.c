@@ -1,7 +1,5 @@
 /*
- * mv.c -- userspace file move/rename utility.
- *
- * TODO: Implement file move/rename via sys_rename_file() syscall.
+ * mv.c -- userspace file/directory move/rename utility.
  */
 
 #include "syscall.h"
@@ -20,11 +18,18 @@ int main(int argc, char **argv)
         sys_exit(1);
     }
 
-    /* TODO: Implement file move/rename
-     * - Call sys_rename_file(argv[1], argv[2])
-     * - Report success or error
-     */
-    write_str("mv: not yet implemented\n");
-    sys_exit(1);
+    const char *src = argv[1];
+    const char *dst = argv[2];
+
+    if (sys_rename_file(src, dst) != 0) {
+        write_str("mv: failed to rename '");
+        write_str(src);
+        write_str("' to '");
+        write_str(dst);
+        write_str("'\n");
+        sys_exit(1);
+    }
+
+    sys_exit(0);
     return 0;
 }
