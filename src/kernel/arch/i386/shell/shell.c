@@ -548,11 +548,15 @@ void shell_run(void)
         t_writestring("Welcome back, " SHELL_USERNAME "!\n\n");
 
     } else {
-        /* Non-primary TTYs: wait for bg tests, then sleep until Alt+Fn focus. */
+        /* Non-primary TTYs: wait for bg tests, then poll until this slot
+         * gains focus (vtty_switch sets vtty_current and sends KEY_FOCUS_GAIN).
+         * Polling avoids a blocking keyboard_getchar() before ktest completes. */
         while (!ktest_bg_done)
             task_yield();
-        char c;
-        do { c = keyboard_getchar(); } while (c != KEY_FOCUS_GAIN);
+        while (!vtty_is_focused())
+            task_yield();
+        /* Drain the KEY_FOCUS_GAIN byte vtty_switch queued for us. */
+        while (keyboard_poll()) {}
         terminal_set_colorscheme(SHELL_COLOR_VGA);
         if (vesa_tty_is_ready()) {
             vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
