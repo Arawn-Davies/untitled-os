@@ -37,16 +37,29 @@ Makar already compiles and links a minimal freestanding libc (`src/libc/`)
 into `libk.a`.  User ELF binaries currently link against `libk.a` via
 `src/userspace/link.ld` + `crt0.S`.
 
+### What is already present (as of May 2026)
+
+| Syscall | Number | Status |
+|---|---|---|
+| `SYS_EXIT` | 1 | ✅ |
+| `SYS_READ(fd, buf, len)` | 3 | ✅ fd 0 = keyboard (line-buffered), fd 3+ = open files |
+| `SYS_WRITE(fd, buf, len)` | 4 | ✅ fd 1/2 = VGA terminal; file write NYI |
+| `SYS_OPEN(path, flags)` | 5 | ✅ reads whole file into heap buffer (max 64 KiB) |
+| `SYS_CLOSE(fd)` | 6 | ✅ |
+| `SYS_LSEEK(fd, off, whence)` | 19 | ✅ |
+| `SYS_BRK(addr)` | 45 | ✅ maps pages via VMM on demand |
+| `SYS_YIELD` | 158 | ✅ |
+| `SYS_DELETE_FILE(path)` | 208 | ✅ deletes FAT32 file |
+| `SYS_RENAME_FILE(old, new)` | 209 | ✅ renames/moves FAT32 file or directory |
+| `SYS_DELETE_DIR(path)` | 210 | ✅ deletes empty FAT32 directory |
+
 What is **not** yet present:
 
 | Missing piece | Needed for |
 |---|---|
-| `SYS_OPEN` / `SYS_CLOSE` | File I/O beyond stdin/stdout |
-| `SYS_READ` on files (fd > 0) | Reading VFS files from userspace |
-| `SYS_WRITE(fd, buf, len)` | Proper stdout (currently NUL-string only) |
+| `SYS_WRITE(fd, buf, len)` to open files | Full file-write from userspace |
 | `SYS_GETCWD` | `getcwd()` in libc |
 | `SYS_READDIR` | `opendir()` / `readdir()` |
-| `SYS_BRK` | Heap growth (`malloc` beyond static pool) |
 | `fork()` / `posix_spawn()` | Multi-process apps and a userland shell |
 
 ---

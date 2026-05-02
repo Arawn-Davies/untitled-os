@@ -2,7 +2,7 @@
 
 ## Shell Commands (Kernel Builtins)
 
-### Filesystem Commands (`shell_cmd_fs.c`, lines 22–370)
+### Filesystem Commands (`shell_cmd_fs.c`, `shell_cmd_fileops.c`)
 - **mount** — Mount a FAT32 partition to `/hd/` by drive and partition number
 - **umount** — Unmount the current FAT32 volume
 - **ls** — List directory contents (supports VFS paths: `/hd/`, `/cdrom/`)
@@ -13,7 +13,10 @@
 - **isols** — List ISO9660 directory (CD-ROM only)
 - **write** — Create/overwrite file with text arguments
 - **touch** — Create empty file
-- **cp** — Copy file (uses 64 KiB staging buffer; line 300)
+- **cp** — Copy file (uses 64 KiB staging buffer; `vfs_read_file` + `vfs_write_file`)
+- **rm** — Delete a file (`vfs_delete_file`)
+- **rmdir** — Delete an empty directory (`vfs_delete_dir`); errors if non-empty
+- **mv** — Move or rename a file or directory (`vfs_rename`)
 
 ### Disk Commands (`shell_cmd_disk.c`, lines 104–402)
 - **lsdisks** — List detected ATA/ATAPI drives with sizes
@@ -238,45 +241,16 @@ Builds bootable ISO. Steps:
 
 ---
 
-## Missing for Userspace File Operations
-
-### Shell Commands Not Yet Implemented
-- **rm** — Delete file (requires FAT32 delete API)
-- **rmdir** — Delete directory (requires FAT32 delete API)
-- **mv** — Move/rename file (requires FAT32 move API)
-
-### FAT32 Write APIs Not Yet Implemented
-- `fat32_delete_file(path)` — Mark cluster chain as free, delete directory entry
-- `fat32_delete_dir(path)` — Delete empty directory
-- `fat32_rename_file(old_path, new_path)` — Rename or move file
-- `fat32_rename_dir(old_path, new_path)` — Rename directory
-
-### Userspace Syscalls Not Yet Implemented
-- `sys_delete_file(path)` → likely `SYS_DELETE_FILE (208)`
-- `sys_rename_file(old_path, new_path)` → likely `SYS_RENAME_FILE (209)`
-
-### Userspace Apps Not Yet Implemented
-- **rm.elf** — File deletion utility
-- **mv.elf** — File move/rename utility
-
----
-
 ## Summary Table
 
 | Category | Count | Status |
 |---|---|---|
-| Shell filesystem commands | 11 | ✅ Complete (mount, umount, ls, cat, cd, mkdir, mkfs, isols, write, touch, cp) |
+| Shell filesystem commands | 14 | ✅ Complete (mount, umount, ls, cat, cd, mkdir, mkfs, isols, write, touch, cp, rm, rmdir, mv) |
 | Shell disk commands | 5 | ✅ Complete (lsdisks, lspart, mkpart, readsector, chainload) |
 | Shell system commands | 8 | ✅ Complete (echo, meminfo, uptime, tasks, shutdown, reboot, panic, ktest) |
 | Shell app commands | 5 | ✅ Complete (vics, install, exec, eject, ring3test) |
-| Userspace ELF apps | 7 | ✅ Complete (hello, diskinfo, ls, echo, calc, help, vics) |
-| VFS operations | 10 | ✅ Complete (init, mount, ls, cd, cat, mkdir, read, write, exists, complete) |
-| FAT32 read/write APIs | 8 | ✅ Complete (mount, umount, ls, cd, mkdir, read, write, mkfs) |
-| FAT32 delete/move APIs | 0 | ❌ Missing (required for rm/mv/rmdir) |
-| Userspace syscalls | 11 | ✅ Complete I/O + 3 Makar extensions (write_file, ls_dir, disk_info) |
-| Syscalls for delete/move | 0 | ❌ Missing |
-| Shell delete commands | 0 | ❌ Missing (rm, rmdir) |
-| Shell move commands | 0 | ❌ Missing (mv) |
-| Userspace delete apps | 0 | ❌ Missing |
-| Userspace move apps | 0 | ❌ Missing |
+| Userspace ELF apps | 10 | ✅ Complete (hello, diskinfo, ls, echo, calc, help, vics, rm, mv, cp) |
+| VFS operations | 13 | ✅ Complete (init, mount, ls, cd, cat, mkdir, read, write, exists, complete, delete_file, delete_dir, rename) |
+| FAT32 read/write APIs | 12 | ✅ Complete (mount, umount, ls, cd, mkdir, read, write, mkfs, delete_file, delete_dir, rename_file, rename_dir) |
+| Userspace syscalls | 14 | ✅ Complete I/O + 6 Makar extensions (write_file, ls_dir, disk_info, delete_file, rename_file, delete_dir) |
 

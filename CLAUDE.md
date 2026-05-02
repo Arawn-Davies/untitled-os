@@ -220,42 +220,16 @@ with its own stack.  The major subsystems in place:
 - **Display**: VESA framebuffer (Bochs VBE, defaults to 720p), VGA text fallback (80×50). Pane abstraction (`vesa_pane_t`) used by VICS and the TTY manager.
 - **Multi-TTY**: 4 shell tasks (`shell0`–`shell3`). Alt+F1–F4 switches focus; `vtty.c` routes keyboard input and sends `KEY_FOCUS_GAIN` to the newly active task. Each task redraws on focus gain.
 - **VICS**: Pane-aware text editor. Derives column/row counts from the active `vesa_pane_t` at runtime — works correctly at any VESA resolution. Modelled on ELKS/FUZIX vi: lightweight, stable, no heap after startup.
-- **Storage**: FAT32 (HDD/USB) + ISO 9660 (CD-ROM) via IDE PIO. VFS layer with CWD, auto-mount.
-- **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`). Syscalls: exit, read, write, debug, yield. Apps: `calc.elf`, `hello.elf`.
-- **Shell**: Inline editing, history, tab completion, Ctrl+C sigint. `lsman` / `man <cmd>` replace `help`.
+- **Storage**: FAT32 (HDD/USB) + ISO 9660 (CD-ROM) via IDE PIO. VFS layer with CWD, auto-mount. Full read/write/delete/rename support on FAT32.
+- **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`). Syscalls: exit, read, write, open, close, lseek, brk, debug, yield + Makar extensions (208–210). Apps: `calc.elf`, `hello.elf`, `ls.elf`, `echo.elf`, `vics.elf`, `diskinfo.elf`, `rm.elf`, `mv.elf`, `cp.elf`.
+- **Shell**: Inline editing, history, tab completion, Ctrl+C sigint. `lsman` / `man <cmd>` replace `help`. Built-in file ops: `rm`, `rmdir`, `mv`.
 - **Tasking**: Cooperative round-robin. Background ktest at boot (runs before any shell prompt appears).
 - **GRUB**: Two-entry menu (Makar OS + Next available device), 5-second timeout.
 
 ## Active branches
 
-### `feat/multi-tty` (current)
-4-task virtual TTY system (Alt+F1–F4), VICS pane-aware rendering, `lsman`/`man` commands, F-key + Alt key support in keyboard driver, `vtty.c` focus manager.
-
-## Next PR — "serious dev work in-place"
-
-Goal: everything needed to write, compile, and run C programs on a live Makar system.
-
-### Kernel prerequisites (must land first)
-1. **`SYS_WRITE(fd, buf, len)`** — fix EAX=4 to standard Linux i386 convention (fd + buffer + length). Unblocks all libc stdio.
-2. **fd table in `task_t`** — `SYS_OPEN`, `SYS_CLOSE`, `SYS_READ` (files), `SYS_LSEEK`. fd 0/1/2 = stdin/stdout/stderr pre-wired. See `docs/userland-libc.md`.
-3. **`SYS_BRK`** — heap extension via VMM page mapping. Required for `malloc` in userspace.
-4. **`SYS_GETCWD` + `SYS_READDIR`** — needed for shell tab completion and `ls` from userspace.
-
-### Libc / toolchain
-5. **musl static link** — once the fd table and `SYS_BRK` exist, a musl static binary compiles with the existing i686-elf cross-compiler. See `docs/userland-libc.md` for the step-by-step.
-6. **uClibc-ng** as a lighter fallback if musl proves difficult without `fork`.
-
-### In-kernel compiler
-7. **TCC (Tiny C Compiler)** — ~200 KiB, compiles C to ELF in memory, writes output via `vfs_write_file`. No `fork` needed. Enables write-compile-run on bare metal, CP/M-style.
-
-### Networking (longer-term, same PR series)
-8. **NIC driver** — RTL8139 is the primary target (well-documented, QEMU `-device rtl8139`). AMD PCNet (`-device pcnet`) is the QEMU default and also well-documented. NE2000 as last resort (ISA, slower). OSDev wiki has RTL8139 register maps.
-9. **lwIP** — BSD-licensed, small footprint, designed for embedded. Needs a `sys_arch` adapter and a packet Rx/Tx hook from the NIC driver.
-10. **DHCP + DNS stubs** — lwIP includes both; just need the netif glue.
-11. **wget/curl-lite** — a minimal HTTP GET over lwIP. No TLS initially; TLS via mbedTLS or BearSSL later.
-
-### Process model (prerequisite for userland shell)
-12. **`fork()` or `posix_spawn`** — COW page-table clone (or simpler: exec-without-fork via `posix_spawn` semantics). Required before moving the shell to userland. See `docs/userland-libc.md` roadmap graph.
+### `feat/userspace-fileops` (current)
+FAT32 delete/rename APIs, VFS wrappers, syscalls 208–210, shell built-ins `rm`/`rmdir`/`mv`, and standalone ELFs `rm.elf`, `mv.elf`, `cp.elf`.
 
 ## Future roadmap
 
@@ -301,61 +275,26 @@ The long-term goal is a self-hosting userspace. Prerequisites and approach:
 
 ---
 
-## Next: Userspace File Operations (rm/mv/rmdir)
-
-**Branch:** `feat/userspace-fileops`
+## Next: "Serious dev work in-place" (write, compile, run C on a live Makar system)
 
 See `SURVEY.md` for complete inventory of shell commands, userspace apps, VFS/FAT32 APIs, and the installer.
 
-### TODO: Phase 1 — FAT32 Write APIs
+### Kernel prerequisites (must land first)
+1. **`SYS_WRITE(fd, buf, len)`** — fix EAX=4 to standard Linux i386 convention (fd + buffer + length). Unblocks all libc stdio.
+2. **`SYS_GETCWD` + `SYS_READDIR`** — needed for shell tab completion and `ls` from userspace.
 
-Add to `src/kernel/include/kernel/fat32.h`:
-- `int fat32_delete_file(const char *path)` — Mark cluster chain free, delete entry
-- `int fat32_delete_dir(const char *path)` — Delete empty directory
-- `int fat32_rename_file(const char *old_path, const char *new_path)` — Rename/move file
-- `int fat32_rename_dir(const char *old_path, const char *new_path)` — Rename directory
+### Libc / toolchain
+3. **musl static link** — once the fd table and `SYS_BRK` exist, a musl static binary compiles with the existing i686-elf cross-compiler. See `docs/userland-libc.md` for the step-by-step.
+4. **uClibc-ng** as a lighter fallback if musl proves difficult without `fork`.
 
-Implement in FAT32 driver (location TBD).
+### In-kernel compiler
+5. **TCC (Tiny C Compiler)** — ~200 KiB, compiles C to ELF in memory, writes output via `vfs_write_file`. No `fork` needed. Enables write-compile-run on bare metal, CP/M-style.
 
-### TODO: Phase 2 — VFS Wrapper APIs
+### Networking (longer-term, same PR series)
+6. **NIC driver** — RTL8139 is the primary target (well-documented, QEMU `-device rtl8139`). AMD PCNet (`-device pcnet`) is the QEMU default and also well-documented.
+7. **lwIP** — BSD-licensed, small footprint, designed for embedded. Needs a `sys_arch` adapter and a packet Rx/Tx hook from the NIC driver.
+8. **DHCP + DNS stubs** — lwIP includes both; just need the netif glue.
+9. **wget/curl-lite** — a minimal HTTP GET over lwIP. No TLS initially; TLS via mbedTLS or BearSSL later.
 
-Add to `src/kernel/include/kernel/vfs.h`:
-- `int vfs_delete_file(const char *path)` — Delete file via VFS
-- `int vfs_delete_dir(const char *path)` — Delete directory via VFS
-- `int vfs_rename(const char *old_path, const char *new_path)` — Move/rename via VFS
-
-Implement wrappers in `src/kernel/arch/i386/vfs.c`.
-
-### TODO: Phase 3 — Userspace Syscalls
-
-Add to `src/userspace/syscall.h`:
-- `sys_delete_file(path)` → `SYS_DELETE_FILE (208)`
-- `sys_rename_file(old_path, new_path)` → `SYS_RENAME_FILE (209)`
-
-Implement handlers in kernel syscall dispatcher.
-
-### TODO: Phase 4 — Shell Commands
-
-Implement in `src/kernel/arch/i386/shell/shell_cmd_fileops.c`:
-- **cmd_rm** — delete file
-- **cmd_rmdir** — delete empty directory
-- **cmd_mv** — move/rename file or directory
-
-Register `fileops_cmds` in `shell.c` cmd_modules table (line 456).
-
-### TODO: Phase 5 — Userspace Apps
-
-Create and build:
-- `src/userspace/rm.c` → `rm.elf`
-- `src/userspace/mv.c` → `mv.elf`
-
-These will be copied to `isodir/apps/` by `iso.sh` and executable via shell PATH lookup.
-
-### Skeletal Code
-
-Placeholder implementations created:
-- `src/kernel/arch/i386/shell/shell_cmd_fileops.c` (skeletal)
-- `src/userspace/rm.c` (skeletal)
-- `src/userspace/mv.c` (skeletal)
-
-All print "not yet implemented" and define the expected signatures.
+### Process model (prerequisite for userland shell)
+10. **`fork()` or `posix_spawn`** — COW page-table clone (or simpler: exec-without-fork via `posix_spawn` semantics). Required before moving the shell to userland. See `docs/userland-libc.md` roadmap graph.
