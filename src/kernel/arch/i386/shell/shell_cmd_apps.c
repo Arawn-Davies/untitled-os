@@ -53,7 +53,7 @@ static void cmd_vics(int argc, char **argv)
         memcpy(full_path + off, arg, arg_len + 1);
     }
 
-    vics_edit(full_path);
+    vics_edit(full_path, NULL);
 }
 
 static void cmd_install(int argc, char **argv)

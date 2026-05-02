@@ -184,8 +184,8 @@ src/kernel/arch/i386/
   drivers/    serial, keyboard, timer, IDE, ACPI, partition
   fs/         fat32.c, iso9660.c, vfs.c
   display/    tty.c (VGA text), vesa.c + vesa_tty.c (VESA framebuffer)
-  proc/       task.c + task_asm.S (scheduler), syscall.c, ring3.S, usertest.c, ktest.c
-  shell/      shell.c, shell_cmd_{display,disk,fs,apps,system}.c, shell_help.c
+  proc/       task.c + task_asm.S (scheduler), syscall.c, ring3.S, usertest.c, ktest.c, vtty.c
+  shell/      shell.c, shell_cmd_{display,disk,fs,apps,system,man}.c, shell_help.c
   debug/      exception handlers (INT 1/3/8/13/14, serial-first output)
 src/kernel/kernel/kernel.c   kernel_main
 src/kernel/include/kernel/   all public headers
@@ -194,32 +194,75 @@ src/userspace/               freestanding ELF apps (calc.elf, hello.elf)
 tests/                       GDB boot-test suite (gdb_boot_test.py) + test groups
 ```
 
+## Acknowledgements and FOSS attribution
+
+Makar draws on the work of many free and open-source projects.  All referenced
+code is used in compliance with its licence; attribution is maintained in each
+relevant source file and in `docs/userland-libc.md`.
+
+| Project | Licence | Influence |
+|---------|---------|-----------|
+| **Linux kernel** | GPLv2 | Syscall ABI (i386 int 0x80), ELF loading model, process memory layout |
+| **ELKS** | GPLv2 | Minimal libc / crt0 model; `vics` editor philosophy |
+| **FUZIX** | GPLv2 | vi-style editor design; libc porting approach for small systems |
+| **CP/M** | Historic | Terminal-owns-screen philosophy; self-contained program model |
+| **musl libc** | MIT | Target libc for future userspace; syscall stub conventions |
+| **lwIP** | BSD | Future TCP/IP stack candidate |
+| **GRUB** | GPLv2 | Bootloader; Multiboot 2 tag format |
+| **OSDev wiki** | CC-BY-SA | Cross-compiler setup, paging, descriptor table guidance |
+
 ## Current state (as of May 2026)
 
-Makar boots to an interactive VESA shell with a working userspace. The major subsystems in place:
+Makar boots to an interactive VESA shell with 4 independent TTYs.
+Alt+F1–F4 switches between them; each is a separate cooperative kernel task
+with its own stack.  The major subsystems in place:
 
-- **Display**: VESA framebuffer (Bochs VBE, defaults to 720p), VGA text fallback (80×50). Split-pane abstraction (`vesa_pane_t`) landed; keyboard dispatcher (Phase 2) and VICS pane integration (Phase 3) are pending.
+- **Display**: VESA framebuffer (Bochs VBE, defaults to 720p), VGA text fallback (80×50). Pane abstraction (`vesa_pane_t`) used by VICS and the TTY manager.
+- **Multi-TTY**: 4 shell tasks (`shell0`–`shell3`). Alt+F1–F4 switches focus; `vtty.c` routes keyboard input and sends `KEY_FOCUS_GAIN` to the newly active task. Each task redraws on focus gain.
+- **VICS**: Pane-aware text editor. Derives column/row counts from the active `vesa_pane_t` at runtime — works correctly at any VESA resolution. Modelled on ELKS/FUZIX vi: lightweight, stable, no heap after startup.
 - **Storage**: FAT32 (HDD/USB) + ISO 9660 (CD-ROM) via IDE PIO. VFS layer with CWD, auto-mount.
 - **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`). Syscalls: exit, read, write, debug, yield. Apps: `calc.elf`, `hello.elf`.
-- **Shell**: Inline editing, history, tab completion (commands + VFS paths), Ctrl+C sigint (aborts line / kills exec'd task).
-- **Tasking**: Cooperative round-robin. Background ktest at boot.
-- **GRUB**: Two-entry menu (Makar OS + Next available device), 5-second timeout. Both ISO and HDD images.
+- **Shell**: Inline editing, history, tab completion, Ctrl+C sigint. `lsman` / `man <cmd>` replace `help`.
+- **Tasking**: Cooperative round-robin. Background ktest at boot (runs before any shell prompt appears).
+- **GRUB**: Two-entry menu (Makar OS + Next available device), 5-second timeout.
 
 ## Active branches
 
-### `misc/grub-imprv` (current)
-GRUB two-entry menu + 5s timeout, 720p default display, silent background ktest, VGA colour-fix on mode switch, Ctrl+C sigint wiring, tab completion, calc app import.
+### `feat/multi-tty` (current)
+4-task virtual TTY system (Alt+F1–F4), VICS pane-aware rendering, `lsman`/`man` commands, F-key + Alt key support in keyboard driver, `vtty.c` focus manager.
 
-### `feat/split-panes` (Phase 2/3 pending)
-Split-pane keyboard dispatcher and VICS pane integration. Phase 1 (pane abstraction) already landed on main.
+## Next PR — "serious dev work in-place"
+
+Goal: everything needed to write, compile, and run C programs on a live Makar system.
+
+### Kernel prerequisites (must land first)
+1. **`SYS_WRITE(fd, buf, len)`** — fix EAX=4 to standard Linux i386 convention (fd + buffer + length). Unblocks all libc stdio.
+2. **fd table in `task_t`** — `SYS_OPEN`, `SYS_CLOSE`, `SYS_READ` (files), `SYS_LSEEK`. fd 0/1/2 = stdin/stdout/stderr pre-wired. See `docs/userland-libc.md`.
+3. **`SYS_BRK`** — heap extension via VMM page mapping. Required for `malloc` in userspace.
+4. **`SYS_GETCWD` + `SYS_READDIR`** — needed for shell tab completion and `ls` from userspace.
+
+### Libc / toolchain
+5. **musl static link** — once the fd table and `SYS_BRK` exist, a musl static binary compiles with the existing i686-elf cross-compiler. See `docs/userland-libc.md` for the step-by-step.
+6. **uClibc-ng** as a lighter fallback if musl proves difficult without `fork`.
+
+### In-kernel compiler
+7. **TCC (Tiny C Compiler)** — ~200 KiB, compiles C to ELF in memory, writes output via `vfs_write_file`. No `fork` needed. Enables write-compile-run on bare metal, CP/M-style.
+
+### Networking (longer-term, same PR series)
+8. **NIC driver** — RTL8139 is the primary target (well-documented, QEMU `-device rtl8139`). AMD PCNet (`-device pcnet`) is the QEMU default and also well-documented. NE2000 as last resort (ISA, slower). OSDev wiki has RTL8139 register maps.
+9. **lwIP** — BSD-licensed, small footprint, designed for embedded. Needs a `sys_arch` adapter and a packet Rx/Tx hook from the NIC driver.
+10. **DHCP + DNS stubs** — lwIP includes both; just need the netif glue.
+11. **wget/curl-lite** — a minimal HTTP GET over lwIP. No TLS initially; TLS via mbedTLS or BearSSL later.
+
+### Process model (prerequisite for userland shell)
+12. **`fork()` or `posix_spawn`** — COW page-table clone (or simpler: exec-without-fork via `posix_spawn` semantics). Required before moving the shell to userland. See `docs/userland-libc.md` roadmap graph.
 
 ## Future roadmap
 
 ### Near-term kernel work
-- **Runtime test_mode via cmdline**: parse `MULTIBOOT2_TAG_TYPE_CMDLINE` in `kernel.c` so ISO and HDD can share a single kernel binary; replace `#ifdef TEST_MODE` guards with a runtime flag.
-- **Split-panes Phase 2/3**: Ctrl-A,U/J pane focus switching; refactor VICS to accept a `(top_row, rows)` pane descriptor.
-- **Preemptive scheduling**: Add a timer-driven task preemption path. Currently all scheduling is cooperative (`task_yield()`).
-- **Signals**: Full `kill()`/`signal()` ABI beyond the current Ctrl+C `g_sigint` flag.
+- **Runtime test_mode via cmdline**: `MULTIBOOT2_TAG_TYPE_CMDLINE` already parsed in `kernel.c`. Next: replace remaining `#ifdef TEST_MODE` guards with runtime `if (test_mode)`.
+- **Preemptive scheduling**: timer-driven preemption path. Currently all scheduling is cooperative (`task_yield()`).
+- **Signals**: full `kill()`/`signal()` ABI beyond the current Ctrl+C `g_sigint` flag.
 
 ### Userspace / libc porting
 
@@ -249,5 +292,9 @@ The long-term goal is a self-hosting userspace. Prerequisites and approach:
 
 ### Hardware / platform
 - **USB HID keyboard**: currently PS/2 only. QEMU emulates PS/2 by default; real hardware may need USB HID via OHCI/EHCI.
-- **Network stack**: would need an e1000 or RTL8139 driver (both well-documented for QEMU), then lwIP or a minimal TCP/IP stack.
+- **Network**: RTL8139 driver → lwIP → DHCP/DNS → wget/curl-lite. See Next PR section above.
 - **64-bit (x86-64)**: significant rewrite — new GDT/IDT, long mode entry, 64-bit paging. Worth considering once userspace is stable on i386.
+
+## Documentation
+
+- `docs/userland-libc.md` — how to build and link a freestanding libc for Makar userspace; step-by-step from syscall fixes through musl/uClibc-ng to TCC in-kernel compilation. Includes FOSS attribution and OSDev wiki references.

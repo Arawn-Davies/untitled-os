@@ -54,6 +54,7 @@ extern const shell_cmd_entry_t system_cmds[];
 extern const shell_cmd_entry_t disk_cmds[];
 extern const shell_cmd_entry_t fs_cmds[];
 extern const shell_cmd_entry_t apps_cmds[];
+extern const shell_cmd_entry_t man_cmds[];
 
 /* shell.c – REPL core */
 void shell_readline(char *buf, size_t max);

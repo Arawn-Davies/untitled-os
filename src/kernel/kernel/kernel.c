@@ -24,6 +24,7 @@
 #include <kernel/syscall.h>
 #include <kernel/acpi.h>
 #include <kernel/ktest.h>
+#include <kernel/vtty.h>
 
 /*
  * Column at which "[ OK ]" starts, counting from 0.
@@ -165,9 +166,13 @@ void kernel_main(uint32_t magic, multiboot2_info_t *mbi)
 	t_writestring("Initializing multitasking");
 	kprint_ok();
 	tasking_init();
+	vtty_init();
 	if (!test_mode) {
-		task_create("shell", shell_run);
-		task_create("ktest", ktest_bg_task);
+		task_create("shell0", shell_run);
+		task_create("shell1", shell_run);
+		task_create("shell2", shell_run);
+		task_create("shell3", shell_run);
+		task_create("ktest",  ktest_bg_task);
 	}
 
 	t_writestring("Initializing syscalls (int 0x80)");

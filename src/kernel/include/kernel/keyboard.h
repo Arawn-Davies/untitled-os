@@ -13,6 +13,15 @@
 #define KEY_ARROW_LEFT  ((char)0x82)
 #define KEY_ARROW_RIGHT ((char)0x83)
 
+/* Function key sentinels (Alt+F1-F4 trigger TTY switching). */
+#define KEY_F1          ((char)0x84)
+#define KEY_F2          ((char)0x85)
+#define KEY_F3          ((char)0x86)
+#define KEY_F4          ((char)0x87)
+
+/* Sent to a TTY's input queue when it gains keyboard focus. */
+#define KEY_FOCUS_GAIN  ((char)0x88)
+
 /* Ctrl+C sentinel returned by keyboard_getchar() when a sigint fires. */
 #define KEY_CTRL_C      ((char)0x03)
 
@@ -31,6 +40,10 @@ void keyboard_set_focus(task_t *t);
 
 /* Release a task's keyboard slot so it can be reused. */
 void keyboard_release_task(task_t *t);
+
+/* Push c directly into t's input slot (registers slot if needed).
+ * Safe to call from IRQ context. */
+void keyboard_send_to(task_t *t, char c);
 
 /*
  * keyboard_sigint_consume – atomically read and clear the Ctrl+C flag.

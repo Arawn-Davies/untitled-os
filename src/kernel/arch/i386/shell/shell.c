@@ -12,6 +12,7 @@
 
 #include <kernel/shell.h>
 #include <kernel/keyboard.h>
+#include <kernel/vtty.h>
 #include <kernel/tty.h>
 #include <kernel/vga.h>
 #include <kernel/vesa.h>
@@ -52,6 +53,9 @@ static const char *history_get(int ago)
     int idx = (s_hist_head - 1 - ago + SHELL_HISTORY_SIZE) % SHELL_HISTORY_SIZE;
     return s_history[idx];
 }
+
+/* Forward declaration — defined later in this file. */
+static void shell_print_prompt(void);
 
 /* ---------------------------------------------------------------------------
  * readline_redraw – repaint the input line in-place and position cursors.
@@ -256,6 +260,26 @@ void shell_readline(char *buf, size_t max)
             return;
         }
 
+        /* TTY focus gained: clear screen, reprint prompt, redraw pending input. */
+        if (c == KEY_FOCUS_GAIN) {
+            terminal_set_colorscheme(SHELL_COLOR_VGA);
+            if (vesa_tty_is_ready()) {
+                vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
+                vesa_tty_clear();
+            }
+            shell_print_prompt();
+            rl_col = t_column;
+            rl_row = t_row;
+            if (vesa_tty_is_ready()) {
+                vesa_rl_col = vesa_tty_get_col();
+                vesa_rl_row = vesa_tty_get_row();
+            }
+            if (len > 0)
+                readline_redraw(buf, len, cur, len,
+                                rl_col, rl_row, vesa_rl_col, vesa_rl_row);
+            continue;
+        }
+
         /* Tab completion. */
         if (c == '\t') {
             /* Find word start (scan left for space or start of buf). */
@@ -430,6 +454,7 @@ static int shell_parse(char *line, char **argv, int max_args)
  * --------------------------------------------------------------------------- */
 
 static const shell_cmd_entry_t * const cmd_modules[] = {
+    man_cmds,
     help_cmds,
     display_cmds,
     system_cmds,
@@ -493,47 +518,53 @@ static void shell_print_prompt(void)
  * --------------------------------------------------------------------------- */
 void shell_run(void)
 {
-    static char buf[SHELL_MAX_INPUT];
+    char  buf[SHELL_MAX_INPUT];   /* stack-allocated: each task gets its own */
     char *argv[SHELL_MAX_ARGS];
 
-    terminal_set_colorscheme(SHELL_COLOR_VGA);
-    if (vesa_tty_is_ready()) {
-        vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
-        vesa_tty_clear();
+    int slot = vtty_register();
 
-        vesa_blit_logo(SHELL_FG_RGB, SHELL_BG_RGB);
-
-        while (!ktest_bg_done) {
-            vesa_tty_spinner_tick(timer_get_ticks());
-            task_yield();
+    if (slot == 0) {
+        terminal_set_colorscheme(SHELL_COLOR_VGA);
+        if (vesa_tty_is_ready()) {
+            vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
+            vesa_tty_clear();
+            vesa_blit_logo(SHELL_FG_RGB, SHELL_BG_RGB);
+            while (!ktest_bg_done) {
+                vesa_tty_spinner_tick(timer_get_ticks());
+                task_yield();
+            }
+            vesa_tty_clear();
         }
-        vesa_tty_clear();
+        while (!ktest_bg_done)
+            task_yield();
+        while (keyboard_poll()) {}
+
+        t_writestring("Makar -- version " SHELL_VERSION
+                      ", build: " BUILD_DATE " " BUILD_TIME "\n");
+        t_writestring("The GCC/C++ sibling of Medli\n");
+        t_writestring(COPYRIGHT "\n");
+        t_writestring("Released under the BSD-3 Clause Clear license\n\n");
+        t_writestring("Type 'lsman' for a list of commands.\n");
+        t_writestring("Welcome back, " SHELL_USERNAME "!\n\n");
+
+        vfs_init();
+        vfs_auto_mount();
+    } else {
+        /* Non-primary TTYs: wait for bg tests, then sleep until Alt+Fn focus. */
+        while (!ktest_bg_done)
+            task_yield();
+        char c;
+        do { c = keyboard_getchar(); } while (c != KEY_FOCUS_GAIN);
+        terminal_set_colorscheme(SHELL_COLOR_VGA);
+        if (vesa_tty_is_ready()) {
+            vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
+            vesa_tty_clear();
+        }
     }
-
-    while (!ktest_bg_done)
-        task_yield();
-
-    while (keyboard_poll()) {}
-
-    t_writestring("Makar -- version " SHELL_VERSION
-                  ", build: " BUILD_DATE " " BUILD_TIME "\n");
-    t_writestring("The GCC/C++ sibling of Medli\n");
-    t_writestring(COPYRIGHT "\n");
-    t_writestring("Released under the BSD-3 Clause Clear license\n");
-    t_writestring("\n");
-    t_writestring("Type 'help' for a list of commands.\n");
-    t_writestring("Welcome back, " SHELL_USERNAME "!\n\n");
-
-    /* Initialise the VFS: probe for CD-ROM, set CWD to "/". */
-    vfs_init();
-    /* Auto-mount the appropriate filesystem based on the boot device. */
-    vfs_auto_mount();
 
     while (1) {
         shell_print_prompt();
         shell_readline(buf, SHELL_MAX_INPUT);
-
-        /* Save the raw input line before shell_parse() tokenises it in-place. */
         history_push(buf);
 
         int argc = shell_parse(buf, argv, SHELL_MAX_ARGS);
@@ -541,11 +572,10 @@ void shell_run(void)
             continue;
 
         if (!shell_dispatch(argc, argv)) {
-            /* Medli-style error: red text, matching CommandConsole.cs */
             t_setcolor(SHELL_ERROR_COLOR_VGA);
-            t_writestring("The command '");
+            t_writestring("Unknown command '");
             t_writestring(argv[0]);
-            t_writestring("' is not supported. Please type help for more information.\n\n");
+            t_writestring("' — try 'lsman'.\n\n");
             t_setcolor(SHELL_COLOR_VGA);
         }
     }
