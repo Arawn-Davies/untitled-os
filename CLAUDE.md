@@ -298,3 +298,65 @@ The long-term goal is a self-hosting userspace. Prerequisites and approach:
 ## Documentation
 
 - `docs/userland-libc.md` — how to build and link a freestanding libc for Makar userspace; step-by-step from syscall fixes through musl/uClibc-ng to TCC in-kernel compilation. Includes FOSS attribution and OSDev wiki references.
+
+---
+
+## Next: Userspace File Operations (rm/mv/rmdir)
+
+**Branch:** `feat/userspace-fileops`
+
+See `SURVEY.md` for complete inventory of shell commands, userspace apps, VFS/FAT32 APIs, and the installer.
+
+### TODO: Phase 1 — FAT32 Write APIs
+
+Add to `src/kernel/include/kernel/fat32.h`:
+- `int fat32_delete_file(const char *path)` — Mark cluster chain free, delete entry
+- `int fat32_delete_dir(const char *path)` — Delete empty directory
+- `int fat32_rename_file(const char *old_path, const char *new_path)` — Rename/move file
+- `int fat32_rename_dir(const char *old_path, const char *new_path)` — Rename directory
+
+Implement in FAT32 driver (location TBD).
+
+### TODO: Phase 2 — VFS Wrapper APIs
+
+Add to `src/kernel/include/kernel/vfs.h`:
+- `int vfs_delete_file(const char *path)` — Delete file via VFS
+- `int vfs_delete_dir(const char *path)` — Delete directory via VFS
+- `int vfs_rename(const char *old_path, const char *new_path)` — Move/rename via VFS
+
+Implement wrappers in `src/kernel/arch/i386/vfs.c`.
+
+### TODO: Phase 3 — Userspace Syscalls
+
+Add to `src/userspace/syscall.h`:
+- `sys_delete_file(path)` → `SYS_DELETE_FILE (208)`
+- `sys_rename_file(old_path, new_path)` → `SYS_RENAME_FILE (209)`
+
+Implement handlers in kernel syscall dispatcher.
+
+### TODO: Phase 4 — Shell Commands
+
+Implement in `src/kernel/arch/i386/shell/shell_cmd_fileops.c`:
+- **cmd_rm** — delete file
+- **cmd_rmdir** — delete empty directory
+- **cmd_mv** — move/rename file or directory
+
+Register `fileops_cmds` in `shell.c` cmd_modules table (line 456).
+
+### TODO: Phase 5 — Userspace Apps
+
+Create and build:
+- `src/userspace/rm.c` → `rm.elf`
+- `src/userspace/mv.c` → `mv.elf`
+
+These will be copied to `isodir/apps/` by `iso.sh` and executable via shell PATH lookup.
+
+### Skeletal Code
+
+Placeholder implementations created:
+- `src/kernel/arch/i386/shell/shell_cmd_fileops.c` (skeletal)
+- `src/userspace/rm.c` (skeletal)
+- `src/userspace/mv.c` (skeletal)
+
+All print "not yet implemented" and define the expected signatures.
+
