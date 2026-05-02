@@ -11,6 +11,7 @@
 //
 
 #include <kernel/keyboard.h>
+#include <kernel/vtty.h>
 #include <kernel/isr.h>
 #include <kernel/asm.h>
 #include <kernel/task.h>
@@ -25,9 +26,15 @@
 #define SC_RSHIFT_REL   (SC_RSHIFT | 0x80)
 #define SC_LCTRL        0x1D
 #define SC_LCTRL_REL    (SC_LCTRL | 0x80)
+#define SC_LALT         0x38
+#define SC_LALT_REL     (SC_LALT | 0x80)
 #define SC_CAPSLOCK     0x3A
 #define SC_BACKSPACE    0x0E
 #define SC_ENTER        0x1C
+#define SC_F1           0x3B
+#define SC_F2           0x3C
+#define SC_F3           0x3D
+#define SC_F4           0x3E
 
 // ---------------------------------------------------------------------------
 // Scan-code → ASCII tables (unshifted and shifted), indexed by scan code.
@@ -183,6 +190,7 @@ void keyboard_release_task(task_t *t)
 static volatile int shift_pressed = 0;
 static volatile int caps_lock_on  = 0;
 static volatile int ctrl_pressed  = 0;
+static volatile int alt_pressed   = 0;
 static volatile int extended_key  = 0;
 static volatile int g_sigint      = 0;
 
@@ -211,10 +219,20 @@ static void keyboard_irq_handler(registers_t *regs)
 
     if (sc == SC_LSHIFT_REL || sc == SC_RSHIFT_REL) { shift_pressed = 0; return; }
     if (sc == SC_LCTRL_REL)                          { ctrl_pressed  = 0; return; }
+    if (sc == SC_LALT_REL)                           { alt_pressed   = 0; return; }
     if (sc & 0x80)                                     return;
     if (sc == SC_LSHIFT || sc == SC_RSHIFT)          { shift_pressed = 1; return; }
     if (sc == SC_LCTRL)                              { ctrl_pressed  = 1; return; }
+    if (sc == SC_LALT)                               { alt_pressed   = 1; return; }
     if (sc == SC_CAPSLOCK) { caps_lock_on = !caps_lock_on; return; }
+
+    /* Alt+F1-F4: switch virtual TTY. */
+    if (alt_pressed) {
+        if (sc == SC_F1) { vtty_switch(0); return; }
+        if (sc == SC_F2) { vtty_switch(1); return; }
+        if (sc == SC_F3) { vtty_switch(2); return; }
+        if (sc == SC_F4) { vtty_switch(3); return; }
+    }
 
     if (sc >= sizeof(sc_ascii_lower)) return;
 
@@ -304,6 +322,14 @@ char keyboard_poll(void)
         }
     }
     return buf_count() ? buf_pop() : 0;
+}
+
+void keyboard_send_to(task_t *t, char c)
+{
+    if (!t) return;
+    int slot = kb_find_or_register(t);
+    if (slot >= 0)
+        slot_push(&kb_slots[slot], c);
 }
 
 char keyboard_getchar(void)

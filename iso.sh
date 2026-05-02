@@ -2,9 +2,13 @@
 set -e
 . ./build.sh
 
-mkdir -p isodir/boot/grub/i386-pc isodir/apps
+mkdir -p isodir/boot/grub/i386-pc isodir/apps isodir/src isodir/docs
 
 cp sysroot/boot/makar.kernel isodir/boot/makar.kernel
+
+# Copy source tree and docs onto the ISO so they're readable via VICS.
+cp -r src/. isodir/src/
+cp -r docs/. isodir/docs/
 cat > isodir/boot/grub/grub.cfg << EOF
 set default=0
 set timeout=5
