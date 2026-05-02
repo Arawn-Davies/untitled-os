@@ -18,7 +18,10 @@
 #define SYS_TERM_SIZE  204
 #define SYS_WRITE_FILE 205
 #define SYS_LS_DIR     206
-#define SYS_DISK_INFO  207
+#define SYS_DISK_INFO    207
+#define SYS_DELETE_FILE  208
+#define SYS_RENAME_FILE  209
+#define SYS_DELETE_DIR   210
 
 /* open() flags */
 #define O_RDONLY    0
@@ -185,6 +188,24 @@ static inline int sys_ls_dir(const char *path, char *buf, unsigned int bufsz)
 static inline int sys_disk_info(char *buf, unsigned int bufsz)
 {
     return (int)syscall2(SYS_DISK_INFO, (long)buf, (long)bufsz);
+}
+
+/* Delete a file. Returns 0 on success, -1 on error. */
+static inline int sys_delete_file(const char *path)
+{
+    return (int)syscall1(SYS_DELETE_FILE, (long)path);
+}
+
+/* Rename or move a file or directory. Returns 0 on success, -1 on error. */
+static inline int sys_rename_file(const char *old_path, const char *new_path)
+{
+    return (int)syscall2(SYS_RENAME_FILE, (long)old_path, (long)new_path);
+}
+
+/* Delete an empty directory. Returns 0 on success, -1 on error. */
+static inline int sys_delete_dir(const char *path)
+{
+    return (int)syscall1(SYS_DELETE_DIR, (long)path);
 }
 
 #endif

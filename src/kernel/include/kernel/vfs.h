@@ -110,6 +110,17 @@ int vfs_write_file(const char *path, const void *buf, uint32_t size);
 int vfs_file_exists(const char *path);
 
 /*
+ * vfs_delete_file – delete a file (FAT32 only).
+ * vfs_delete_dir  – delete an empty directory (FAT32 only).
+ * vfs_rename      – move or rename a file or directory (FAT32 only).
+ *
+ * All return 0 on success, negative on error.
+ */
+int vfs_delete_file(const char *path);
+int vfs_delete_dir(const char *path);
+int vfs_rename(const char *old_path, const char *new_path);
+
+/*
  * vfs_complete – enumerate directory entries for tab completion.
  * dir    : VFS path to enumerate (NULL → CWD).
  * prefix : passed through to cb context for caller-side filtering.

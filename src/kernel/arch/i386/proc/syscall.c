@@ -481,6 +481,43 @@ void syscall_dispatch(registers_t *regs)
         break;
     }
 
+    /* ------------------------------------------------------------------
+     * SYS_DELETE_FILE(208): delete a VFS file.
+     * EBX = path.
+     * Returns 0 on success, (uint32_t)-1 on error.
+     * ------------------------------------------------------------------ */
+    case SYS_DELETE_FILE: {
+        const char *path = (const char *)(uintptr_t)regs->ebx;
+        if (!path) { regs->eax = (uint32_t)-1; break; }
+        regs->eax = (vfs_delete_file(path) == 0) ? 0 : (uint32_t)-1;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * SYS_RENAME_FILE(209): rename/move a file or directory.
+     * EBX = old_path, ECX = new_path.
+     * Returns 0 on success, (uint32_t)-1 on error.
+     * ------------------------------------------------------------------ */
+    case SYS_RENAME_FILE: {
+        const char *old_path = (const char *)(uintptr_t)regs->ebx;
+        const char *new_path = (const char *)(uintptr_t)regs->ecx;
+        if (!old_path || !new_path) { regs->eax = (uint32_t)-1; break; }
+        regs->eax = (vfs_rename(old_path, new_path) == 0) ? 0 : (uint32_t)-1;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * SYS_DELETE_DIR(210): delete an empty directory.
+     * EBX = path.
+     * Returns 0 on success, (uint32_t)-1 on error.
+     * ------------------------------------------------------------------ */
+    case SYS_DELETE_DIR: {
+        const char *path = (const char *)(uintptr_t)regs->ebx;
+        if (!path) { regs->eax = (uint32_t)-1; break; }
+        regs->eax = (vfs_delete_dir(path) == 0) ? 0 : (uint32_t)-1;
+        break;
+    }
+
     default:
         /* Unknown syscall — return -ENOSYS. */
         regs->eax = (uint32_t)-38;   /* -ENOSYS */

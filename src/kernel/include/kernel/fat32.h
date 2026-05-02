@@ -103,6 +103,27 @@ int fat32_file_exists(const char *path);
  */
 int fat32_write_file(const char *path, const void *buf, uint32_t size);
 
+/*
+ * fat32_delete_file – delete a file and free its cluster chain.
+ * Returns 0 on success, -1 if not found or is a directory, -2 on I/O error.
+ */
+int fat32_delete_file(const char *path);
+
+/*
+ * fat32_delete_dir – delete an empty directory and free its clusters.
+ * Returns 0 on success, -5 if not empty, -1 if not found, -2 on I/O error.
+ */
+int fat32_delete_dir(const char *path);
+
+/*
+ * fat32_rename_file / fat32_rename_dir – move or rename a file or directory.
+ * Creates a new directory entry at new_path pointing to the same cluster chain,
+ * then marks the old entry as deleted.  new_path must not already exist.
+ * Returns 0 on success, -1 if old not found, -6 if new_path exists, -2 I/O error.
+ */
+int fat32_rename_file(const char *old_path, const char *new_path);
+int fat32_rename_dir(const char *old_path, const char *new_path);
+
 /* -------------------------------------------------------------------------
  * Format
  * ---------------------------------------------------------------------- */

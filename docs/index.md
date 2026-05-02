@@ -31,7 +31,13 @@ roadmap.
 | [keyboard](kernel/keyboard.md) | PS/2 keyboard driver (IRQ 1, scan-code set 1, ring buffer) |
 | [ide](kernel/ide.md) | ATA/IDE PIO driver (28-bit LBA read/write) |
 | [partition](kernel/partition.md) | MBR and GPT partition table driver |
-| [shell](kernel/shell.md) | Minimal interactive kernel command shell |
+| [shell](kernel/shell.md) | Interactive multi-TTY kernel command shell (rm, mv, cp, …) |
+
+| [fat32](kernel/fat32.md) | FAT32 filesystem driver (read, write, delete, rename) |
+| [vfs](kernel/vfs.md) | Virtual filesystem layer (unified path namespace) |
+| [syscall](kernel/syscall.md) | int 0x80 syscall dispatcher and userspace ABI |
+| [vmm](kernel/vmm.md) | Per-task page directory and ring-3 memory management |
+| [task](kernel/task.md) | Cooperative round-robin task scheduler |
 
 ## Standard library (libc)
 

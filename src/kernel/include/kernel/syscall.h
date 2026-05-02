@@ -29,7 +29,10 @@
 #define SYS_TERM_SIZE  204  /* uint32_t term_size() → (cols<<16)|rows           */
 #define SYS_WRITE_FILE 205  /* int write_file(path, buf, len)                   */
 #define SYS_LS_DIR     206  /* int ls_dir(path, buf, bufsz) → bytes written     */
-#define SYS_DISK_INFO  207  /* int disk_info(buf, bufsz) → bytes written        */
+#define SYS_DISK_INFO    207  /* int disk_info(buf, bufsz) → bytes written        */
+#define SYS_DELETE_FILE  208  /* int delete_file(path)                            */
+#define SYS_RENAME_FILE  209  /* int rename_file(old_path, new_path)              */
+#define SYS_DELETE_DIR   210  /* int delete_dir(path)                             */
 
 /*
  * tty_cell_t — one screen cell passed to SYS_PUTCH_AT.

@@ -25,8 +25,8 @@ typedef struct {
 
 static const man_entry_t man_table[] = {
     { "help",
-      "redirect to lsman",
-      "Usage: help\n\nAlias for lsman. Type 'lsman' for the full command list.\n"
+      "list all built-in commands (alias for lsman)",
+      "Usage: help\n\nAlias for lsman — prints the full command table.\n"
     },
     { "lsman",
       "list all built-in commands",
@@ -212,7 +212,7 @@ static void print_padded(const char *s, int width)
         t_putchar(' ');
 }
 
-static void cmd_lsman(int argc, char **argv)
+void cmd_lsman(int argc, char **argv)
 {
     (void)argc; (void)argv;
 

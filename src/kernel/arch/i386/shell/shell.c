@@ -461,6 +461,7 @@ static const shell_cmd_entry_t * const cmd_modules[] = {
     disk_cmds,
     fs_cmds,
     apps_cmds,
+    fileops_cmds,
     NULL,
 };
 
@@ -544,7 +545,7 @@ void shell_run(void)
         t_writestring("The GCC/C++ sibling of Medli\n");
         t_writestring(COPYRIGHT "\n");
         t_writestring("Released under the BSD-3 Clause Clear license\n\n");
-        t_writestring("Type 'lsman' for a list of commands.\n");
+        t_writestring("Type 'help' for a list of commands.\n");
         t_writestring("Welcome back, " SHELL_USERNAME "!\n\n");
 
     } else {
