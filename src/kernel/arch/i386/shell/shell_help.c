@@ -8,11 +8,11 @@
 #include "shell_priv.h"
 #include <kernel/tty.h>
 
+void cmd_lsman(int argc, char **argv);
+
 static void cmd_help(int argc, char **argv)
 {
-    (void)argc; (void)argv;
-    t_writestring("Type 'lsman' for a list of commands.\n");
-    t_writestring("Type 'man <cmd>' for details on a specific command.\n");
+    cmd_lsman(argc, argv);
 }
 
 static void cmd_version(int argc, char **argv)
