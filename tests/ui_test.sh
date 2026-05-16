@@ -93,7 +93,6 @@ stop_qemu() {
     if [ "$GUI" = "1" ]; then
         sleep 1
         local shutdown_keys='sendkey s
-sendkey e
 sendkey h
 sendkey u
 sendkey t

@@ -102,8 +102,7 @@ static int cmd_cat(int argc, char **argv)
 
 static int cmd_pwd(int argc, char **argv)
 {
-    (void)argc;
-    if (argv[1] && argv[1][0]) {
+    if (argc >= 2 && argv[1] && argv[1][0]) {
         write_fd(1, argv[1]);
         write_fd(1, "\n");
         return 0;
