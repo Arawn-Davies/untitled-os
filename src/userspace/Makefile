@@ -52,6 +52,7 @@ kbtester.elf: crt0.o kbtester.o
 
 install: all
 	mkdir -p $(ISODIR)/apps
+	rm -f $(ISODIR)/apps/ls.elf $(ISODIR)/apps/cp.elf $(ISODIR)/apps/mv.elf $(ISODIR)/apps/rm.elf
 	cp $(PROGS) $(ISODIR)/apps/
 
 install-headers:
