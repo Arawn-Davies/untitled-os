@@ -147,7 +147,7 @@ Round-robin scheduler with timer-driven preemption (PIT 100 Hz; IRQ 0 yields eve
 
 Per-task state (`task_t` in `kernel/task.h`):
 - `pid` - monotonically assigned (idle = 1, others from 2)
-- `cwd[VFS_PATH_MAX]` - inherited from creator; not yet authoritative (VFS still uses `s_cwd`)
+- `cwd[VFS_PATH_MAX]` - authoritative per-task working directory; inherited from creator on `task_create`; `vfs_getcwd()` / `vfs_cd()` route here through `task_current()`. Pre-tasking-init, `vfs.c` falls back to `s_boot_cwd`, which `tasking_init` then hands off to `idle->cwd`. VT0 at `/proc` and VT1 at `/cdrom/apps` are fully independent.
 - `tty` - TTY index (TASK_TTY_NONE for unbound); not yet authoritative (vtty.c still uses `vtty_tasks[]`)
 - `sig_pending` / `sig_mask`  Linux-style signal bitmasks (subsystem to follow)
 - `fd_table` - per-task fd table (`kernel/fd.h`); fds 0/1/2 pre-bound to stdin/stdout/stderr at `task_create`
@@ -314,7 +314,7 @@ Tracked here, pulled into branches one at a time so each PR stays focused.
 | 5 | **Keyboard rewrite** - full PS/2 set-1 + e0, layered decoder (scancode→keycode→ASCII/sentinel→router), IRQ-driven per-TTY rings with proper SPSC memory ordering, strict make/break separation, modifier state at decoder, key repeat / rollover / lost-IRQ recovery, `unsigned char` end-to-end (no sign-extension hazard for sentinel compares), escape-clean sentinels | ✅ shipped (#124) |
 | 5b | **Keyboard hardening** - `unsigned char` audit, typematic-repeat filter for modifiers, PS/2 LED sync, boot-time LED state read | ✅ shipped (#127) |
 | 6 | **Test-infra cleanup** - ccache, single-kernel/two-ISO, build-once fan-out CI, KVM gate | ✅ shipped (#125) |
-| 7 | **Per-task consumer migration** - vtty `task->tty` authoritative (drop `vtty_tasks[]` parallel array). VFS `task->cwd` and real per-task FD table remain on the queue. | ✅ partial (vtty done) |
+| 7 | **Per-task consumer migration** - vtty `task->tty` authoritative (drop `vtty_tasks[]` parallel array). FD table done (slice 14), cwd done (slice 15). | ✅ complete |
 | 8 | **Linux-style signal subsystem** - full sigaction table, `kill()` syscall, htop-style picker | ⏭ |
 | 9 | **Preemption hardening** - interrupt-safe `schedule()`, per-task tick accounting, runtime-tunable quantum, busy-loop ktest | ⏭ |
 | 10 | **Per-TTY screen buffers** - `vt_buf_t` backing grid per TTY, write-through to FB only when focused, repaint on Alt+Fn (deferred out of IRQ). tmux-style status bar at bottom row. `/proc` synthetic FS with `cpuinfo/meminfo/tasks/uname`. VGA-text fallback path stays on shared buffer (deferred). | ✅ shipped (this PR) |
@@ -322,7 +322,7 @@ Tracked here, pulled into branches one at a time so each PR stays focused.
 | 12 | **fork() readiness** - PD clone (CoW), fd dup, PID alloc, return-value split | ⏭ |
 | 13 | **UTF-8 terminal** with ASCII fallback / runtime mode switch | ⏭ deferred |
 | 14 | **Per-task FD table** - replace opaque `fd_table` placeholder with a real `fd_table_t` (kernel/fd.h); fds 0/1/2 pre-bound, SYS_READ/WRITE/OPEN/CLOSE/LSEEK route through the calling task's table. Foundation for pipe(2)/dup(2) and fork's fd dup. | ✅ shipped (this PR) |
-| 15 | **VFS `task->cwd` authoritative** - drop the `s_cwd` global in `vfs.c`; resolve relative paths against the calling task's cwd | ⏭ |
+| 15 | **VFS `task->cwd` authoritative** - drop the `s_cwd` global in `vfs.c`; resolve relative paths against the calling task's cwd | ✅ shipped (this PR) |
 | 16 | **VGA-fallback per-TTY** - route `tty.c` writes through `vt_buf` so VGA-text mode gets the same per-TTY isolation that VESA already has | ⏭ |
 
 ### Userspace / libc porting

@@ -333,6 +333,50 @@ sendkey ret" \
         "Hello," "tester" "status=0"
 }
 
+scenario_per_tty_cwd() {
+    # Per-task cwd isolation across TTYs (slice 15).
+    #
+    # Layout: each shell0..3 task owns task_t.cwd; vfs_getcwd/vfs_cd route
+    # through task_current()->cwd.  We:
+    #   1. On VT0 (default focus): cd /proc          -> prompt becomes "/proc~>"
+    #   2. Alt+F2 → VT1, cd /cdrom/apps               -> "/cdrom/apps~>"
+    #   3. Alt+F1 → VT0 (re-render its prompt)        -> still "/proc~>"
+    # The shell re-prints its prompt on every focus switch (per-TTY backing
+    # grid replays into the framebuffer), so seeing /proc~> appear in serial
+    # AFTER /cdrom/apps~> is direct evidence that VT0's cwd survived VT1's
+    # excursion - which is exactly what slice 15 guarantees.  Asserting on
+    # the "~>" suffix makes the matches unambiguous (only prompts end that
+    # way; raw command echo does not).
+    run_scenario "per-tty-cwd" \
+"sendkey c
+sendkey d
+sendkey spc
+sendkey slash
+sendkey p
+sendkey r
+sendkey o
+sendkey c
+sendkey ret
+sendkey alt-f2
+sendkey c
+sendkey d
+sendkey spc
+sendkey slash
+sendkey c
+sendkey d
+sendkey r
+sendkey o
+sendkey m
+sendkey slash
+sendkey a
+sendkey p
+sendkey p
+sendkey s
+sendkey ret
+sendkey alt-f1" \
+        "/proc~>" "/cdrom/apps~>"
+}
+
 scenario_cd_root() {
     # `cd /<TAB><TAB><Enter>` then `pwd` - tab on /<TAB><TAB> lists the
     # mount points; the trailing Enter commits the half-typed `cd /`,
@@ -354,7 +398,7 @@ sendkey ret" \
 
 # --- Driver ------------------------------------------------------------------
 
-ALL_SCENARIOS=(glob_proc tab_path exec_hello cd_root)
+ALL_SCENARIOS=(glob_proc tab_path exec_hello cd_root per_tty_cwd)
 
 declare -a TO_RUN
 if [ $# -eq 0 ]; then

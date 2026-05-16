@@ -556,6 +556,73 @@ static void test_fd_table(void)
 }
 
 /* ---------------------------------------------------------------------------
+ * Suite: per-task cwd
+ *
+ * Slice 15 migrated the VFS cwd off the global s_cwd onto task_t.cwd.
+ * These asserts pin the migration:
+ *   - vfs_getcwd() returns the calling task's cwd (pointer identity).
+ *   - vfs_cd() writes through to task_current()->cwd.
+ *   - Mutating a peer task's cwd does NOT change vfs_getcwd().
+ *   - Round-trip restores the original cwd cleanly.
+ * --------------------------------------------------------------------------- */
+static void test_cwd(void)
+{
+    ktest_begin("cwd",
+                "per-task cwd: vfs_getcwd routes to task_current, vfs_cd writes "
+                "through, peer-task cwd is isolated");
+
+    task_t *cur = task_current();
+    KTEST_ASSERT(cur != NULL);
+
+    /* vfs_getcwd points into the calling task's storage. */
+    KTEST_ASSERT(vfs_getcwd() == cur->cwd);
+
+    /* Snapshot so we can restore. */
+    char saved[VFS_PATH_MAX];
+    size_t n = strlen(cur->cwd);
+    if (n >= VFS_PATH_MAX) n = VFS_PATH_MAX - 1;
+    memcpy(saved, cur->cwd, n);
+    saved[n] = '\0';
+
+    /* Write through: vfs_cd("/") lands in cur->cwd. */
+    KTEST_ASSERT(vfs_cd("/") == 0);
+    KTEST_ASSERT(strcmp(cur->cwd, "/") == 0);
+    KTEST_ASSERT(strcmp(vfs_getcwd(), "/") == 0);
+
+    /* Isolation: poke a peer task's cwd; vfs_getcwd must not reflect it.
+     * task_get(0) is idle; if we're not idle, use index 0 as the peer.
+     * If we *are* idle (test_mode boot), reach for any other live slot.
+     * Falling back to skip if no peer exists keeps the test safe in
+     * minimal boot configurations. */
+    task_t *peer = NULL;
+    for (int i = 0; ; i++) {
+        task_t *t = task_get(i);
+        if (!t) break;
+        if (t != cur) { peer = t; break; }
+    }
+    if (peer) {
+        char peer_saved[VFS_PATH_MAX];
+        size_t pn = strlen(peer->cwd);
+        if (pn >= VFS_PATH_MAX) pn = VFS_PATH_MAX - 1;
+        memcpy(peer_saved, peer->cwd, pn);
+        peer_saved[pn] = '\0';
+
+        memcpy(peer->cwd, "/cdrom", 7);
+        KTEST_ASSERT(strcmp(vfs_getcwd(), "/") == 0);   /* unchanged */
+        KTEST_ASSERT(strcmp(peer->cwd, "/cdrom") == 0); /* but peer did change */
+
+        /* Restore peer cwd. */
+        memcpy(peer->cwd, peer_saved, strlen(peer_saved) + 1);
+    }
+
+    /* Restore caller's cwd via vfs_cd to exercise the full path. */
+    KTEST_ASSERT(vfs_cd(saved) == 0);
+    KTEST_ASSERT(strcmp(cur->cwd, saved) == 0);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
  * Suite: GDT
  *
  * Verifies that the GDT segment descriptors ring-3 entry depends on are
@@ -1444,6 +1511,10 @@ int ktest_run_all(void)
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 
+    test_cwd();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
     test_gdt();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
@@ -1525,6 +1596,7 @@ void ktest_bg_task(void)
     RUN(test_task);
     RUN(test_syscall);
     RUN(test_fd_table);
+    RUN(test_cwd);
     RUN(test_gdt);
     RUN(test_ring3_prereqs);
     RUN(test_idt);
