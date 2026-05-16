@@ -37,9 +37,11 @@ typedef struct task {
     uint32_t      user_brk;  /* current user-space heap break (0 = not a user process) */
 
     /* --- per-task working directory ---
-     * Owned by the task; resolved against by VFS calls when the per-task CWD
-     * slice migrates `vfs_getcwd()` off the global `s_cwd`. Until then this
-     * field is plumbed but not yet authoritative. */
+     * Authoritative storage for the task's cwd.  vfs_getcwd() / vfs_cd()
+     * read and write this field for the calling task; relative-path resolution
+     * in path_resolve() joins against it.  When the shell moves to userspace,
+     * SYS_GETCWD / SYS_CHDIR will become thin wrappers over the same field -
+     * no special-casing required. */
     char          cwd[VFS_PATH_MAX];
 
     /* --- TTY binding ---

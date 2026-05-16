@@ -7,7 +7,13 @@
  *   /cdrom/…   ISO9660 CD-ROM
  *
  * All VFS paths are absolute after normalisation.  Relative paths are
- * resolved against the current working directory (s_cwd).
+ * resolved against the calling task's cwd (task_current()->cwd).
+ *
+ * During boot (before tasking_init), there is no task_current().  Writers
+ * fall back to s_boot_cwd, which is then handed off to idle->cwd inside
+ * tasking_init via vfs_getcwd().  Post-tasking, every cwd read/write is
+ * per-task, so VT0 may sit in /hd/apps while VT1 sits in /cdrom/boot
+ * without cross-contamination.
  *
  * Path normalisation handles:
  *   - Multiple consecutive '/' characters  → collapsed to one
@@ -23,6 +29,7 @@
 #include <kernel/partition.h>
 #include <kernel/tty.h>
 #include <kernel/heap.h>
+#include <kernel/task.h>
 #include <string.h>
 #include <stddef.h>
 
@@ -30,9 +37,24 @@
  * Internal state
  * ---------------------------------------------------------------------- */
 
-static char s_cwd[VFS_PATH_MAX];   /* current working directory  */
+/*
+ * Pre-tasking-init scratch cwd.  vfs_init() / vfs_auto_mount() run before
+ * tasking_init() and need somewhere to record the initial cwd.  Once idle
+ * exists, cwd_buf() switches to task_current()->cwd and this buffer becomes
+ * the source for the one-time handoff inside tasking_init.
+ */
+static char s_boot_cwd[VFS_PATH_MAX] = "/";
 static int  s_cdrom_drive = -1;    /* IDE drive index of CD-ROM, -1 = none */
 static uint32_t s_boot_biosdev = 0xFFu; /* BIOS drive we booted from (0xFF = unknown) */
+
+/* Resolve the cwd backing store for the calling context.  Pre-tasking
+ * (vfs_init, vfs_auto_mount) returns the boot scratch buffer; once tasking
+ * is up every reader and writer hits the calling task's own cwd field. */
+static char *cwd_buf(void)
+{
+    task_t *t = task_current();
+    return t ? t->cwd : s_boot_cwd;
+}
 
 /* -------------------------------------------------------------------------
  * Filesystem identifiers returned by vfs_route()
@@ -110,14 +132,16 @@ static void path_normalize(const char *in, char *out, int outsz)
 /* -------------------------------------------------------------------------
  * path_resolve – resolve 'path' to an absolute VFS path stored in 'out'.
  *
- * Relative paths are joined to s_cwd.  NULL or empty path → CWD.
+ * Relative paths are joined to the calling task's cwd (or the boot scratch
+ * cwd if invoked before tasking_init).  NULL or empty path → CWD.
  * ---------------------------------------------------------------------- */
 static void path_resolve(const char *path, char *out)
 {
     char tmp[VFS_PATH_MAX * 2];
+    const char *cwd = cwd_buf();
 
     if (!path || !*path) {
-        path_normalize(s_cwd, out, VFS_PATH_MAX);
+        path_normalize(cwd, out, VFS_PATH_MAX);
         return;
     }
 
@@ -127,11 +151,11 @@ static void path_resolve(const char *path, char *out)
     }
 
     /* Relative: prepend CWD. */
-    int clen = (int)strlen(s_cwd);
+    int clen = (int)strlen(cwd);
     int plen = (int)strlen(path);
     /* Need clen + '/' + plen + NUL bytes total. */
     if (clen + 1 + plen + 1 <= (int)sizeof(tmp)) {
-        memcpy(tmp, s_cwd, (size_t)clen);
+        memcpy(tmp, cwd, (size_t)clen);
         tmp[clen] = '/';
         memcpy(tmp + clen + 1, path, (size_t)(plen + 1));
     } else {
@@ -200,8 +224,8 @@ static void ls_root(void)
 
 void vfs_init(void)
 {
-    s_cwd[0] = '/';
-    s_cwd[1] = '\0';
+    s_boot_cwd[0] = '/';
+    s_boot_cwd[1] = '\0';
     s_cdrom_drive = -1;
 
     /* Scan IDE bus for an ATAPI drive that contains a valid ISO9660 volume. */
@@ -218,37 +242,66 @@ void vfs_init(void)
 
 const char *vfs_getcwd(void)
 {
-    return s_cwd;
+    return cwd_buf();
 }
 
-void vfs_notify_hd_mounted(void)
+/*
+ * vfs_notify_hd_mounted / _unmounted / _cdrom_ejected
+ *
+ * Mount-state transitions can leave individual tasks parked under a mount
+ * point that just disappeared (or, for the hd-mounted case, sitting on "/"
+ * when /hd just became browsable).  Walk every live task and fix up each
+ * one's cwd independently - using cwd_buf() here would only mutate the
+ * caller's cwd, which is rarely the task that needs the adjustment.
+ *
+ * Pre-tasking-init this loop is a no-op (task_get returns NULL), and
+ * s_boot_cwd is rewritten directly so the same rules apply during the
+ * vfs_init / vfs_auto_mount window.
+ */
+static void fixup_cwd_hd_mounted(char *cwd)
 {
-    if (strcmp(s_cwd, "/") == 0)
-        memcpy(s_cwd, "/hd", 4);  /* includes NUL */
+    if (strcmp(cwd, "/") == 0)
+        memcpy(cwd, "/hd", 4);  /* includes NUL */
 }
 
-void vfs_notify_hd_unmounted(void)
+static void fixup_cwd_hd_unmounted(char *cwd)
 {
-    /* Reset CWD to "/" if it was somewhere under "/hd". */
-    if (s_cwd[1] == 'h' && s_cwd[2] == 'd' &&
-        (s_cwd[3] == '/' || s_cwd[3] == '\0')) {
-        s_cwd[0] = '/';
-        s_cwd[1] = '\0';
+    if (cwd[1] == 'h' && cwd[2] == 'd' &&
+        (cwd[3] == '/' || cwd[3] == '\0')) {
+        cwd[0] = '/';
+        cwd[1] = '\0';
     }
 }
+
+static void fixup_cwd_cdrom_ejected(char *cwd)
+{
+    if (cwd[1] == 'c' && cwd[2] == 'd' && cwd[3] == 'r' &&
+        cwd[4] == 'o' && cwd[5] == 'm' &&
+        (cwd[6] == '/' || cwd[6] == '\0')) {
+        cwd[0] = '/';
+        cwd[1] = '\0';
+    }
+}
+
+typedef void (*cwd_fixup_fn)(char *);
+
+static void apply_cwd_fixup(cwd_fixup_fn fn)
+{
+    fn(s_boot_cwd);
+    for (int i = 0; ; i++) {
+        task_t *t = task_get(i);
+        if (!t) break;
+        fn(t->cwd);
+    }
+}
+
+void vfs_notify_hd_mounted(void)   { apply_cwd_fixup(fixup_cwd_hd_mounted); }
+void vfs_notify_hd_unmounted(void) { apply_cwd_fixup(fixup_cwd_hd_unmounted); }
 
 void vfs_notify_cdrom_ejected(void)
 {
-    /* Mark the CD-ROM as gone so /cdrom paths are no longer served. */
     s_cdrom_drive = -1;
-
-    /* Reset CWD to "/" if it was somewhere under "/cdrom". */
-    if (s_cwd[1] == 'c' && s_cwd[2] == 'd' && s_cwd[3] == 'r' &&
-        s_cwd[4] == 'o' && s_cwd[5] == 'm' &&
-        (s_cwd[6] == '/' || s_cwd[6] == '\0')) {
-        s_cwd[0] = '/';
-        s_cwd[1] = '\0';
-    }
+    apply_cwd_fixup(fixup_cwd_cdrom_ejected);
 }
 
 /* -------------------------------------------------------------------------
@@ -344,9 +397,10 @@ void vfs_auto_mount(void)
     /* Report CD-ROM status (always registered by vfs_init if present). */
     if (s_cdrom_drive >= 0) {
         t_writestring("CD-ROM detected, accessible at /cdrom\n");
-        /* If no HDD was mounted, navigate CWD to /cdrom. */
+        /* If no HDD was mounted, navigate CWD to /cdrom.  Pre-tasking, this
+         * lands in s_boot_cwd; tasking_init then seeds idle->cwd from it. */
         if (!hd_mounted)
-            memcpy(s_cwd, "/cdrom", 7);   /* 7 includes the NUL terminator */
+            memcpy(cwd_buf(), "/cdrom", 7);   /* 7 includes NUL */
     }
 
     if (!hd_mounted && s_cdrom_drive < 0) {
@@ -401,11 +455,12 @@ int vfs_cd(const char *path)
 
     const char *drv;
     int fs = vfs_route(abs, &drv);
+    char *cwd = cwd_buf();
 
     switch (fs) {
     case VFS_FS_ROOT:
         /* Always valid. */
-        memcpy(s_cwd, abs, (size_t)(strlen(abs) + 1u));
+        memcpy(cwd, abs, (size_t)(strlen(abs) + 1u));
         return 0;
 
     case VFS_FS_HD:
@@ -418,8 +473,8 @@ int vfs_cd(const char *path)
             t_writestring("cd: directory not found\n");
             return -1;
         }
-        strncpy(s_cwd, abs, VFS_PATH_MAX - 1);
-        s_cwd[VFS_PATH_MAX - 1] = '\0';
+        strncpy(cwd, abs, VFS_PATH_MAX - 1);
+        cwd[VFS_PATH_MAX - 1] = '\0';
         return 0;
 
     case VFS_FS_CDROM:
@@ -428,16 +483,16 @@ int vfs_cd(const char *path)
             return -1;
         }
         /* No cheap directory check for ISO9660; optimistically update CWD. */
-        strncpy(s_cwd, abs, VFS_PATH_MAX - 1);
-        s_cwd[VFS_PATH_MAX - 1] = '\0';
+        strncpy(cwd, abs, VFS_PATH_MAX - 1);
+        cwd[VFS_PATH_MAX - 1] = '\0';
         return 0;
 
     case VFS_FS_PROC:
         /* /proc is flat: only "/proc" itself is a directory.  Reject
          * any deeper cd. */
         if (drv[0] == '/' && drv[1] == '\0') {
-            strncpy(s_cwd, abs, VFS_PATH_MAX - 1);
-            s_cwd[VFS_PATH_MAX - 1] = '\0';
+            strncpy(cwd, abs, VFS_PATH_MAX - 1);
+            cwd[VFS_PATH_MAX - 1] = '\0';
             return 0;
         }
         t_writestring("cd: not a directory\n");
@@ -643,7 +698,7 @@ int vfs_complete(const char *dir, const char *prefix,
                  fat32_complete_cb_t cb, void *ctx)
 {
     char abs[VFS_PATH_MAX];
-    path_resolve(dir ? dir : s_cwd, abs);
+    path_resolve(dir ? dir : cwd_buf(), abs);
 
     const char *drv;
     switch (vfs_route(abs, &drv)) {
