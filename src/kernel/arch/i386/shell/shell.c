@@ -56,6 +56,7 @@ static const char *history_get(int ago)
 
 /* Forward declaration - defined later in this file. */
 static void shell_print_prompt(void);
+static void shell_restore_screen(void);
 
 /* Search path for executables - also used by tab completion to enumerate
  * the available `*.elf` binaries when completing the first token. */
@@ -562,6 +563,51 @@ static int try_exec_path(const char *path, int argc, char **argv)
     return 0;
 }
 
+static int is_fsutil_alias(const char *cmd)
+{
+    return strcmp(cmd, "ls")  == 0 ||
+           strcmp(cmd, "cp")  == 0 ||
+           strcmp(cmd, "mv")  == 0 ||
+           strcmp(cmd, "rm")  == 0 ||
+           strcmp(cmd, "cat") == 0;
+}
+
+static int dispatch_fsutil_alias(int argc, char **argv)
+{
+    if (!is_fsutil_alias(argv[0]))
+        return 0;
+
+    static char fsutil_name[] = "fsutil";
+    char *fargv[SHELL_MAX_ARGS + 1];
+    int fac = 0;
+
+    fargv[fac++] = fsutil_name;
+    if (fac < SHELL_MAX_ARGS + 1)
+        fargv[fac++] = argv[0];
+    for (int i = 1; i < argc && fac < SHELL_MAX_ARGS + 1; i++)
+        fargv[fac++] = argv[i];
+
+    static char path_buf[VFS_PATH_MAX];
+    for (int p = 0; s_app_path[p]; p++) {
+        size_t dlen = strlen(s_app_path[p]);
+        size_t nlen = strlen(fsutil_name);
+        if (dlen + nlen + 4 >= VFS_PATH_MAX)
+            continue;
+        strncpy(path_buf, s_app_path[p], VFS_PATH_MAX - 1);
+        strncpy(path_buf + dlen, fsutil_name, VFS_PATH_MAX - 1 - dlen);
+        path_buf[dlen + nlen] = '\0';
+        if (try_exec_path(path_buf, fac, fargv)) {
+            shell_restore_screen();
+            return 1;
+        }
+    }
+
+    t_setcolor(SHELL_ERROR_COLOR_VGA);
+    t_writestring("fsutil backend missing (expected fsutil.elf in /cdrom/apps or /hd/apps)\n");
+    t_setcolor(SHELL_COLOR_VGA);
+    return 1;
+}
+
 /* Repaint the focused VT's backing grid to the framebuffer.  Called
  * after any command that may have painted directly to the FB (vix, any
  * ELF launched via exec) so the shell's accumulated output comes back
@@ -577,6 +623,9 @@ static void shell_restore_screen(void)
 
 static int shell_dispatch(int argc, char **argv)
 {
+    if (dispatch_fsutil_alias(argc, argv))
+        return 1;
+
     for (int m = 0; cmd_modules[m]; m++) {
         for (int i = 0; cmd_modules[m][i].name; i++) {
             if (strcmp(cmd_modules[m][i].name, argv[0]) == 0) {
