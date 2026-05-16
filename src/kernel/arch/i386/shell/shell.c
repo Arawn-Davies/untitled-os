@@ -66,6 +66,8 @@ static const char *const s_app_path[] = {
     NULL,
 };
 
+#define SHELL_ELF_EXT_LEN 4u /* strlen(".elf") */
+
 /* ---------------------------------------------------------------------------
  * readline_redraw – repaint the input line in-place and position cursors.
  *
@@ -552,7 +554,7 @@ static int try_exec_path(const char *path, int argc, char **argv)
         return 1;
     }
     size_t plen = strlen(path);
-    if (plen + 4 >= VFS_PATH_MAX)
+    if (plen + SHELL_ELF_EXT_LEN >= VFS_PATH_MAX)
         return 0;
     strncpy(with_ext, path, VFS_PATH_MAX - 1);
     strncpy(with_ext + plen, ".elf", 5);
@@ -591,10 +593,10 @@ static int dispatch_fsutil_alias(int argc, char **argv)
     for (int p = 0; s_app_path[p]; p++) {
         size_t dlen = strlen(s_app_path[p]);
         size_t nlen = strlen(fsutil_name);
-        if (dlen + nlen + 4 >= VFS_PATH_MAX)
+        if (dlen + nlen + SHELL_ELF_EXT_LEN >= VFS_PATH_MAX)
             continue;
-        strncpy(path_buf, s_app_path[p], VFS_PATH_MAX - 1);
-        strncpy(path_buf + dlen, fsutil_name, VFS_PATH_MAX - 1 - dlen);
+        memcpy(path_buf, s_app_path[p], dlen);
+        memcpy(path_buf + dlen, fsutil_name, nlen);
         path_buf[dlen + nlen] = '\0';
         if (try_exec_path(path_buf, fac, fargv)) {
             shell_restore_screen();
@@ -656,10 +658,10 @@ static int shell_dispatch(int argc, char **argv)
     for (int p = 0; s_app_path[p]; p++) {
         size_t dlen = strlen(s_app_path[p]);
         size_t nlen = strlen(argv[0]);
-        if (dlen + nlen + 4 >= VFS_PATH_MAX)
+        if (dlen + nlen + SHELL_ELF_EXT_LEN >= VFS_PATH_MAX)
             continue;
-        strncpy(path_buf, s_app_path[p], VFS_PATH_MAX - 1);
-        strncpy(path_buf + dlen, argv[0], VFS_PATH_MAX - 1 - dlen);
+        memcpy(path_buf, s_app_path[p], dlen);
+        memcpy(path_buf + dlen, argv[0], nlen);
         path_buf[dlen + nlen] = '\0';
         if (try_exec_path(path_buf, argc, argv)) {
             shell_restore_screen();

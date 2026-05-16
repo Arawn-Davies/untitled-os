@@ -10,7 +10,7 @@
 
 #include "syscall.h"
 
-static unsigned int ustrlen(const char *s)
+static unsigned int str_len(const char *s)
 {
     unsigned int n = 0;
     while (s[n]) n++;
@@ -28,7 +28,7 @@ static int streq(const char *a, const char *b)
 
 static void write_fd(int fd, const char *s)
 {
-    sys_write(fd, s, ustrlen(s));
+    sys_write(fd, s, str_len(s));
 }
 
 static int cmd_ls(int argc, char **argv)
@@ -100,8 +100,9 @@ static int cmd_cat(int argc, char **argv)
     return 0;
 }
 
-/* 64 KiB static buffer - matches the kernel's SYSCALL_FILE_MAX. */
-static unsigned char s_cp_buf[65536];
+/* 64 KiB static buffer - keep in sync with kernel syscall file max. */
+#define FSUTIL_CP_BUF_SIZE 65536u
+static unsigned char s_cp_buf[FSUTIL_CP_BUF_SIZE];
 
 static int cmd_cp(int argc, char **argv)
 {
