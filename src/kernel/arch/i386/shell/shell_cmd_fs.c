@@ -133,6 +133,13 @@ static void cmd_cd(int argc, char **argv)
     }
 }
 
+static void cmd_pwd(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    t_writestring(vfs_getcwd());
+    t_putchar('\n');
+}
+
 static void cmd_mkdir(int argc, char **argv)
 {
     if (argc < 2) {
@@ -392,6 +399,8 @@ const shell_cmd_entry_t fs_cmds[] = {
     { "ls",     cmd_ls     },
     { "cat",    cmd_cat    },
     { "cd",     cmd_cd     },
+    { "pwd",    cmd_pwd    },
+    { "PWD",    cmd_pwd    },
     { "mkdir",  cmd_mkdir  },
     { "mkfs",   cmd_mkfs   },
     { "isols",  cmd_isols  },
