@@ -450,7 +450,7 @@ sendkey shift-8
 sendkey shift-9
 sendkey 3
 sendkey minus
-sendkey 4
+sendkey 1
 sendkey shift-0
 sendkey shift-0
 sendkey ret
