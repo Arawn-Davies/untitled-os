@@ -98,6 +98,14 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 At boot (when `test_mode` is *not* in the cmdline), `ktest_bg_task` runs all suites silently in the background - only prints to VGA on failure; always writes `KTEST_BG: PASS/FAIL` to serial.
 
+**Black-box UI tests** (`tests/ui_test.sh`): boots `makar.iso` headless, drives keyboard input through QEMU's **HMP** (Human Monitor Protocol — the text-based control channel exposed by `-monitor unix:...`) via the `sendkey` command, and asserts on substrings in the serial mirror. Covers user-visible flows that `iso-test` doesn't: ELF exec → syscalls → output, shell tab completion, glob expansion, `cd`/`pwd`. **Not wired into CI** (the per-merge job was dropped in `a9b7474` — the framework's reliance on HMP timing made it flaky under the **TCG** (Tiny Code Generator — QEMU's interpreted/JIT CPU emulator, used because KVM is off by default per the note above) emulation that runs in the CI containers). Run locally before opening any PR that touches syscalls, shell, ELF exec, VFS, keyboard, or display:
+```sh
+./run.sh iso-build && ./tests/ui_test.sh        # all scenarios
+./tests/ui_test.sh exec-hello                   # one scenario
+UI_TEST_LOGDIR=/tmp/uilogs ./tests/ui_test.sh   # keep logs (serial + PPM screen dump)
+```
+**PPM** = Portable Pixmap, the screen-snapshot format HMP's `screendump` emits — useful for triaging visual-only regressions (cursor position, gutter rendering) that the serial mirror can't capture. Scenarios live as `scenario_<name>` shell functions in `tests/ui_test.sh`; add a new one alongside any PR that changes a user-facing path.
+
 **TODO:** 
 
 Startup ktests: On startup, before we start the shell task we need to run background ktests that test capabilities without affecting the loading screen output. 

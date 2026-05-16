@@ -203,6 +203,48 @@ sendkey ret" \
         "vendor_id" "GenuineIntel"
 }
 
+scenario_exec_hello() {
+    # `exec apps/hello.elf tester` prints "Hello, tester!\n" via sys_write
+    # on fd 2 (stderr = FD_KIND_VGA_SERIAL).  Verifies the per-task fd
+    # table end-to-end: elf_exec spawns a child task, task_create allocates
+    # its fd_table with fds 0/1/2 pre-bound, sys_write dispatches to
+    # serial through fd_get on the calling task's table.  Pre-#134 this
+    # path went through the global s_fds[]; if fd-table allocation or
+    # lookup regresses, the greeting never reaches COM1.
+    #
+    # Path is relative to /cdrom (the auto-CWD on CD-only boots) so the
+    # apps directory resolves without a /cdrom prefix.
+    run_scenario "exec-hello" \
+"sendkey e
+sendkey x
+sendkey e
+sendkey c
+sendkey spc
+sendkey a
+sendkey p
+sendkey p
+sendkey s
+sendkey slash
+sendkey h
+sendkey e
+sendkey l
+sendkey l
+sendkey o
+sendkey dot
+sendkey e
+sendkey l
+sendkey f
+sendkey spc
+sendkey t
+sendkey e
+sendkey s
+sendkey t
+sendkey e
+sendkey r
+sendkey ret" \
+        "Hello," "tester" "status=0"
+}
+
 scenario_cd_root() {
     # `cd /<TAB><TAB><Enter>` then `pwd` - tab on /<TAB><TAB> lists the
     # mount points; the trailing Enter commits the half-typed `cd /`,
@@ -224,7 +266,7 @@ sendkey ret" \
 
 # --- Driver ------------------------------------------------------------------
 
-ALL_SCENARIOS=(glob_proc tab_path cd_root)
+ALL_SCENARIOS=(glob_proc tab_path exec_hello cd_root)
 
 declare -a TO_RUN
 if [ $# -eq 0 ]; then
