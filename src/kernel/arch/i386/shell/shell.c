@@ -586,8 +586,16 @@ static int dispatch_fsutil_alias(int argc, char **argv)
     fargv[fac++] = fsutil_name;
     if (fac < SHELL_MAX_ARGS + 1)
         fargv[fac++] = argv[0];
-    for (int i = 1; i < argc && fac < SHELL_MAX_ARGS + 1; i++)
-        fargv[fac++] = argv[i];
+    int dropped_args = 0;
+    for (int i = 1; i < argc; i++) {
+        if (fac < SHELL_MAX_ARGS + 1) {
+            fargv[fac++] = argv[i];
+        } else {
+            dropped_args = 1;
+        }
+    }
+    if (dropped_args)
+        t_writestring("fsutil: warning: too many arguments, truncating extras\n");
 
     static char path_buf[VFS_PATH_MAX];
     for (int p = 0; s_app_path[p]; p++) {

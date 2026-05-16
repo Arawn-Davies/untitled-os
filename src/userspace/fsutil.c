@@ -103,6 +103,7 @@ static int cmd_cat(int argc, char **argv)
 /* 64 KiB static buffer - keep in sync with kernel syscall file max. */
 #define FSUTIL_CP_BUF_SIZE 65536u
 static unsigned char s_cp_buf[FSUTIL_CP_BUF_SIZE];
+static unsigned char s_cp_extra;
 
 static int cmd_cp(int argc, char **argv)
 {
@@ -123,14 +124,23 @@ static int cmd_cp(int argc, char **argv)
     }
 
     long n = sys_read(fd, s_cp_buf, (unsigned int)sizeof(s_cp_buf));
-    sys_close(fd);
-
     if (n < 0) {
         write_fd(1, "cp: read error on '");
         write_fd(1, src);
         write_fd(1, "'\n");
+        sys_close(fd);
         return 1;
     }
+
+    if ((unsigned long)n == (unsigned long)sizeof(s_cp_buf)) {
+        long more = sys_read(fd, &s_cp_extra, 1u);
+        if (more > 0) {
+            write_fd(1, "cp: source too large (max 64 KiB)\n");
+            sys_close(fd);
+            return 1;
+        }
+    }
+    sys_close(fd);
 
     if (sys_write_file(dst, s_cp_buf, (unsigned int)n) != 0) {
         write_fd(1, "cp: cannot write '");
