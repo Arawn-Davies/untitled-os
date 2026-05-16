@@ -81,23 +81,62 @@ send_script() {
     done <<< "$script"
 }
 
-run_scenario() {
-    local name=$1
-    local script=$2
-    shift 2
-    local expects=("$@")
+SERIAL_LOG="$LOGDIR/ui.serial"
+MONITOR_SOCK="$LOGDIR/ui.mon"
+QEMU_PID=""
 
-    local serial=$LOGDIR/$name.serial
-    local mon=$LOGDIR/$name.mon
-    local dump=$LOGDIR/$name.ppm
+stop_qemu() {
+    if [ -z "$QEMU_PID" ] || ! kill -0 "$QEMU_PID" 2>/dev/null; then
+        return 0
+    fi
 
-    rm -f "$serial" "$mon" "$dump"
+    if [ "$GUI" = "1" ]; then
+        sleep 1
+        local shutdown_keys='sendkey s
+sendkey e
+sendkey h
+sendkey u
+sendkey t
+sendkey d
+sendkey o
+sendkey w
+sendkey n
+sendkey ret'
+        send_script "$MONITOR_SOCK" "$shutdown_keys"
+        local exit_waited=0
+        while [ $exit_waited -lt 80 ] && kill -0 "$QEMU_PID" 2>/dev/null; do
+            sleep 0.1
+            exit_waited=$((exit_waited + 1))
+        done
+        if kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "WARN: kernel did not ACPI-off; sending HMP quit" >&2
+            echo "quit" | nc -U "$MONITOR_SOCK" >/dev/null 2>&1 || true
+            exit_waited=0
+            while [ $exit_waited -lt 50 ] && kill -0 "$QEMU_PID" 2>/dev/null; do
+                sleep 0.1
+                exit_waited=$((exit_waited + 1))
+            done
+        fi
+    else
+        echo "quit" | nc -U "$MONITOR_SOCK" >/dev/null
+        local exit_waited=0
+        while [ $exit_waited -lt 50 ] && kill -0 "$QEMU_PID" 2>/dev/null; do
+            sleep 0.1
+            exit_waited=$((exit_waited + 1))
+        done
+    fi
 
-    # -no-reboot stops a triple fault from looping the boot.  -no-shutdown
-    # is *only* set in headless mode (see DISPLAY_ARG/REBOOT_ARG above) -
-    # GUI mode lets the kernel's ACPI shutdown actually exit QEMU.
-    # $DISPLAY_ARG and $REBOOT_ARG are unquoted on purpose so they
-    # word-split into the right number of args.
+    if kill -0 "$QEMU_PID" 2>/dev/null; then
+        echo "WARN: QEMU did not exit on shutdown; killing" >&2
+        kill -9 "$QEMU_PID" 2>/dev/null
+    fi
+    wait "$QEMU_PID" 2>/dev/null
+    QEMU_PID=""
+}
+
+start_qemu() {
+    rm -f "$SERIAL_LOG" "$MONITOR_SOCK"
+
     # shellcheck disable=SC2086
     "$QEMU" \
         -cdrom "$ISO" \
@@ -105,47 +144,40 @@ run_scenario() {
         -vga std \
         $DISPLAY_ARG \
         $REBOOT_ARG \
-        -serial "file:$serial" \
-        -monitor "unix:$mon,server,nowait" \
+        -serial "file:$SERIAL_LOG" \
+        -monitor "unix:$MONITOR_SOCK,server,nowait" \
         &
-    local pid=$!
+    QEMU_PID=$!
+    trap 'stop_qemu' EXIT
 
-    # Wait up to ${BOOT_TIMEOUT:-90}s for "kernel: boot complete".  TCG
-    # under CI containers can take 30-60s to reach this marker on its
-    # own; bump UI_BOOT_TIMEOUT in the workflow if you see false fails.
     local boot_timeout=${UI_BOOT_TIMEOUT:-90}
     local waited=0
-    local max_ticks=$((boot_timeout * 2))   # 0.5s ticks
+    local max_ticks=$((boot_timeout * 2))
     while [ $waited -lt $max_ticks ]; do
-        if grep -q "kernel: boot complete" "$serial" 2>/dev/null; then break; fi
-        if ! kill -0 "$pid" 2>/dev/null; then
-            echo "FAIL [$name]: QEMU exited before boot-complete" >&2
+        if grep -q "kernel: boot complete" "$SERIAL_LOG" 2>/dev/null; then break; fi
+        if ! kill -0 "$QEMU_PID" 2>/dev/null; then
+            echo "FAIL: QEMU exited before boot-complete" >&2
             return 1
         fi
         sleep 0.5
         waited=$((waited + 1))
     done
     if [ $waited -ge $max_ticks ]; then
-        echo "FAIL [$name]: boot-complete marker never appeared (waited ${boot_timeout}s)" >&2
-        kill -9 "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+        echo "FAIL: boot-complete marker never appeared (waited ${boot_timeout}s)" >&2
         return 1
     fi
-    # Small grace period for the shell tasks (created after the marker)
-    # to register their kbd slots and print their prompts.
     sleep 1
 
-    # Wait for monitor socket.
     waited=0
-    while [ $waited -lt 30 ] && [ ! -S "$mon" ]; do
+    while [ $waited -lt 30 ] && [ ! -S "$MONITOR_SOCK" ]; do
         sleep 0.2
         waited=$((waited + 1))
     done
+    if [ ! -S "$MONITOR_SOCK" ]; then
+        echo "FAIL: monitor socket never appeared" >&2
+        return 1
+    fi
 
-    # Prepend `verbose on` so the shell mirrors output to COM1 for the
-    # duration of the test.  By default (Linux-style) the shell only
-    # writes to the framebuffer, which the serial log wouldn't see.
-    # The verbose toggle itself writes its confirmation to serial only
-    # AFTER the flag flips, so we can also assert that the toggle ran.
     local preamble='sendkey v
 sendkey e
 sendkey r
@@ -157,80 +189,59 @@ sendkey spc
 sendkey o
 sendkey n
 sendkey ret'
-    send_script "$mon" "$preamble"
+    send_script "$MONITOR_SOCK" "$preamble"
     sleep 0.8
+}
 
-    # Drive scenario keystrokes.
-    send_script "$mon" "$script"
+run_scenario() {
+    local name=$1
+    local script=$2
+    shift 2
+    local expects=("$@")
 
-    # Let commands drain.  Three seconds covers any current scenario;
-    # bump if a test starts running anything slow.
+    local dump=$LOGDIR/$name.ppm
+    local segment=$LOGDIR/$name.serial
+    rm -f "$dump" "$segment"
+
+    # Reset to a stable baseline (focused VT0, cwd=/cdrom/apps) so each
+    # scenario remains independent while reusing the same VM session.
+    local reset_script='sendkey alt-f1
+sendkey c
+sendkey d
+sendkey spc
+sendkey slash
+sendkey c
+sendkey d
+sendkey r
+sendkey o
+sendkey m
+sendkey slash
+sendkey a
+sendkey p
+sendkey p
+sendkey s
+sendkey ret'
+    send_script "$MONITOR_SOCK" "$reset_script"
+    sleep 0.6
+
+    local start_bytes=0
+    if [ -f "$SERIAL_LOG" ]; then
+        start_bytes=$(wc -c < "$SERIAL_LOG")
+    fi
+
+    send_script "$MONITOR_SOCK" "$script"
     sleep 3
 
-    # Snapshot the screen (handy for triage; not asserted on here).
-    echo "screendump $dump" | nc -U "$mon" >/dev/null
+    echo "screendump $dump" | nc -U "$MONITOR_SOCK" >/dev/null
     sleep 0.3
 
-    # Shutdown.  GUI mode types `shutdown<Enter>` into the focused shell
-    # so the kernel runs its real ACPI S5 path (port 0x604 / 0x2000),
-    # which both exercises that code path and gives the watcher a visible
-    # "Shutting down..." final frame before the window closes naturally.
-    # Headless mode skips straight to HMP `quit` for speed and to avoid
-    # depending on shell-task responsiveness during regression runs.
-    if [ "$GUI" = "1" ]; then
-        # Brief dwell so the watcher sees the screendump-final state
-        # before the shutdown command starts typing.
-        sleep 1
-        local shutdown_keys='sendkey s
-sendkey h
-sendkey u
-sendkey t
-sendkey d
-sendkey o
-sendkey w
-sendkey n
-sendkey ret'
-        send_script "$mon" "$shutdown_keys"
-        # ACPI S5 should drop QEMU within a couple seconds on TCG.
-        local exit_waited=0
-        while [ $exit_waited -lt 80 ] && kill -0 "$pid" 2>/dev/null; do
-            sleep 0.1
-            exit_waited=$((exit_waited + 1))
-        done
-        # Fall back to HMP quit if the kernel didn't power off (wedged
-        # shell, ACPI regression, etc).
-        if kill -0 "$pid" 2>/dev/null; then
-            echo "WARN [$name]: kernel did not ACPI-off; sending HMP quit" >&2
-            echo "quit" | nc -U "$mon" >/dev/null 2>&1 || true
-            exit_waited=0
-            while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
-                sleep 0.1
-                exit_waited=$((exit_waited + 1))
-            done
-        fi
-    else
-        echo "quit" | nc -U "$mon" >/dev/null
-
-        # Bounded shutdown.  If QEMU doesn't honour the HMP `quit` within
-        # 5s (monitor socket lost, kernel wedged, etc.) escalate to SIGKILL
-        # so a single hang can't burn the whole CI minute budget.
-        local exit_waited=0
-        while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
-            sleep 0.1
-            exit_waited=$((exit_waited + 1))
-        done
-    fi
-
-    if kill -0 "$pid" 2>/dev/null; then
-        echo "WARN [$name]: QEMU did not exit on shutdown; killing" >&2
-        kill -9 "$pid" 2>/dev/null
-    fi
-    wait "$pid" 2>/dev/null
+    local start_pos=$((start_bytes + 1))
+    tail -c +"$start_pos" "$SERIAL_LOG" > "$segment"
 
     # Assert every expected substring appears in serial.
     local missing=()
     for needle in "${expects[@]}"; do
-        if ! grep -qF -- "$needle" "$serial"; then
+        if ! grep -qF -- "$needle" "$segment"; then
             missing+=("$needle")
         fi
     done
@@ -240,7 +251,7 @@ sendkey ret'
         return 0
     else
         echo "FAIL [$name]: missing in serial: ${missing[*]}"
-        echo "       serial: $serial"
+        echo "       serial: $segment"
         echo "       dump:   $dump"
         return 1
     fi
@@ -477,12 +488,16 @@ fi
 
 fails=0
 total=0
+if ! start_qemu; then
+    exit 1
+fi
 for s in "${TO_RUN[@]}"; do
     total=$((total + 1))
     if ! "scenario_${s}"; then
         fails=$((fails + 1))
     fi
 done
+stop_qemu
 
 echo
 echo "ui_test: $((total - fails))/$total passed"

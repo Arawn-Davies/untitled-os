@@ -568,6 +568,7 @@ static int try_exec_path(const char *path, int argc, char **argv)
 static int is_fsutil_alias(const char *cmd)
 {
     return strcmp(cmd, "ls")  == 0 ||
+           strcmp(cmd, "pwd") == 0 ||
            strcmp(cmd, "cp")  == 0 ||
            strcmp(cmd, "mv")  == 0 ||
            strcmp(cmd, "rm")  == 0 ||
@@ -585,6 +586,9 @@ static int dispatch_fsutil_alias(int argc, char **argv)
 
     fargv[fac++] = fsutil_name;
     fargv[fac++] = argv[0];
+    if (strcmp(argv[0], "pwd") == 0 && fac < SHELL_MAX_ARGS + 1) {
+        fargv[fac++] = (char *)vfs_getcwd();
+    }
     int dropped_args = 0;
     for (int i = 1; i < argc; i++) {
         if (fac < SHELL_MAX_ARGS + 1) {
