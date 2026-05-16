@@ -135,7 +135,7 @@ Per-task state (`task_t` in `kernel/task.h`):
 - `cwd[VFS_PATH_MAX]` - inherited from creator; not yet authoritative (VFS still uses `s_cwd`)
 - `tty` - TTY index (TASK_TTY_NONE for unbound); not yet authoritative (vtty.c still uses `vtty_tasks[]`)
 - `sig_pending` / `sig_mask`  Linux-style signal bitmasks (subsystem to follow)
-- `fd_table` - opaque pointer (placeholder until per-task fd table lands)
+- `fd_table` - per-task fd table (`kernel/fd.h`); fds 0/1/2 pre-bound to stdin/stdout/stderr at `task_create`
 - `user_brk`, `page_dir`, `state`, `name`, `esp`, `stack`, `next`
 
 ### Syscall ABI (`int 0x80`, Linux i386 convention)
@@ -266,7 +266,7 @@ subsystems:
 - **Multi-TTY**: 4 shell tasks (`shell0`–`shell3`). `vtty.c` routes keyboard input via `task_t.tty` (authoritative) and tracks the focused slot. `vtty_switch()` defers the framebuffer repaint out of IRQ context to `vtty_drain_pending()`, which runs from the destination shell's `keyboard_getchar` poll loop. A tmux-style status bar lives in the reserved bottom row showing `Makar  VT0  VT1  VT2  VT3  ...  Alt+F1-F4` with the active slot highlighted.
 - **VIX**: Pane-aware text editor. Derives column/row counts from the active `vesa_pane_t` at runtime - works correctly at any VESA resolution. Modelled on ELKS/FUZIX vi: lightweight, stable, no heap after startup.
 - **Storage**: FAT32 (HDD/USB) + ISO 9660 (CD-ROM) via IDE PIO. VFS layer with CWD, auto-mount. Full read/write/delete/rename support on FAT32. Synthetic `/proc` mount exposes `cpuinfo`, `meminfo`, `tasks`, `uname` as read-only files generated on demand.
-- **Tasking**: Round-robin scheduler with timer-driven preemption (PIT 100 Hz, `SCHED_QUANTUM = 4` ticks → 40 ms slice). Per-task `pid`, `cwd`, `tty`, signal bitmasks, fd-table placeholder. User PD reaped on task exit. Background ktest harness runs before the shell prompt appears.
+- **Tasking**: Round-robin scheduler with timer-driven preemption (PIT 100 Hz, `SCHED_QUANTUM = 4` ticks → 40 ms slice). Per-task `pid`, `cwd`, `tty`, signal bitmasks, and real per-task fd table (`fd_table_t` in `kernel/fd.h`, 16 slots, fds 0/1/2 pre-bound to stdin/stdout/stderr). User PD reaped on task exit, fd table reaped on slot reuse. Background ktest harness runs before the shell prompt appears.
 - **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`) with argc/argv. Syscalls: `SYS_EXIT`, `SYS_READ`, `SYS_WRITE` (fd 1 = VGA, fd 2 = VGA + COM1 serial), `SYS_OPEN`, `SYS_CLOSE`, `SYS_LSEEK`, `SYS_BRK`, `SYS_DEBUG`, `SYS_YIELD`, plus Makar extensions (200–214 - terminal/file ops + `SYS_WRITE_SERIAL`). Apps: `calc.elf`, `hello.elf`, `ls.elf`, `echo.elf`, `vix.elf`, `diskinfo.elf`, `rm.elf`, `mv.elf`, `cp.elf`, `kbtester.elf`.
 - **Shell**: Inline editing, history, tab completion, Ctrl+C sigint. `lsman` / `man <cmd>` replace `help`. Built-in file ops: `rm`, `rmdir`, `mv`. `uptime` shows humanised h/m/s. `cat /proc/<entry>` for system introspection.
 - **GRUB**: Two-entry menu (Makar OS + Next available device), 5-second timeout.
@@ -306,7 +306,7 @@ Tracked here, pulled into branches one at a time so each PR stays focused.
 | 11 | **`ps`-style task listing** with privilege/state/CWD/TTY columns | ⏭ (covered by `cat /proc/tasks` for now) |
 | 12 | **fork() readiness** - PD clone (CoW), fd dup, PID alloc, return-value split | ⏭ |
 | 13 | **UTF-8 terminal** with ASCII fallback / runtime mode switch | ⏭ deferred |
-| 14 | **Per-task FD table** - replace global keyboard owner + opaque `fd_table` placeholder with a real array; pipe(2) / dup(2) fall out naturally | 🔥 **NEXT** |
+| 14 | **Per-task FD table** - replace opaque `fd_table` placeholder with a real `fd_table_t` (kernel/fd.h); fds 0/1/2 pre-bound, SYS_READ/WRITE/OPEN/CLOSE/LSEEK route through the calling task's table. Foundation for pipe(2)/dup(2) and fork's fd dup. | ✅ shipped (this PR) |
 | 15 | **VFS `task->cwd` authoritative** - drop the `s_cwd` global in `vfs.c`; resolve relative paths against the calling task's cwd | ⏭ |
 | 16 | **VGA-fallback per-TTY** - route `tty.c` writes through `vt_buf` so VGA-text mode gets the same per-TTY isolation that VESA already has | ⏭ |
 
@@ -329,8 +329,8 @@ The long-term goal is a self-hosting userspace. Prerequisites and approach:
    - Near-term stand-in: extend the existing Makar shell with more builtins (pipes, redirection, variables) rather than porting dash immediately.
 
 4. **File-descriptor layer**:
-   - Current `SYS_READ` only reads from the keyboard (fd 0). Needs a proper fd table mapping integers to VFS nodes/keyboard/serial.
-   - Once fds exist, pipes (`SYS_PIPE`) become straightforward.
+   - ✅ Per-task fd table landed (slice 14): each task owns a `fd_table_t` with fds 0/1/2 pre-bound to keyboard/VGA/VGA+serial; SYS_OPEN allocates higher slots, kind-tagged (`FD_KIND_FILE`, etc.).
+   - Still needed for a real POSIX layer: streaming file reads (drop the eager-buffer model), `dup`/`dup2`, and `pipe` (SYS_PIPE - sketchable once the table exists, since fd creation no longer has to round-trip through SYS_OPEN).
 
 5. **Process model**:
    - True POSIX processes require `fork` (COW) + separate address spaces. The current VMM can map per-task page directories; `fork` would clone one.

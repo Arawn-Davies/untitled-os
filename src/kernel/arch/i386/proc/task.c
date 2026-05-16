@@ -11,6 +11,7 @@
  */
 
 #include <kernel/task.h>
+#include <kernel/fd.h>
 #include <kernel/heap.h>
 #include <kernel/vmm.h>
 #include <kernel/paging.h>
@@ -93,7 +94,12 @@ void tasking_init(void)
     idle->tty      = TASK_TTY_NONE;
     idle->sig_pending = 0;
     idle->sig_mask    = 0;
-    idle->fd_table    = NULL;
+    /* Idle gets the default stdin/stdout/stderr table too: test_mode
+     * boots run ktest_run_all from this context, and any code path that
+     * dispatches int 0x80 from the idle context (ktests, in-kernel
+     * diagnostics) expects fds 0/1/2 to resolve. The cost is one
+     * fd_table_t (~520 B) for the lifetime of the kernel. */
+    idle->fd_table    = fd_table_create_default();
 
     task_pool_count = 1;
     current_task    = idle;
@@ -103,6 +109,14 @@ void tasking_init(void)
 task_t *task_create(const char *name, void (*entry)(void))
 {
     task_t *t = NULL;
+
+    /* Allocate the fd table up front so an OOM here can't leave a slot
+     * unlinked from the circular task list (the reclaim path mutates the
+     * list before populating, and a half-initialised DEAD slot off-list
+     * would loop-forever the next reclaim's "while prev->next != t"). */
+    fd_table_t *new_fds = fd_table_create_default();
+    if (!new_fds)
+        return NULL;
 
     /* Try to reclaim a DEAD slot before allocating a new one. */
     for (int i = 1; i < task_pool_count; i++) {
@@ -119,6 +133,14 @@ task_t *task_create(const char *name, void (*entry)(void))
             if (t->page_dir && t->page_dir != paging_kernel_pd())
                 vmm_free_pd(t->page_dir);
 
+            /* Reap the dead task's fd table (mirrors the PD reaper - we
+             * deliberately don't free it from task_exit to avoid running
+             * kfree from a context that's about to switch stacks). */
+            if (t->fd_table) {
+                fd_table_destroy(t->fd_table);
+                t->fd_table = NULL;
+            }
+
             /* Reuse the existing kernel stack. */
             memset(t->stack, 0, TASK_STACK_SIZE);
             break;
@@ -126,12 +148,16 @@ task_t *task_create(const char *name, void (*entry)(void))
     }
 
     if (!t) {
-        if (task_pool_count >= MAX_TASKS)
+        if (task_pool_count >= MAX_TASKS) {
+            fd_table_destroy(new_fds);
             return NULL;
+        }
 
         uint8_t *stack = (uint8_t *)kmalloc(TASK_STACK_SIZE);
-        if (!stack)
+        if (!stack) {
+            fd_table_destroy(new_fds);
             return NULL;
+        }
 
         t = &task_pool[task_pool_count++];
         /* Zero a freshly-claimed slot before populating, so unset fields
@@ -147,7 +173,7 @@ task_t *task_create(const char *name, void (*entry)(void))
     t->pid         = next_pid++;
     t->sig_pending = 0;
     t->sig_mask    = 0;
-    t->fd_table    = NULL;
+    t->fd_table    = new_fds;
 
     /* Inherit CWD and TTY binding from the creating task, mirroring POSIX
      * fork-then-exec semantics. */

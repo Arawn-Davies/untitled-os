@@ -4,15 +4,13 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <kernel/vfs.h>      /* VFS_PATH_MAX */
+#include <kernel/fd.h>       /* fd_table_t, TASK_MAX_FDS */
 
 /* Size of the private kernel stack allocated for each task. */
 #define TASK_STACK_SIZE  8192
 
 /* Maximum number of concurrent tasks (including the idle/kernel task). */
 #define MAX_TASKS        8
-
-/* Maximum file descriptors per task. Kept small until the FD table slice lands. */
-#define TASK_MAX_FDS     16
 
 /* TTY index meaning "not bound to any TTY". */
 #define TASK_TTY_NONE    (-1)
@@ -56,9 +54,10 @@ typedef struct task {
     uint32_t      sig_mask;
 
     /* --- file descriptors ---
-     * Opaque pointer until the FD table slice lands; NULL means "no fd table
-     * allocated yet - fall back to legacy global keyboard/serial routing". */
-    void         *fd_table;
+     * Per-task table; fds 0/1/2 pre-bound to stdin/stdout/stderr at
+     * task_create. Always allocated (even for idle, since ktest runs
+     * there in test_mode boots). See kernel/fd.h. */
+    fd_table_t   *fd_table;
 } task_t;
 
 /*

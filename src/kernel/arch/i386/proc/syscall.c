@@ -3,19 +3,19 @@
  *
  * Supported calls:
  *   SYS_EXIT  (1)  - terminate current task
- *   SYS_READ  (3)  - read from fd (0=keyboard, 3+ = open file)
- *   SYS_WRITE (4)  - write to fd  (1/2=VGA, 3+ = open file [NYI])
+ *   SYS_READ  (3)  - read from fd
+ *   SYS_WRITE (4)  - write to fd
  *   SYS_OPEN  (5)  - open a VFS path, returns fd
- *   SYS_CLOSE (6)  - close a file fd
+ *   SYS_CLOSE (6)  - close a fd
+ *   SYS_LSEEK (19) - seek within an open file fd
  *   SYS_BRK   (45) - expand/query user-space heap break
  *   SYS_YIELD (158)- cooperative yield
  *   SYS_DEBUG (100)- debug checkpoint (Makar extension)
  *
  * File descriptors:
- *   0 = stdin  (keyboard, blocking via keyboard_getchar)
- *   1 = stdout (VGA terminal)
- *   2 = stderr (VGA terminal, same as stdout)
- *   3–10 = open files (SYS_OPEN reads the whole file into a heap buffer)
+ *   Each task owns its own fd table (kernel/fd.h). On task_create, fds
+ *   0/1/2 are pre-bound to stdin (keyboard), stdout (VGA), stderr
+ *   (VGA + serial). SYS_OPEN allocates the lowest free slot.
  *
  * Interrupts stay disabled for the duration of the syscall (the isr_common_stub
  * begins with cli). keyboard_getchar() task_yield()s internally so other tasks
@@ -26,6 +26,7 @@
 #include <kernel/syscall.h>
 #include <kernel/isr.h>
 #include <kernel/task.h>
+#include <kernel/fd.h>
 #include <kernel/tty.h>
 #include <kernel/keyboard.h>
 #include <kernel/shell.h>
@@ -63,56 +64,6 @@ static void ls_cb(const char *name, int is_dir, void *ctx)
 }
 
 /* -------------------------------------------------------------------------
- * File descriptor table (global - only one user process runs at a time)
- * ------------------------------------------------------------------------- */
-
-#define FD_SLOT_COUNT  8   /* fds 3..10 */
-#define FD_FILE_BASE   3
-
-typedef struct {
-    int      valid;
-    uint8_t *data;     /* kmalloc'd, SYSCALL_FILE_MAX cap */
-    uint32_t size;     /* total bytes in data              */
-    uint32_t pos;      /* current read position            */
-} fd_slot_t;
-
-static fd_slot_t s_fds[FD_SLOT_COUNT];
-
-/* Convert a user-visible fd (>= FD_FILE_BASE) to a slot index, or -1. */
-static int fd_to_slot(int fd)
-{
-    int idx = fd - FD_FILE_BASE;
-    if (idx < 0 || idx >= FD_SLOT_COUNT)
-        return -1;
-    if (!s_fds[idx].valid)
-        return -1;
-    return idx;
-}
-
-/* Find the first free slot index, or -1 if the table is full. */
-static int alloc_slot(void)
-{
-    for (int i = 0; i < FD_SLOT_COUNT; i++) {
-        if (!s_fds[i].valid)
-            return i;
-    }
-    return -1;
-}
-
-void syscall_reset_fds(void)
-{
-    for (int i = 0; i < FD_SLOT_COUNT; i++) {
-        if (s_fds[i].valid) {
-            kfree(s_fds[i].data);
-            s_fds[i].valid = 0;
-            s_fds[i].data  = NULL;
-            s_fds[i].size  = 0;
-            s_fds[i].pos   = 0;
-        }
-    }
-}
-
-/* -------------------------------------------------------------------------
  * Checkpoint tracking
  * ------------------------------------------------------------------------- */
 
@@ -146,9 +97,10 @@ void syscall_dispatch(registers_t *regs)
      * EBX = fd, ECX = buf, EDX = len
      * Returns: bytes read (EAX), 0 on EOF, (uint32_t)-1 on error.
      *
-     * fd 0 (stdin): blocks via keyboard_getchar() until len bytes are
-     * available or '\n' is seen.
-     * fd 3+: reads from the in-memory file buffer opened by SYS_OPEN.
+     * The fd is looked up in the calling task's per-task fd table.
+     * KEYBOARD: line-buffered stdin via shell_readline.
+     * FILE:     reads from the in-memory buffer opened by SYS_OPEN.
+     * Other kinds (VGA / serial-out) are not readable.
      * ------------------------------------------------------------------ */
     case SYS_READ: {
         int      fd  = (int)regs->ebx;
@@ -157,7 +109,11 @@ void syscall_dispatch(registers_t *regs)
 
         if (!buf || len == 0) { regs->eax = 0; break; }
 
-        if (fd == FD_STDIN) {
+        task_t     *cur = task_current();
+        fd_entry_t *e   = fd_get(cur ? cur->fd_table : NULL, fd);
+        if (!e) { regs->eax = (uint32_t)-1; break; }
+
+        if (e->kind == FD_KIND_KEYBOARD) {
             /* Line-buffered stdin with echo, backspace, and cursor editing. */
             static char s_stdin_line[256];
             uint32_t cap = (len < sizeof(s_stdin_line)) ? len : (uint32_t)sizeof(s_stdin_line);
@@ -168,18 +124,16 @@ void syscall_dispatch(registers_t *regs)
             if (n > len) n = len;
             memcpy(buf, s_stdin_line, n);
             regs->eax = n;
-        } else {
-            int idx = fd_to_slot(fd);
-            if (idx < 0) { regs->eax = (uint32_t)-1; break; }
-
-            fd_slot_t *sl = &s_fds[idx];
-            uint32_t avail = sl->size - sl->pos;
+        } else if (e->kind == FD_KIND_FILE) {
+            uint32_t avail = e->size - e->pos;
             uint32_t n     = (len < avail) ? len : avail;
             if (n > 0) {
-                memcpy(buf, sl->data + sl->pos, n);
-                sl->pos += n;
+                memcpy(buf, e->data + e->pos, n);
+                e->pos += n;
             }
             regs->eax = n;   /* 0 signals EOF when avail was 0 */
+        } else {
+            regs->eax = (uint32_t)-1;   /* not a readable kind */
         }
         break;
     }
@@ -189,12 +143,12 @@ void syscall_dispatch(registers_t *regs)
      * EBX = fd, ECX = buf, EDX = len
      * Returns: bytes written (EAX), (uint32_t)-1 on error.
      *
-     * fd 1 (stdout) writes to the VGA/VESA terminal only.
-     * fd 2 (stderr) writes to the VGA/VESA terminal AND COM1 serial. This
-     *   matches the bare-metal kernel-debug convention: diagnostic output
-     *   reaches both the user's screen and the captured serial log
-     *   (ktest.log / gdb-serial.log) without an extra syscall.
-     * Writing to file fds is not yet implemented.
+     * VGA:        writes to the VGA/VESA terminal only.
+     * VGA_SERIAL: writes to the VGA/VESA terminal AND COM1 (stderr default;
+     *             diagnostic output reaches the user's screen and the
+     *             captured serial log without an extra syscall).
+     * SERIAL:     COM1 only.
+     * FILE:       not yet implemented (eager-buffer fd model).
      * ------------------------------------------------------------------ */
     case SYS_WRITE: {
         int         fd  = (int)regs->ebx;
@@ -203,13 +157,17 @@ void syscall_dispatch(registers_t *regs)
 
         if (!buf) { regs->eax = (uint32_t)-1; break; }
 
-        if (fd == FD_STDOUT) {
+        task_t     *cur = task_current();
+        fd_entry_t *e   = fd_get(cur ? cur->fd_table : NULL, fd);
+        if (!e) { regs->eax = (uint32_t)-1; break; }
+
+        if (e->kind == FD_KIND_VGA) {
             if (!ktest_muted) {
                 for (uint32_t i = 0; i < len; i++)
                     t_putchar(buf[i]);
             }
             regs->eax = len;
-        } else if (fd == FD_STDERR) {
+        } else if (e->kind == FD_KIND_VGA_SERIAL) {
             if (!ktest_muted) {
                 for (uint32_t i = 0; i < len; i++)
                     t_putchar(buf[i]);
@@ -217,8 +175,12 @@ void syscall_dispatch(registers_t *regs)
             for (uint32_t i = 0; i < len; i++)
                 Serial_WriteChar(buf[i]);
             regs->eax = len;
+        } else if (e->kind == FD_KIND_SERIAL) {
+            for (uint32_t i = 0; i < len; i++)
+                Serial_WriteChar(buf[i]);
+            regs->eax = len;
         } else {
-            /* File write not yet implemented. */
+            /* KEYBOARD and FILE: not writable through this fd today. */
             regs->eax = (uint32_t)-1;
         }
         break;
@@ -290,9 +252,10 @@ void syscall_dispatch(registers_t *regs)
      * SYS_OPEN(5): open a VFS path and return a file descriptor.
      * EBX = path (NUL-terminated string in user space)
      * ECX = flags (O_RDONLY=0; other modes not yet supported)
-     * Returns: fd >= FD_FILE_BASE on success, (uint32_t)-1 on error.
+     * Returns: fd on success, (uint32_t)-1 on error.
      *
      * The entire file is read into a heap buffer (cap: SYSCALL_FILE_MAX).
+     * Allocated in the calling task's per-task fd table.
      * ------------------------------------------------------------------ */
     case SYS_OPEN: {
         const char *path  = (const char *)(uintptr_t)regs->ebx;
@@ -300,8 +263,11 @@ void syscall_dispatch(registers_t *regs)
 
         if (!path) { regs->eax = (uint32_t)-1; break; }
 
-        int idx = alloc_slot();
-        if (idx < 0) { regs->eax = (uint32_t)-1; break; }  /* too many open files */
+        task_t *cur = task_current();
+        if (!cur || !cur->fd_table) { regs->eax = (uint32_t)-1; break; }
+
+        int fd = fd_alloc(cur->fd_table);
+        if (fd < 0) { regs->eax = (uint32_t)-1; break; }  /* too many open files */
 
         uint8_t *buf = (uint8_t *)kmalloc(SYSCALL_FILE_MAX);
         if (!buf)   { regs->eax = (uint32_t)-1; break; }
@@ -313,12 +279,13 @@ void syscall_dispatch(registers_t *regs)
             break;
         }
 
-        s_fds[idx].valid = 1;
-        s_fds[idx].data  = buf;
-        s_fds[idx].size  = out_sz;
-        s_fds[idx].pos   = 0;
+        fd_entry_t *e = &cur->fd_table->slots[fd];
+        e->kind = FD_KIND_FILE;
+        e->data = buf;
+        e->size = out_sz;
+        e->pos  = 0;
 
-        regs->eax = (uint32_t)(idx + FD_FILE_BASE);
+        regs->eax = (uint32_t)fd;
         break;
     }
 
@@ -328,17 +295,10 @@ void syscall_dispatch(registers_t *regs)
      * Returns: 0 on success, (uint32_t)-1 on error.
      * ------------------------------------------------------------------ */
     case SYS_CLOSE: {
-        int fd  = (int)regs->ebx;
-        int idx = fd_to_slot(fd);
-        if (idx < 0) { regs->eax = (uint32_t)-1; break; }
-
-        kfree(s_fds[idx].data);
-        s_fds[idx].valid = 0;
-        s_fds[idx].data  = NULL;
-        s_fds[idx].size  = 0;
-        s_fds[idx].pos   = 0;
-
-        regs->eax = 0;
+        int     fd  = (int)regs->ebx;
+        task_t *cur = task_current();
+        regs->eax = (fd_close(cur ? cur->fd_table : NULL, fd) == 0)
+                        ? 0 : (uint32_t)-1;
         break;
     }
 
@@ -409,19 +369,19 @@ void syscall_dispatch(registers_t *regs)
      * EBX = fd, ECX = offset, EDX = whence (0=SET,1=CUR,2=END)
      * ------------------------------------------------------------------ */
     case SYS_LSEEK: {
-        int fd     = (int)regs->ebx;
-        int offset = (int)regs->ecx;
-        int whence = (int)regs->edx;
-        int idx    = fd_to_slot(fd);
-        if (idx < 0) { regs->eax = (uint32_t)-1; break; }
-        fd_slot_t *sl = &s_fds[idx];
+        int     fd     = (int)regs->ebx;
+        int     offset = (int)regs->ecx;
+        int     whence = (int)regs->edx;
+        task_t *cur    = task_current();
+        fd_entry_t *e  = fd_get(cur ? cur->fd_table : NULL, fd);
+        if (!e || e->kind != FD_KIND_FILE) { regs->eax = (uint32_t)-1; break; }
         uint32_t new_pos;
         if (whence == 0)      new_pos = (uint32_t)offset;
-        else if (whence == 1) new_pos = (uint32_t)((int)sl->pos + offset);
-        else if (whence == 2) new_pos = (uint32_t)((int)sl->size + offset);
+        else if (whence == 1) new_pos = (uint32_t)((int)e->pos + offset);
+        else if (whence == 2) new_pos = (uint32_t)((int)e->size + offset);
         else { regs->eax = (uint32_t)-1; break; }
-        if (new_pos > sl->size) new_pos = sl->size;
-        sl->pos = new_pos;
+        if (new_pos > e->size) new_pos = e->size;
+        e->pos = new_pos;
         regs->eax = new_pos;
         break;
     }
