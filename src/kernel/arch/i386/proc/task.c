@@ -20,6 +20,7 @@
 #include <kernel/tty.h>
 #include <kernel/asm.h>
 #include <kernel/serial.h>
+#include <kernel/vfs.h>
 #include <string.h>
 
 /* -------------------------------------------------------------------------
@@ -89,8 +90,17 @@ void tasking_init(void)
     idle->next     = idle;               /* circular list of one for now             */
     idle->pid      = 1;
     idle->user_brk = 0;
-    idle->cwd[0]   = '/';
-    idle->cwd[1]   = '\0';
+    /* Seed idle->cwd from the boot-time scratch cwd that vfs_init() /
+     * vfs_auto_mount() populated (e.g. "/cdrom" on a CD-ROM boot).  This
+     * is the one-shot handoff: from this point onward vfs_getcwd() routes
+     * to task_current()->cwd, and the boot scratch buffer is unused. */
+    {
+        const char *boot_cwd = vfs_getcwd();
+        size_t n = strlen(boot_cwd);
+        if (n >= VFS_PATH_MAX) n = VFS_PATH_MAX - 1;
+        memcpy(idle->cwd, boot_cwd, n);
+        idle->cwd[n] = '\0';
+    }
     idle->tty      = TASK_TTY_NONE;
     idle->sig_pending = 0;
     idle->sig_mask    = 0;
