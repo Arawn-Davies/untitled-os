@@ -21,6 +21,9 @@ All build, test, and boot operations go through a single entrypoint:
 ./run.sh hdd-test       # clean → build kernel → HDD image → GDB boot test
 ./run.sh hdd-release    # HDD image only
 
+./run.sh ui-test        # black-box UI tests (headless QEMU, sendkey + serial grep)
+./run.sh ui-test-gui    # same but with visible QEMU window + paced typing
+
 # CI-style split modes (build once, run many — used by .github/workflows/build-test.yml)
 ./run.sh iso-build      # kernel + makar.iso + makar-test.iso, no run
 ./run.sh hdd-build      # kernel + makar-hdd-test.img, no run
@@ -98,13 +101,17 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 At boot (when `test_mode` is *not* in the cmdline), `ktest_bg_task` runs all suites silently in the background - only prints to VGA on failure; always writes `KTEST_BG: PASS/FAIL` to serial.
 
-**Black-box UI tests** (`tests/ui_test.sh`): boots `makar.iso` headless, drives keyboard input through QEMU's **HMP** (Human Monitor Protocol — the text-based control channel exposed by `-monitor unix:...`) via the `sendkey` command, and asserts on substrings in the serial mirror. Covers user-visible flows that `iso-test` doesn't: ELF exec → syscalls → output, shell tab completion, glob expansion, `cd`/`pwd`. **Not wired into CI** (the per-merge job was dropped in `a9b7474` — the framework's reliance on HMP timing made it flaky under the **TCG** (Tiny Code Generator — QEMU's interpreted/JIT CPU emulator, used because KVM is off by default per the note above) emulation that runs in the CI containers). Run locally before opening any PR that touches syscalls, shell, ELF exec, VFS, keyboard, or display:
+**Black-box UI tests** (`tests/ui_test.sh`, fronted by `./run.sh ui-test` / `ui-test-gui`): boots `makar.iso`, drives keyboard input through QEMU's **HMP** (Human Monitor Protocol — the text-based control channel exposed by `-monitor unix:...`) via the `sendkey` command, and asserts on substrings in the serial mirror. Covers user-visible flows that `iso-test` doesn't: ELF exec → syscalls → output, shell tab completion, glob expansion, `cd`/`pwd`. **Not wired into CI** (the per-merge job was dropped in `a9b7474` — the framework's reliance on HMP timing made it flaky under the **TCG** (Tiny Code Generator — QEMU's interpreted/JIT CPU emulator, used because KVM is off by default per the note above) emulation that runs in the CI containers). Run locally before opening any PR that touches syscalls, shell, ELF exec, VFS, keyboard, or display:
 ```sh
-./run.sh iso-build && ./tests/ui_test.sh        # all scenarios
-./tests/ui_test.sh exec-hello                   # one scenario
-UI_TEST_LOGDIR=/tmp/uilogs ./tests/ui_test.sh   # keep logs (serial + PPM screen dump)
+./run.sh ui-test                                # headless: all scenarios
+./run.sh ui-test exec-hello                     # headless: one scenario
+./run.sh ui-test-gui                            # visible window + paced typing (watch it run)
+./run.sh ui-test-gui exec-hello                 # one scenario, visible
+QEMU_DISPLAY=cocoa ./run.sh ui-test-gui         # override QEMU display backend (cocoa|gtk|sdl)
+KEY_DELAY=0.3      ./run.sh ui-test-gui         # slower typing (default 0.15 s/key)
+UI_TEST_LOGDIR=/tmp/uilogs ./run.sh ui-test     # keep logs (serial + PPM screen dump)
 ```
-**PPM** = Portable Pixmap, the screen-snapshot format HMP's `screendump` emits — useful for triaging visual-only regressions (cursor position, gutter rendering) that the serial mirror can't capture. Scenarios live as `scenario_<name>` shell functions in `tests/ui_test.sh`; add a new one alongside any PR that changes a user-facing path.
+The `ui-test-gui` target keeps a paced-typing visible-window mode for debugging; headless `ui-test` is the canonical "did the change regress anything" path and is what runs noise-free. **PPM** = Portable Pixmap, the screen-snapshot format HMP's `screendump` emits — useful for triaging visual-only regressions (cursor position, gutter rendering) that the serial mirror can't capture. Scenarios live as `scenario_<name>` shell functions in `tests/ui_test.sh`; add a new one alongside any PR that changes a user-facing path.
 
 **TODO:** 
 

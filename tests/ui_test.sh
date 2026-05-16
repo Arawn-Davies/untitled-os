@@ -38,6 +38,41 @@ else
     trap 'rm -rf "$LOGDIR"' EXIT
 fi
 
+# GUI=1 swaps `-display none` for the host's default QEMU window so you can
+# *watch* the scenario type itself out.  Override the specific backend with
+# QEMU_DISPLAY=cocoa|gtk|sdl when QEMU's default pick is wrong (macOS often
+# wants cocoa; X11/Wayland boxes want gtk).
+#
+# In GUI mode we also pace the sendkey stream with KEY_DELAY (default 0.15 s
+# per keystroke) so typing is visible.  Headless runs keep the original
+# burst-then-sleep cadence for speed.
+GUI=${GUI:-0}
+if [ "$GUI" = "1" ]; then
+    DISPLAY_ARG=${QEMU_DISPLAY:+-display $QEMU_DISPLAY}
+    KEY_DELAY=${KEY_DELAY:-0.15}
+else
+    DISPLAY_ARG="-display none"
+    KEY_DELAY=${KEY_DELAY:-0}
+fi
+
+# send_script - feed the HMP monitor a sendkey script, optionally spaced
+# with KEY_DELAY so a watching human can see each keystroke land.  The
+# socket is short-lived (one nc per line) when paced; this is slower but
+# the only way `sendkey` shows up frame-by-frame in the QEMU window.
+send_script() {
+    local mon=$1
+    local script=$2
+    if [ "$KEY_DELAY" = "0" ] || [ -z "$KEY_DELAY" ]; then
+        nc -U "$mon" <<< "$script" >/dev/null
+        return
+    fi
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        echo "$line" | nc -U "$mon" >/dev/null
+        sleep "$KEY_DELAY"
+    done <<< "$script"
+}
+
 run_scenario() {
     local name=$1
     local script=$2
@@ -52,11 +87,14 @@ run_scenario() {
 
     # -no-reboot + -no-shutdown keep a triple fault or kernel panic from
     # turning into an infinite reboot loop that hangs CI.
+    # $DISPLAY_ARG is unquoted on purpose so "-display none" word-splits
+    # into two args (or expands to nothing when GUI=1 + QEMU picks default).
+    # shellcheck disable=SC2086
     "$QEMU" \
         -cdrom "$ISO" \
         -m 256 \
         -vga std \
-        -display none \
+        $DISPLAY_ARG \
         -no-reboot -no-shutdown \
         -serial "file:$serial" \
         -monitor "unix:$mon,server,nowait" \
@@ -110,11 +148,11 @@ sendkey spc
 sendkey o
 sendkey n
 sendkey ret'
-    nc -U "$mon" <<< "$preamble" >/dev/null
+    send_script "$mon" "$preamble"
     sleep 0.8
 
     # Drive scenario keystrokes.
-    nc -U "$mon" <<< "$script" >/dev/null
+    send_script "$mon" "$script"
 
     # Let commands drain.  Three seconds covers any current scenario;
     # bump if a test starts running anything slow.

@@ -16,6 +16,8 @@
 #   ktest-run      Run ktest against an existing makar-test.iso
 #   gdb-iso-run    Run GDB ISO boot test against existing makar.iso
 #   gdb-hdd-run    Run GDB HDD boot test against existing makar-hdd-test.img
+#   ui-test        Black-box UI tests (headless QEMU + HMP sendkey + serial grep)
+#   ui-test-gui    Same as ui-test with visible QEMU window + paced typing
 #   clean          Remove all build artefacts
 #
 # Execution strategy (checked in order):
@@ -41,7 +43,9 @@
 #   DOCKER_PLATFORM   platform flag    (default: linux/amd64)
 #   HDD_IMG           interactive HDD  (default: makar-hdd.img)
 #   HDD_TEST_IMG      CI test HDD      (default: makar-hdd-test.img)
-#   QEMU_DISPLAY      passed to -display for iso-ktest-gui
+#   QEMU_DISPLAY      passed to -display for iso-ktest-gui and ui-test-gui
+#                     (e.g. cocoa on macOS, gtk on X11/Wayland)
+#   KEY_DELAY         inter-keystroke pause for ui-test-gui (default 0.15 s)
 
 set -e
 
@@ -60,7 +64,7 @@ export DOCKER_PLATFORM
 MODE="${1:-}"
 if [ -z "$MODE" ]; then
     echo "Usage: $0 <mode>"
-    echo "Modes: iso-boot  iso-test  iso-ktest-gui  iso-release  iso-build  ui-test"
+    echo "Modes: iso-boot  iso-test  iso-ktest-gui  iso-release  iso-build  ui-test  ui-test-gui"
     echo "       hdd-boot  hdd-test  hdd-release    hdd-build"
     echo "       ktest-run gdb-iso-run gdb-hdd-run  clean"
     exit 1
@@ -523,6 +527,27 @@ ui-test)
     _run_ui_test
     ;;
 
+# ── ui-test-gui ───────────────────────────────────────────────────────────────
+# Same as ui-test but with the QEMU display window visible and keystrokes
+# paced so a human can watch the scenarios drive the kernel.  Headless
+# ui-test stays the canonical "did the change regress anything" path; this
+# is the "what is actually happening on screen" path for debugging.
+# QEMU_DISPLAY (cocoa|gtk|sdl) overrides QEMU's default backend pick;
+# KEY_DELAY overrides the inter-keystroke pause (default 0.15 s).
+ui-test-gui)
+    QEMU_BIN=$(_host_qemu)
+    if [ -z "$QEMU_BIN" ]; then
+        echo "ERROR: ui-test-gui requires host QEMU with a display server." >&2
+        echo "       Install qemu-system-i386 with X11/SDL/Cocoa support." >&2
+        exit 1
+    fi
+    if [ ! -f "$REPO_ROOT/makar.iso" ]; then
+        _build_iso "CFLAGS='-O0 -g3' TEST_ISO=1"
+    fi
+    echo "==> Running UI tests with display window (GUI mode, paced typing)..."
+    ( cd "$REPO_ROOT" && GUI=1 bash tests/ui_test.sh "$@" )
+    ;;
+
 # ── iso-ktest-gui ─────────────────────────────────────────────────────────────
 # Requires host QEMU and a display server - cannot fall back to Docker.
 iso-ktest-gui)
@@ -607,7 +632,7 @@ clean)
 
 *)
     echo "ERROR: unknown mode '$MODE'" >&2
-    echo "Modes: iso-boot  iso-test  iso-ktest-gui  iso-release  iso-build  ui-test" >&2
+    echo "Modes: iso-boot  iso-test  iso-ktest-gui  iso-release  iso-build  ui-test  ui-test-gui" >&2
     echo "       hdd-boot  hdd-test  hdd-release    hdd-build" >&2
     echo "       ktest-run gdb-iso-run gdb-hdd-run  clean" >&2
     exit 1
