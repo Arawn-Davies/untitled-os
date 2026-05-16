@@ -80,12 +80,4 @@ void syscall_init(void);
  */
 void syscall_dispatch(registers_t *regs);
 
-/*
- * syscall_reset_fds - close all open file descriptors.
- *
- * Called by elf_exec() before launching a new process so that a fresh exec
- * does not inherit stale file handles from the previous run.
- */
-void syscall_reset_fds(void);
-
 #endif /* _KERNEL_SYSCALL_H */

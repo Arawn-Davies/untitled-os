@@ -14,6 +14,7 @@
 #include <kernel/paging.h>
 #include <kernel/descr_tbl.h>
 #include <kernel/task.h>
+#include <kernel/fd.h>
 #include <kernel/syscall.h>
 #include <kernel/serial.h>
 #include <kernel/tty.h>
@@ -471,6 +472,85 @@ static void test_syscall(void)
     regs.ebx = 0;
     syscall_dispatch(&regs);
     KTEST_ASSERT(regs.eax == 0);   /* kernel tasks have no user heap */
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: fd_table
+ *
+ * Verifies the per-task file descriptor table:
+ *   - the current task has a table with fds 0/1/2 pre-bound
+ *   - fd_get rejects out-of-range / unused slots
+ *   - fd_alloc returns the lowest free slot and skips occupied ones
+ *   - fd_close releases the slot for reuse and tears down file payloads
+ *   - a second, separately-allocated table is fully isolated from the
+ *     current task's table (the property that makes per-task fds work)
+ * ------------------------------------------------------------------------- */
+
+static void test_fd_table(void)
+{
+    ktest_begin("fd_table",
+                "per-task fd table: stdin/stdout/stderr binding, alloc/close, "
+                "isolation between tables");
+
+    task_t *cur = task_current();
+    KTEST_ASSERT(cur != NULL);
+    KTEST_ASSERT(cur->fd_table != NULL);
+
+    /* Pre-bound stdio. */
+    fd_entry_t *e0 = fd_get(cur->fd_table, 0);
+    fd_entry_t *e1 = fd_get(cur->fd_table, 1);
+    fd_entry_t *e2 = fd_get(cur->fd_table, 2);
+    KTEST_ASSERT(e0 && e0->kind == FD_KIND_KEYBOARD);
+    KTEST_ASSERT(e1 && e1->kind == FD_KIND_VGA);
+    KTEST_ASSERT(e2 && e2->kind == FD_KIND_VGA_SERIAL);
+
+    /* Out-of-range and free-slot lookups return NULL. */
+    KTEST_ASSERT(fd_get(cur->fd_table, -1) == NULL);
+    KTEST_ASSERT(fd_get(cur->fd_table, TASK_MAX_FDS) == NULL);
+    KTEST_ASSERT(fd_get(cur->fd_table, 5) == NULL);
+    KTEST_ASSERT(fd_get(NULL, 0) == NULL);
+
+    /* Allocate a separate table and prove it's independent of cur's. */
+    fd_table_t *aux = fd_table_create_default();
+    KTEST_ASSERT(aux != NULL);
+    KTEST_ASSERT(aux != cur->fd_table);
+
+    /* Lowest free slot in a fresh default table is 3. */
+    int a = fd_alloc(aux);
+    KTEST_ASSERT(a == 3);
+    aux->slots[a].kind = FD_KIND_FILE;
+    aux->slots[a].data = (uint8_t *)kmalloc(16);
+    KTEST_ASSERT(aux->slots[a].data != NULL);
+    aux->slots[a].size = 16;
+    aux->slots[a].pos  = 0;
+
+    /* Next alloc skips the now-occupied slot 3 -> 4. */
+    int b = fd_alloc(aux);
+    KTEST_ASSERT(b == 4);
+
+    /* The current task's table was not touched by aux mutations. */
+    KTEST_ASSERT(fd_get(cur->fd_table, 3) == NULL);
+    KTEST_ASSERT(fd_get(cur->fd_table, 4) == NULL);
+
+    /* Closing slot 3 frees its buffer and reopens the slot for alloc. */
+    KTEST_ASSERT(fd_close(aux, a) == 0);
+    KTEST_ASSERT(fd_get(aux, a) == NULL);
+    int c = fd_alloc(aux);
+    KTEST_ASSERT(c == 3);   /* lowest free again */
+
+    /* Close on an invalid fd is an error, not a crash. */
+    KTEST_ASSERT(fd_close(aux, 99) == -1);
+    KTEST_ASSERT(fd_close(aux, -1) == -1);
+    KTEST_ASSERT(fd_close(NULL, 0) == -1);
+
+    /* fd_table_destroy frees any open file payloads as well as the table. */
+    aux->slots[c].kind = FD_KIND_FILE;
+    aux->slots[c].data = (uint8_t *)kmalloc(8);
+    aux->slots[c].size = 8;
+    fd_table_destroy(aux);   /* no leaks even with an open file */
+    fd_table_destroy(NULL);  /* must accept NULL */
 
     ktest_summary();
 }
@@ -1360,6 +1440,10 @@ int ktest_run_all(void)
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 
+    test_fd_table();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
     test_gdt();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
@@ -1440,6 +1524,7 @@ void ktest_bg_task(void)
     RUN(test_vmm);
     RUN(test_task);
     RUN(test_syscall);
+    RUN(test_fd_table);
     RUN(test_gdt);
     RUN(test_ring3_prereqs);
     RUN(test_idt);

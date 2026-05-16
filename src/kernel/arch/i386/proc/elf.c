@@ -102,8 +102,9 @@ int elf_exec(const char *path, int argc, const char *const *argv)
         return -1;
     }
 
-    /* 3. Close any fds open from a previous exec and create page directory. */
-    syscall_reset_fds();
+    /* 3. Create the user page directory. (Per-task fd tables make a global
+     * reset unnecessary - the child task owns its own table from
+     * task_create and it's reaped when the task dies.) */
     uint32_t *pd = vmm_create_pd();
     if (!pd) {
         t_writestring("exec: vmm_create_pd failed\n");

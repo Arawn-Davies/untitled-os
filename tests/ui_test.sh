@@ -38,6 +38,49 @@ else
     trap 'rm -rf "$LOGDIR"' EXIT
 fi
 
+# GUI=1 swaps `-display none` for the host's default QEMU window so you can
+# *watch* the scenario type itself out.  Override the specific backend with
+# QEMU_DISPLAY=cocoa|gtk|sdl when QEMU's default pick is wrong (macOS often
+# wants cocoa; X11/Wayland boxes want gtk).
+#
+# In GUI mode we also pace the sendkey stream with KEY_DELAY (default 0.15 s
+# per keystroke) so typing is visible.  Headless runs keep the original
+# burst-then-sleep cadence for speed.
+GUI=${GUI:-0}
+if [ "$GUI" = "1" ]; then
+    DISPLAY_ARG=${QEMU_DISPLAY:+-display $QEMU_DISPLAY}
+    KEY_DELAY=${KEY_DELAY:-0.15}
+    # GUI mode drives a real kernel shutdown via the `shutdown` shell
+    # builtin (-> acpi_shutdown -> port 0x604/0x2000 -> QEMU exits on
+    # its own), so we must NOT pass -no-shutdown - that flag tells QEMU
+    # to pause instead of exit on guest power-off, which would deadlock
+    # the wait loop.  -no-reboot stays on so a triple fault still aborts
+    # cleanly instead of looping.
+    REBOOT_ARG="-no-reboot"
+else
+    DISPLAY_ARG="-display none"
+    KEY_DELAY=${KEY_DELAY:-0}
+    REBOOT_ARG="-no-reboot -no-shutdown"
+fi
+
+# send_script - feed the HMP monitor a sendkey script, optionally spaced
+# with KEY_DELAY so a watching human can see each keystroke land.  The
+# socket is short-lived (one nc per line) when paced; this is slower but
+# the only way `sendkey` shows up frame-by-frame in the QEMU window.
+send_script() {
+    local mon=$1
+    local script=$2
+    if [ "$KEY_DELAY" = "0" ] || [ -z "$KEY_DELAY" ]; then
+        nc -U "$mon" <<< "$script" >/dev/null
+        return
+    fi
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        echo "$line" | nc -U "$mon" >/dev/null
+        sleep "$KEY_DELAY"
+    done <<< "$script"
+}
+
 run_scenario() {
     local name=$1
     local script=$2
@@ -50,14 +93,18 @@ run_scenario() {
 
     rm -f "$serial" "$mon" "$dump"
 
-    # -no-reboot + -no-shutdown keep a triple fault or kernel panic from
-    # turning into an infinite reboot loop that hangs CI.
+    # -no-reboot stops a triple fault from looping the boot.  -no-shutdown
+    # is *only* set in headless mode (see DISPLAY_ARG/REBOOT_ARG above) -
+    # GUI mode lets the kernel's ACPI shutdown actually exit QEMU.
+    # $DISPLAY_ARG and $REBOOT_ARG are unquoted on purpose so they
+    # word-split into the right number of args.
+    # shellcheck disable=SC2086
     "$QEMU" \
         -cdrom "$ISO" \
         -m 256 \
         -vga std \
-        -display none \
-        -no-reboot -no-shutdown \
+        $DISPLAY_ARG \
+        $REBOOT_ARG \
         -serial "file:$serial" \
         -monitor "unix:$mon,server,nowait" \
         &
@@ -110,11 +157,11 @@ sendkey spc
 sendkey o
 sendkey n
 sendkey ret'
-    nc -U "$mon" <<< "$preamble" >/dev/null
+    send_script "$mon" "$preamble"
     sleep 0.8
 
     # Drive scenario keystrokes.
-    nc -U "$mon" <<< "$script" >/dev/null
+    send_script "$mon" "$script"
 
     # Let commands drain.  Three seconds covers any current scenario;
     # bump if a test starts running anything slow.
@@ -123,18 +170,59 @@ sendkey ret'
     # Snapshot the screen (handy for triage; not asserted on here).
     echo "screendump $dump" | nc -U "$mon" >/dev/null
     sleep 0.3
-    echo "quit" | nc -U "$mon" >/dev/null
 
-    # Bounded shutdown.  If QEMU doesn't honour the HMP `quit` within
-    # 5s (monitor socket lost, kernel wedged, etc.) escalate to SIGKILL
-    # so a single hang can't burn the whole CI minute budget.
-    local exit_waited=0
-    while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
-        sleep 0.1
-        exit_waited=$((exit_waited + 1))
-    done
+    # Shutdown.  GUI mode types `shutdown<Enter>` into the focused shell
+    # so the kernel runs its real ACPI S5 path (port 0x604 / 0x2000),
+    # which both exercises that code path and gives the watcher a visible
+    # "Shutting down..." final frame before the window closes naturally.
+    # Headless mode skips straight to HMP `quit` for speed and to avoid
+    # depending on shell-task responsiveness during regression runs.
+    if [ "$GUI" = "1" ]; then
+        # Brief dwell so the watcher sees the screendump-final state
+        # before the shutdown command starts typing.
+        sleep 1
+        local shutdown_keys='sendkey s
+sendkey h
+sendkey u
+sendkey t
+sendkey d
+sendkey o
+sendkey w
+sendkey n
+sendkey ret'
+        send_script "$mon" "$shutdown_keys"
+        # ACPI S5 should drop QEMU within a couple seconds on TCG.
+        local exit_waited=0
+        while [ $exit_waited -lt 80 ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 0.1
+            exit_waited=$((exit_waited + 1))
+        done
+        # Fall back to HMP quit if the kernel didn't power off (wedged
+        # shell, ACPI regression, etc).
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "WARN [$name]: kernel did not ACPI-off; sending HMP quit" >&2
+            echo "quit" | nc -U "$mon" >/dev/null 2>&1 || true
+            exit_waited=0
+            while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 0.1
+                exit_waited=$((exit_waited + 1))
+            done
+        fi
+    else
+        echo "quit" | nc -U "$mon" >/dev/null
+
+        # Bounded shutdown.  If QEMU doesn't honour the HMP `quit` within
+        # 5s (monitor socket lost, kernel wedged, etc.) escalate to SIGKILL
+        # so a single hang can't burn the whole CI minute budget.
+        local exit_waited=0
+        while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 0.1
+            exit_waited=$((exit_waited + 1))
+        done
+    fi
+
     if kill -0 "$pid" 2>/dev/null; then
-        echo "WARN [$name]: QEMU did not exit on quit; killing" >&2
+        echo "WARN [$name]: QEMU did not exit on shutdown; killing" >&2
         kill -9 "$pid" 2>/dev/null
     fi
     wait "$pid" 2>/dev/null
@@ -203,6 +291,48 @@ sendkey ret" \
         "vendor_id" "GenuineIntel"
 }
 
+scenario_exec_hello() {
+    # `exec apps/hello.elf tester` prints "Hello, tester!\n" via sys_write
+    # on fd 2 (stderr = FD_KIND_VGA_SERIAL).  Verifies the per-task fd
+    # table end-to-end: elf_exec spawns a child task, task_create allocates
+    # its fd_table with fds 0/1/2 pre-bound, sys_write dispatches to
+    # serial through fd_get on the calling task's table.  Pre-#134 this
+    # path went through the global s_fds[]; if fd-table allocation or
+    # lookup regresses, the greeting never reaches COM1.
+    #
+    # Path is relative to /cdrom (the auto-CWD on CD-only boots) so the
+    # apps directory resolves without a /cdrom prefix.
+    run_scenario "exec-hello" \
+"sendkey e
+sendkey x
+sendkey e
+sendkey c
+sendkey spc
+sendkey a
+sendkey p
+sendkey p
+sendkey s
+sendkey slash
+sendkey h
+sendkey e
+sendkey l
+sendkey l
+sendkey o
+sendkey dot
+sendkey e
+sendkey l
+sendkey f
+sendkey spc
+sendkey t
+sendkey e
+sendkey s
+sendkey t
+sendkey e
+sendkey r
+sendkey ret" \
+        "Hello," "tester" "status=0"
+}
+
 scenario_cd_root() {
     # `cd /<TAB><TAB><Enter>` then `pwd` - tab on /<TAB><TAB> lists the
     # mount points; the trailing Enter commits the half-typed `cd /`,
@@ -224,7 +354,7 @@ sendkey ret" \
 
 # --- Driver ------------------------------------------------------------------
 
-ALL_SCENARIOS=(glob_proc tab_path cd_root)
+ALL_SCENARIOS=(glob_proc tab_path exec_hello cd_root)
 
 declare -a TO_RUN
 if [ $# -eq 0 ]; then
