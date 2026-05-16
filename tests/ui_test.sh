@@ -50,9 +50,17 @@ GUI=${GUI:-0}
 if [ "$GUI" = "1" ]; then
     DISPLAY_ARG=${QEMU_DISPLAY:+-display $QEMU_DISPLAY}
     KEY_DELAY=${KEY_DELAY:-0.15}
+    # GUI mode drives a real kernel shutdown via the `shutdown` shell
+    # builtin (-> acpi_shutdown -> port 0x604/0x2000 -> QEMU exits on
+    # its own), so we must NOT pass -no-shutdown - that flag tells QEMU
+    # to pause instead of exit on guest power-off, which would deadlock
+    # the wait loop.  -no-reboot stays on so a triple fault still aborts
+    # cleanly instead of looping.
+    REBOOT_ARG="-no-reboot"
 else
     DISPLAY_ARG="-display none"
     KEY_DELAY=${KEY_DELAY:-0}
+    REBOOT_ARG="-no-reboot -no-shutdown"
 fi
 
 # send_script - feed the HMP monitor a sendkey script, optionally spaced
@@ -85,17 +93,18 @@ run_scenario() {
 
     rm -f "$serial" "$mon" "$dump"
 
-    # -no-reboot + -no-shutdown keep a triple fault or kernel panic from
-    # turning into an infinite reboot loop that hangs CI.
-    # $DISPLAY_ARG is unquoted on purpose so "-display none" word-splits
-    # into two args (or expands to nothing when GUI=1 + QEMU picks default).
+    # -no-reboot stops a triple fault from looping the boot.  -no-shutdown
+    # is *only* set in headless mode (see DISPLAY_ARG/REBOOT_ARG above) -
+    # GUI mode lets the kernel's ACPI shutdown actually exit QEMU.
+    # $DISPLAY_ARG and $REBOOT_ARG are unquoted on purpose so they
+    # word-split into the right number of args.
     # shellcheck disable=SC2086
     "$QEMU" \
         -cdrom "$ISO" \
         -m 256 \
         -vga std \
         $DISPLAY_ARG \
-        -no-reboot -no-shutdown \
+        $REBOOT_ARG \
         -serial "file:$serial" \
         -monitor "unix:$mon,server,nowait" \
         &
@@ -161,18 +170,59 @@ sendkey ret'
     # Snapshot the screen (handy for triage; not asserted on here).
     echo "screendump $dump" | nc -U "$mon" >/dev/null
     sleep 0.3
-    echo "quit" | nc -U "$mon" >/dev/null
 
-    # Bounded shutdown.  If QEMU doesn't honour the HMP `quit` within
-    # 5s (monitor socket lost, kernel wedged, etc.) escalate to SIGKILL
-    # so a single hang can't burn the whole CI minute budget.
-    local exit_waited=0
-    while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
-        sleep 0.1
-        exit_waited=$((exit_waited + 1))
-    done
+    # Shutdown.  GUI mode types `shutdown<Enter>` into the focused shell
+    # so the kernel runs its real ACPI S5 path (port 0x604 / 0x2000),
+    # which both exercises that code path and gives the watcher a visible
+    # "Shutting down..." final frame before the window closes naturally.
+    # Headless mode skips straight to HMP `quit` for speed and to avoid
+    # depending on shell-task responsiveness during regression runs.
+    if [ "$GUI" = "1" ]; then
+        # Brief dwell so the watcher sees the screendump-final state
+        # before the shutdown command starts typing.
+        sleep 1
+        local shutdown_keys='sendkey s
+sendkey h
+sendkey u
+sendkey t
+sendkey d
+sendkey o
+sendkey w
+sendkey n
+sendkey ret'
+        send_script "$mon" "$shutdown_keys"
+        # ACPI S5 should drop QEMU within a couple seconds on TCG.
+        local exit_waited=0
+        while [ $exit_waited -lt 80 ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 0.1
+            exit_waited=$((exit_waited + 1))
+        done
+        # Fall back to HMP quit if the kernel didn't power off (wedged
+        # shell, ACPI regression, etc).
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "WARN [$name]: kernel did not ACPI-off; sending HMP quit" >&2
+            echo "quit" | nc -U "$mon" >/dev/null 2>&1 || true
+            exit_waited=0
+            while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 0.1
+                exit_waited=$((exit_waited + 1))
+            done
+        fi
+    else
+        echo "quit" | nc -U "$mon" >/dev/null
+
+        # Bounded shutdown.  If QEMU doesn't honour the HMP `quit` within
+        # 5s (monitor socket lost, kernel wedged, etc.) escalate to SIGKILL
+        # so a single hang can't burn the whole CI minute budget.
+        local exit_waited=0
+        while [ $exit_waited -lt 50 ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 0.1
+            exit_waited=$((exit_waited + 1))
+        done
+    fi
+
     if kill -0 "$pid" 2>/dev/null; then
-        echo "WARN [$name]: QEMU did not exit on quit; killing" >&2
+        echo "WARN [$name]: QEMU did not exit on shutdown; killing" >&2
         kill -9 "$pid" 2>/dev/null
     fi
     wait "$pid" 2>/dev/null
