@@ -396,9 +396,75 @@ sendkey ret" \
         "cdrom"
 }
 
+scenario_calc_brackets() {
+    # Bracket/parenthesis arithmetic smoke test in calc.elf.
+    # Uses HMP sendkey and captures a screendump via run_scenario().
+    run_scenario "calc-brackets" \
+"sendkey e
+sendkey x
+sendkey e
+sendkey c
+sendkey spc
+sendkey a
+sendkey p
+sendkey p
+sendkey s
+sendkey slash
+sendkey c
+sendkey a
+sendkey l
+sendkey c
+sendkey dot
+sendkey e
+sendkey l
+sendkey f
+sendkey ret
+sendkey shift-9
+sendkey 2
+sendkey shift-8
+sendkey 3
+sendkey shift-0
+sendkey shift-8
+sendkey 4
+sendkey ret
+sendkey 6
+sendkey 9
+sendkey minus
+sendkey shift-9
+sendkey 6
+sendkey shift-8
+sendkey shift-9
+sendkey 9
+sendkey minus
+sendkey 1
+sendkey shift-0
+sendkey shift-0
+sendkey ret
+sendkey shift-9
+sendkey shift-9
+sendkey 8
+sendkey shift-8
+sendkey 2
+sendkey shift-0
+sendkey shift-8
+sendkey shift-9
+sendkey 3
+sendkey minus
+sendkey 4
+sendkey shift-0
+sendkey shift-0
+sendkey ret
+sendkey e
+sendkey x
+sendkey i
+sendkey t
+sendkey ret" \
+        "24" "21" "32"
+}
+
 # --- Driver ------------------------------------------------------------------
 
-ALL_SCENARIOS=(glob_proc tab_path exec_hello cd_root per_tty_cwd)
+ALL_SCENARIOS=(glob_proc tab_path exec_hello cd_root per_tty_cwd calc_brackets)
 
 declare -a TO_RUN
 if [ $# -eq 0 ]; then
