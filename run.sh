@@ -308,7 +308,7 @@ _run_ui_test() {
         return 0
     fi
     echo "==> Running UI tests (sendkey + serial grep)..."
-    ( cd "$REPO_ROOT" && bash tests/ui_test.sh )
+    ( cd "$REPO_ROOT" && bash tests/ui_test.sh "$@" )
 }
 
 # Run the GDB ISO boot-checkpoint test.
@@ -524,7 +524,7 @@ ui-test)
     if [ ! -f "$REPO_ROOT/makar.iso" ]; then
         _build_iso "CFLAGS='-O0 -g3' TEST_ISO=1"
     fi
-    _run_ui_test
+    _run_ui_test "${@:2}"
     ;;
 
 # ── ui-test-gui ───────────────────────────────────────────────────────────────
@@ -545,7 +545,9 @@ ui-test-gui)
         _build_iso "CFLAGS='-O0 -g3' TEST_ISO=1"
     fi
     echo "==> Running UI tests with display window (GUI mode, paced typing)..."
-    ( cd "$REPO_ROOT" && GUI=1 bash tests/ui_test.sh "$@" )
+    # "${@:2}" drops $1 (the mode token "ui-test-gui") so positional
+    # scenario names land at the script as bare scenario filters.
+    ( cd "$REPO_ROOT" && GUI=1 bash tests/ui_test.sh "${@:2}" )
     ;;
 
 # ── iso-ktest-gui ─────────────────────────────────────────────────────────────
