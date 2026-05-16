@@ -408,6 +408,7 @@ sendkey ret" \
 
 scenario_calc_brackets() {
     # Bracket/parenthesis arithmetic smoke test in calc.elf.
+    # Scenario baseline cwd is /cdrom/apps (set in run_scenario reset).
     # Uses HMP sendkey and captures a screendump via run_scenario().
     run_scenario "calc-brackets" \
 "sendkey e
@@ -415,11 +416,6 @@ sendkey x
 sendkey e
 sendkey c
 sendkey spc
-sendkey a
-sendkey p
-sendkey p
-sendkey s
-sendkey slash
 sendkey c
 sendkey a
 sendkey l
