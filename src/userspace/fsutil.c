@@ -103,7 +103,8 @@ static int cmd_cat(int argc, char **argv)
 /* 64 KiB static buffer - keep in sync with kernel syscall file max. */
 #define FSUTIL_CP_BUF_SIZE 65536u
 static unsigned char s_cp_buf[FSUTIL_CP_BUF_SIZE];
-static unsigned char s_cp_extra;
+/* Single-byte overflow probe used to detect sources larger than 64 KiB. */
+static unsigned char s_cp_overflow_byte;
 
 static int cmd_cp(int argc, char **argv)
 {
@@ -133,7 +134,7 @@ static int cmd_cp(int argc, char **argv)
     }
 
     if ((unsigned long)n == (unsigned long)sizeof(s_cp_buf)) {
-        long more = sys_read(fd, &s_cp_extra, 1u);
+        long more = sys_read(fd, &s_cp_overflow_byte, 1u);
         if (more > 0) {
             write_fd(1, "cp: source too large (max 64 KiB)\n");
             sys_close(fd);

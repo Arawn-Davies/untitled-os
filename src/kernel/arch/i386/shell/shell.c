@@ -584,8 +584,7 @@ static int dispatch_fsutil_alias(int argc, char **argv)
     int fac = 0;
 
     fargv[fac++] = fsutil_name;
-    if (fac < SHELL_MAX_ARGS + 1)
-        fargv[fac++] = argv[0];
+    fargv[fac++] = argv[0];
     int dropped_args = 0;
     for (int i = 1; i < argc; i++) {
         if (fac < SHELL_MAX_ARGS + 1) {
@@ -604,8 +603,7 @@ static int dispatch_fsutil_alias(int argc, char **argv)
         if (dlen + nlen + SHELL_ELF_EXT_LEN >= VFS_PATH_MAX)
             continue;
         memcpy(path_buf, s_app_path[p], dlen);
-        memcpy(path_buf + dlen, fsutil_name, nlen);
-        path_buf[dlen + nlen] = '\0';
+        memcpy(path_buf + dlen, fsutil_name, nlen + 1);
         if (try_exec_path(path_buf, fac, fargv)) {
             shell_restore_screen();
             return 1;
@@ -669,8 +667,7 @@ static int shell_dispatch(int argc, char **argv)
         if (dlen + nlen + SHELL_ELF_EXT_LEN >= VFS_PATH_MAX)
             continue;
         memcpy(path_buf, s_app_path[p], dlen);
-        memcpy(path_buf + dlen, argv[0], nlen);
-        path_buf[dlen + nlen] = '\0';
+        memcpy(path_buf + dlen, argv[0], nlen + 1);
         if (try_exec_path(path_buf, argc, argv)) {
             shell_restore_screen();
             return 1;
