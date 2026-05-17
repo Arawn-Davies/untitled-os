@@ -103,6 +103,11 @@ Open:
   (raw block devices `/dev/sdaN`, character devices `/dev/ttyS0` /
   `/dev/tty0`–`/dev/kbd`, plus `/dev/null|zero|random` — pairs with
   `#149`, since `fdisk /dev/sda` reads/writes through this layer)
+- [#151 — Adopt Medli-compatible `/Users/` `/Apps/` `/System/` layout](https://github.com/Arawn-Davies/Makar/issues/151)
+  (migrate today's flat `/apps/` to Medli's canonical FAT32 structure
+  from [`Paths.cs`](https://github.com/Arawn-Davies/Medli/blob/main/Medli/Common/Paths.cs)
+  so user data + binaries move between Makar and Medli without
+  translation)
 
 Already shipped:
 - `/proc/` synthetic filesystem with `cpuinfo`/`meminfo`/`tasks`/`uname`
