@@ -616,6 +616,9 @@ static int dispatch_fsutil_alias(int argc, char **argv)
         }
     }
 
+    if (strcmp(argv[0], "pwd") == 0)
+        return 0; /* fall back to builtin pwd when fsutil backend is missing */
+
     t_setcolor(SHELL_ERROR_COLOR_VGA);
     t_writestring("fsutil backend missing (expected fsutil.elf in /cdrom/apps or /hd/apps)\n");
     t_setcolor(SHELL_COLOR_VGA);
