@@ -108,6 +108,10 @@ Open:
   from [`Paths.cs`](https://github.com/Arawn-Davies/Medli/blob/main/Medli/Common/Paths.cs)
   so user data + binaries move between Makar and Medli without
   translation)
+- [#152 — Proper HDD install with GRUB2 (Ubuntu/Arch-style)](https://github.com/Arawn-Davies/Makar/issues/152)
+  (today's in-kernel `install` is fragile: whole-disk format, copied
+  `core.img`, no `grub.cfg` generation, no module verification.  Fix
+  it into a real installer — depends on #149/#150/#151)
 
 Already shipped:
 - `/proc/` synthetic filesystem with `cpuinfo`/`meminfo`/`tasks`/`uname`
