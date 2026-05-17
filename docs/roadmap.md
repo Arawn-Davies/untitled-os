@@ -86,6 +86,29 @@ Open:
 - [#145 — Preemption hardening](https://github.com/Arawn-Davies/Makar/issues/145)
   (slice 9)
 
+### Filesystem & devices
+
+The on-disk FAT32 layout adopts Medli's canonical structure
+(`/Users/`, `/Apps/x86/`, `/System/Data|Logs|Libraries|Modules/`,
+`/Temp/` — see [Medli's `Paths.cs`](https://github.com/Arawn-Davies/Medli/blob/main/Medli/Common/Paths.cs)
+and [Makar × Medli](makar-medli.md)).  Alongside it, the kernel
+exposes Unix-style synthetic mounts so userspace tools have a uniform
+handle on drivers and devices.
+
+Open:
+- [#149 — fdisk/cfdisk-style partition tool](https://github.com/Arawn-Davies/Makar/issues/149)
+  (interactive create/delete/resize for MBR + GPT; unblocks "install
+  Makar onto a blank disk" end-to-end)
+- [#150 — `/dev/` synthetic VFS](https://github.com/Arawn-Davies/Makar/issues/150)
+  (raw block devices `/dev/sdaN`, character devices `/dev/ttyS0` /
+  `/dev/tty0`–`/dev/kbd`, plus `/dev/null|zero|random` — pairs with
+  `#149`, since `fdisk /dev/sda` reads/writes through this layer)
+
+Already shipped:
+- `/proc/` synthetic filesystem with `cpuinfo`/`meminfo`/`tasks`/`uname`
+  (#129)
+- FAT32 R/W with auto-mount, ISO 9660 (`/cdrom`)
+
 ### Display + terminal
 
 Open:
