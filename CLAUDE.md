@@ -165,8 +165,11 @@ Authoritative table in `src/kernel/include/kernel/syscall.h`. Selected entries:
 | 5   | SYS_OPEN         | EBX = path, ECX = flags (returns fd) |
 | 6   | SYS_CLOSE        | EBX = fd |
 | 19  | SYS_LSEEK        | EBX = fd, ECX = offset, EDX = whence |
+| 37  | SYS_KILL         | EBX = pid, ECX = signo.  Returns 0 / -1. |
 | 45  | SYS_BRK          | EBX = new break (returns current/new break) |
+| 48  | SYS_SIGNAL       | EBX = signo, ECX = handler (SIG_DFL=0, SIG_IGN=1, or user fn).  Returns previous handler. |
 | 100 | SYS_DEBUG        | EBX = uint32 checkpoint (prints to VGA + serial) |
+| 119 | SYS_SIGRETURN    | invoked by the sigframe trampoline; not for direct userspace use |
 | 158 | SYS_YIELD        | - |
 | 200 | SYS_GETKEY       | raw single-char keyboard read |
 | 201–204 | SYS_PUTCH_AT / SET_CURSOR / TTY_CLEAR / TERM_SIZE | direct TTY ops for full-screen apps (vix) |
@@ -187,7 +190,7 @@ Stack: PS/2 IRQ → scancode (set-1 + 0xE0 prefix) → keycode (HID-style abstra
 - **IRQ-driven SPSC ring per task** (up to `KB_TASK_SLOTS=4`); `keyboard_getchar()` registers the caller and blocks-yields on its slot; `keyboard_poll()` is non-blocking.
 - **Make/break separation** is strict; modifier state is held at the decoder layer, not by consumers. Caps Lock toggle currently lacks a typematic-repeat filter (slice 5b).
 - **Ctrl+A** arms the pane-switch dispatcher (Ctrl-A,U / Ctrl-A,J).
-- **Ctrl+C** sets `g_sigint=1` AND routes `\x03` to the focused task's ring. `keyboard_sigint_consume()` atomically reads and clears `g_sigint`.
+- **Ctrl+C** delivers `SIGINT` to the focused task via `sig_send(kb_focused, SIGINT)` AND routes `\x03` to its ring (so raw-mode apps can still handle ^C cooperatively).  The legacy `kb_sigint` global + `keyboard_sigint_consume()` shim are gone — see `kernel/signal.h`.
 - **LED sync** is unimplemented — kernel never writes `0xED <bitmap>` to the PS/2 controller and does not read physical LED state at boot (slice 5b).
 - `kbtester.elf` is the live diagnostic — dumps every scancode/keycode/sentinel and the modifier state vector to serial.
 
@@ -218,6 +221,7 @@ Freestanding ELF binaries built with the cross-compiler. Link against `crt0.S` +
 | `diskinfo.elf` | partition table + FAT32 BPB dump via `SYS_DISK_INFO` |
 | `vix.elf` | pane-aware vi-style text editor; uses `SYS_PUTCH_AT` / `SYS_SET_CURSOR` / `SYS_TERM_SIZE` |
 | `kbtester.elf` | keyboard diagnostic — logs every event (scancode/keycode/sentinel/modifier) to serial via `SYS_WRITE_SERIAL` |
+| `sigtest.elf` | ring-3 signal verifier — installs a SIGUSR1 handler, self-sends, asserts the handler ran.  Pairs with the `user-sigusr1-handler` ui-test scenario. |
 | `help.elf` | replaced by `lsman` / `man <cmd>` shell builtins; kept for compatibility |
 
 ### ktest harness
@@ -282,9 +286,10 @@ subsystems:
 - **Multi-TTY**: 4 shell tasks (`shell0`–`shell3`). `vtty.c` routes keyboard input via `task_t.tty` (authoritative) and tracks the focused slot. `vtty_switch()` defers the framebuffer repaint out of IRQ context to `vtty_drain_pending()`, which runs from the destination shell's `keyboard_getchar` poll loop. A tmux-style status bar lives in the reserved bottom row showing `Makar  VT0  VT1  VT2  VT3  ...  Alt+F1-F4` with the active slot highlighted.
 - **VIX**: Pane-aware text editor. Derives column/row counts from the active `vesa_pane_t` at runtime - works correctly at any VESA resolution. Modelled on ELKS/FUZIX vi: lightweight, stable, no heap after startup.
 - **Storage**: FAT32 (HDD/USB) + ISO 9660 (CD-ROM) via IDE PIO. VFS layer with CWD, auto-mount. Full read/write/delete/rename support on FAT32. Synthetic `/proc` mount exposes `cpuinfo`, `meminfo`, `tasks`, `uname` as read-only files generated on demand.
-- **Tasking**: Round-robin scheduler with timer-driven preemption (PIT 100 Hz, `SCHED_QUANTUM = 4` ticks → 40 ms slice). Per-task `pid`, `cwd`, `tty`, signal bitmasks, and real per-task fd table (`fd_table_t` in `kernel/fd.h`, 16 slots, fds 0/1/2 pre-bound to stdin/stdout/stderr). User PD reaped on task exit, fd table reaped on slot reuse. Background ktest harness runs before the shell prompt appears.
-- **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`) with argc/argv. Syscalls: `SYS_EXIT`, `SYS_READ`, `SYS_WRITE` (fd 1 = VGA, fd 2 = VGA + COM1 serial), `SYS_OPEN`, `SYS_CLOSE`, `SYS_LSEEK`, `SYS_BRK`, `SYS_DEBUG`, `SYS_YIELD`, plus Makar extensions (200–214 - terminal/file ops + `SYS_WRITE_SERIAL`). Apps: `calc.elf`, `hello.elf`, `ls.elf`, `echo.elf`, `vix.elf`, `diskinfo.elf`, `rm.elf`, `mv.elf`, `cp.elf`, `kbtester.elf`.
-- **Shell**: Inline editing, history, tab completion, Ctrl+C sigint. `lsman` / `man <cmd>` replace `help`. Built-in file ops: `rm`, `rmdir`, `mv`. `uptime` shows humanised h/m/s. `cat /proc/<entry>` for system introspection.
+- **Tasking**: Round-robin scheduler with timer-driven preemption (PIT 100 Hz, `g_sched_quantum` default 4 ticks → 40 ms slice; runtime-tunable via `sched_quantum` shell builtin, 1..100 ticks).  `schedule()` is re-entrancy-guarded (`in_schedule` flag cleared before `task_switch` so fresh tasks don't trip it) and wraps its critical section in `irq_save_disable`/`irq_restore` so caller IF is preserved.  Per-task `pid`, `cwd`, `tty`, signal state (pending/mask + handler table), `kticks` (PIT-ticks-as-current, in `/proc/tasks`), real per-task fd table (`fd_table_t` in `kernel/fd.h`, 16 slots, fds 0/1/2 pre-bound to stdin/stdout/stderr). User PD reaped on task exit, fd table reaped on slot reuse. Background ktest harness runs before the shell prompt appears.
+- **Signals**: Linux i386 signal subsystem. Per-task handler table; default-terminate via `sig_deliver` in `schedule()`; ring-3 trampoline + `SYS_SIGRETURN` so user-installed handlers actually run.  Syscalls: `SYS_KILL(37)`, `SYS_SIGNAL(48)`, `SYS_SIGRETURN(119)`.  Ctrl+C routes through `sig_send(focused, SIGINT)` (no more `g_sigint`); shell tasks install `SIG_IGN` so they survive their own prompts.  SIGKILL bypasses mask and handler.  See `kernel/signal.h`.
+- **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`) with argc/argv. Syscalls: `SYS_EXIT`, `SYS_READ`, `SYS_WRITE` (fd 1 = VGA, fd 2 = VGA + COM1 serial), `SYS_OPEN`, `SYS_CLOSE`, `SYS_LSEEK`, `SYS_BRK`, `SYS_DEBUG`, `SYS_YIELD`, `SYS_KILL`, `SYS_SIGNAL`, `SYS_SIGRETURN`, plus Makar extensions (200–215 - terminal/file ops + `SYS_WRITE_SERIAL` + `SYS_GETCWD`). Apps: `calc.elf`, `hello.elf`, `vix.elf`, `diskinfo.elf`, `kbtester.elf`, `makbox.elf` (multicall busybox: `ls`/`cat`/`cp`/`mv`/`rm`/`rmdir`/`echo`/`pwd`), `sigtest.elf` (ring-3 signal verifier).
+- **Shell**: Inline editing, history, tab completion, Ctrl+C → SIGINT delivery to focused task. `lsman` / `man <cmd>` replace `help`. Built-in file ops: `rm`, `rmdir`, `mv`. `uptime` shows humanised h/m/s. `sched_quantum [n]` to read/set the preemption quantum. `cat /proc/<entry>` for system introspection.
 - **GRUB**: Two-entry menu (Makar OS + Next available device), 5-second timeout.
 
 ## Recently merged
