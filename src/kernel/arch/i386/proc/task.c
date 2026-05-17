@@ -110,6 +110,7 @@ void tasking_init(void)
      * diagnostics) expects fds 0/1/2 to resolve. The cost is one
      * fd_table_t (~520 B) for the lifetime of the kernel. */
     idle->fd_table    = fd_table_create_default();
+    idle->exec_params = NULL;
 
     task_pool_count = 1;
     current_task    = idle;
@@ -151,6 +152,13 @@ task_t *task_create(const char *name, void (*entry)(void))
                 t->fd_table = NULL;
             }
 
+            /* Reap an exec_params buffer that the child task never
+             * consumed (e.g. it was killed before exec_task_entry ran). */
+            if (t->exec_params) {
+                kfree(t->exec_params);
+                t->exec_params = NULL;
+            }
+
             /* Reuse the existing kernel stack. */
             memset(t->stack, 0, TASK_STACK_SIZE);
             break;
@@ -184,6 +192,7 @@ task_t *task_create(const char *name, void (*entry)(void))
     t->sig_pending = 0;
     t->sig_mask    = 0;
     t->fd_table    = new_fds;
+    t->exec_params = NULL;
 
     /* Inherit CWD and TTY binding from the creating task, mirroring POSIX
      * fork-then-exec semantics. */

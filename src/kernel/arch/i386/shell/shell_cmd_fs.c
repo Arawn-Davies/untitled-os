@@ -1,7 +1,10 @@
 /*
- * shell_cmd_fs.c -- filesystem shell commands (FAT32, ISO9660, VFS).
+ * shell_cmd_fs.c -- filesystem shell builtins.
  *
- * Commands: mount  umount  ls  cat  cd  mkdir  mkfs  isols  write  touch  cp
+ * Builtins live in the shell because they mutate parent state (cd) or are
+ * cheap kernel-side ops with no userland equivalent yet.  ls/cat/cp/mv/rm
+ * are external -- they ship as applets in fsutil.elf and are reached via
+ * the shell's PATH-lookup -> fsutil-fallback chain in shell.c.
  */
 
 #include "shell_priv.h"
@@ -14,10 +17,6 @@
 #include <kernel/ide.h>
 
 static disk_parts_t s_cmd_parts;
-
-/* ---------------------------------------------------------------------------
- * FAT32 commands
- * --------------------------------------------------------------------------- */
 
 static void cmd_mount(int argc, char **argv)
 {
@@ -39,7 +38,7 @@ static void cmd_mount(int argc, char **argv)
     if (part_idx < 0 || part_idx >= s_cmd_parts.count) {
         t_writestring("mount: invalid partition number");
         if (s_cmd_parts.count > 0) {
-            t_writestring(" (valid: 1–");
+            t_writestring(" (valid: 1-");
             t_dec((uint32_t)s_cmd_parts.count);
             t_putchar(')');
         }
@@ -84,42 +83,6 @@ static void cmd_umount(int argc, char **argv)
     t_writestring("Volume unmounted.\n");
 }
 
-static void cmd_ls(int argc, char **argv)
-{
-    if (argc < 2) {
-        t_writestring(vfs_getcwd());
-        t_writestring(":\n");
-        vfs_ls(NULL);
-        return;
-    }
-    /* Iterate every path argument so wildcard expansions like `ls /proc/*`
-     * list every match instead of only the first.  Header line per target
-     * mirrors GNU ls when multiple operands are given. */
-    for (int i = 1; i < argc; i++) {
-        if (argc > 2) {
-            if (i > 1) t_putchar('\n');
-            t_writestring(argv[i]);
-            t_writestring(":\n");
-        } else {
-            t_writestring(argv[1]);
-            t_writestring(":\n");
-        }
-        vfs_ls(argv[i]);
-    }
-}
-
-static void cmd_cat(int argc, char **argv)
-{
-    if (argc < 2) {
-        t_writestring("Usage: cat <file>...\n");
-        return;
-    }
-    /* Concatenate every file given - lets wildcards (`cat /proc/*`) emit
-     * the whole set in one shot, matching bash/cat semantics. */
-    for (int i = 1; i < argc; i++)
-        vfs_cat(argv[i]);
-}
-
 static void cmd_cd(int argc, char **argv)
 {
     if (argc < 2) {
@@ -142,10 +105,10 @@ static void cmd_mkdir(int argc, char **argv)
     for (int i = 1; i < argc; i++) {
         int err = vfs_mkdir(argv[i]);
         switch (err) {
-        case  0: break;  /* silent on success when batching, like coreutils */
-        case -1: t_writestring("mkdir: path error: ");   t_writestring(argv[i]); t_putchar('\n'); break;
-        case -2: t_writestring("mkdir: I/O error: ");    t_writestring(argv[i]); t_putchar('\n'); break;
-        case -4: t_writestring("mkdir: disk full: ");    t_writestring(argv[i]); t_putchar('\n'); break;
+        case  0: break;
+        case -1: t_writestring("mkdir: path error: ");    t_writestring(argv[i]); t_putchar('\n'); break;
+        case -2: t_writestring("mkdir: I/O error: ");     t_writestring(argv[i]); t_putchar('\n'); break;
+        case -4: t_writestring("mkdir: disk full: ");     t_writestring(argv[i]); t_putchar('\n'); break;
         case -6: t_writestring("mkdir: already exists: ");t_writestring(argv[i]); t_putchar('\n'); break;
         default:
             if (err < 0) {
@@ -180,7 +143,7 @@ static void cmd_mkfs(int argc, char **argv)
     if (part_idx < 0 || part_idx >= s_cmd_parts.count) {
         t_writestring("mkfs: invalid partition number");
         if (s_cmd_parts.count > 0) {
-            t_writestring(" (valid: 1–");
+            t_writestring(" (valid: 1-");
             t_dec((uint32_t)s_cmd_parts.count);
             t_putchar(')');
         }
@@ -220,10 +183,6 @@ static void cmd_mkfs(int argc, char **argv)
     t_putchar('\n');
 }
 
-/* ---------------------------------------------------------------------------
- * ISO9660 commands
- * --------------------------------------------------------------------------- */
-
 static void cmd_isols(int argc, char **argv)
 {
     if (argc < 2) {
@@ -240,10 +199,6 @@ static void cmd_isols(int argc, char **argv)
     else if (err)
         t_writestring("isols: I/O error\n");
 }
-
-/* ---------------------------------------------------------------------------
- * File I/O commands
- * --------------------------------------------------------------------------- */
 
 static void cmd_write(int argc, char **argv)
 {
@@ -329,74 +284,14 @@ static void cmd_touch(int argc, char **argv)
     }
 }
 
-static uint8_t s_cp_buf[64u * 1024u];
-
-static void cmd_cp(int argc, char **argv)
-{
-    if (argc < 3) {
-        t_writestring("Usage: cp <src> <dst>\n");
-        return;
-    }
-
-    static char s_cp_src[VFS_PATH_MAX];
-    static char s_cp_dst[VFS_PATH_MAX];
-    const char *cwd = vfs_getcwd();
-
-    const char *paths[2] = { argv[1], argv[2] };
-    char       *outs [2] = { s_cp_src, s_cp_dst };
-
-    for (int i = 0; i < 2; i++) {
-        const char *arg = paths[i];
-        char       *out = outs[i];
-        if (arg[0] == '/') {
-            strncpy(out, arg, VFS_PATH_MAX - 1);
-            out[VFS_PATH_MAX - 1] = '\0';
-        } else {
-            size_t cl = strlen(cwd), al = strlen(arg);
-            if (cl + 1 + al >= VFS_PATH_MAX) { t_writestring("cp: path too long\n"); return; }
-            size_t p = 0;
-            memcpy(out, cwd, cl); p += cl;
-            if (cwd[cl - 1] != '/') out[p++] = '/';
-            memcpy(out + p, arg, al + 1);
-        }
-    }
-
-    uint32_t size = 0;
-    int err = vfs_read_file(s_cp_src, s_cp_buf, sizeof(s_cp_buf), &size);
-    if (err) {
-        t_writestring("cp: cannot read '");
-        t_writestring(s_cp_src);
-        t_writestring("'\n");
-        return;
-    }
-
-    err = vfs_write_file(s_cp_dst, s_cp_buf, size);
-    if (err) {
-        t_writestring("cp: cannot write '");
-        t_writestring(s_cp_dst);
-        t_writestring("'\n");
-        return;
-    }
-
-    t_dec(size);
-    t_writestring(" bytes copied.\n");
-}
-
-/* ---------------------------------------------------------------------------
- * Module table
- * --------------------------------------------------------------------------- */
-
 const shell_cmd_entry_t fs_cmds[] = {
     { "mount",  cmd_mount  },
     { "umount", cmd_umount },
-    { "ls",     cmd_ls     },
-    { "cat",    cmd_cat    },
     { "cd",     cmd_cd     },
     { "mkdir",  cmd_mkdir  },
     { "mkfs",   cmd_mkfs   },
     { "isols",  cmd_isols  },
     { "write",  cmd_write  },
     { "touch",  cmd_touch  },
-    { "cp",     cmd_cp     },
     { NULL, NULL }
 };

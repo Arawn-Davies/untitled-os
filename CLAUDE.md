@@ -151,6 +151,7 @@ Per-task state (`task_t` in `kernel/task.h`):
 - `tty` - TTY index (TASK_TTY_NONE for unbound); not yet authoritative (vtty.c still uses `vtty_tasks[]`)
 - `sig_pending` / `sig_mask`  Linux-style signal bitmasks (subsystem to follow)
 - `fd_table` - per-task fd table (`kernel/fd.h`); fds 0/1/2 pre-bound to stdin/stdout/stderr at `task_create`
+- `exec_params` - kmalloc'd `exec_params_t` set by `shell_exec_elf` and consumed by `exec_task_entry`. Per-task so two shells on different TTYs can `exec` concurrently without trampling each other's argv/path (the prior static-globals approach caused a `CS=0x3F8` ring-3 panic under load); reaped on slot reuse.
 - `user_brk`, `page_dir`, `state`, `name`, `esp`, `stack`, `next`
 
 ### Syscall ABI (`int 0x80`, Linux i386 convention)
@@ -177,6 +178,7 @@ Authoritative table in `src/kernel/include/kernel/syscall.h`. Selected entries:
 | 212 | SYS_KEYBOARD_RAW | enable/disable raw mode (1 = raw bytes, no sentinel translation) |
 | 213 | SYS_SHELL_CLEAR  | same as `clear` shell builtin |
 | 214 | SYS_UPTIME       | returns 100 Hz PIT tick counter |
+| 215 | SYS_GETCWD       | EBX = char *buf, ECX = size. Copies calling task's cwd; returns strlen or -1 |
 
 ### Keyboard (layered driver, PR #124)
 Stack: PS/2 IRQ → scancode (set-1 + 0xE0 prefix) → keycode (HID-style abstract code) → ASCII/sentinel → per-TTY ring → consumer (shell, kbtester).
@@ -212,9 +214,7 @@ Freestanding ELF binaries built with the cross-compiler. Link against `crt0.S` +
 |--------|-------------|
 | `hello.elf` | Hello-world smoke test |
 | `calc.elf` | bc-style expression calculator - `+`, `-`, `*`, `/`, `%`, parentheses, recursive-descent parser |
-| `echo.elf` | echo argv to stdout |
-| `ls.elf` | directory listing via `SYS_LS_DIR` |
-| `rm.elf` / `mv.elf` / `cp.elf` | FAT32 file ops (also available as shell builtins) |
+| `makbox.elf` | Makar busybox: multicall binary for `ls`, `cat`, `cp`, `mv`, `rm`, `rmdir`, `echo`, `pwd`. The shell PATH-resolves bare names against `*.elf` first, then falls back to `makbox <name>` — no symlinks needed (FAT32 has none). Replaces the former standalone `ls.elf`/`echo.elf`/`rm.elf`/`mv.elf`/`cp.elf`. |
 | `diskinfo.elf` | partition table + FAT32 BPB dump via `SYS_DISK_INFO` |
 | `vix.elf` | pane-aware vi-style text editor; uses `SYS_PUTCH_AT` / `SYS_SET_CURSOR` / `SYS_TERM_SIZE` |
 | `kbtester.elf` | keyboard diagnostic — logs every event (scancode/keycode/sentinel/modifier) to serial via `SYS_WRITE_SERIAL` |
@@ -243,6 +243,7 @@ src/kernel/arch/i386/
   display/    tty.c (VGA text), vesa.c + vesa_tty.c (VESA framebuffer), vt.c (per-TTY backing grid)
   proc/       task.c + task_asm.S (scheduler), syscall.c, ring3.S, usertest.c, ktest.c, vtty.c
   shell/      shell.c, shell_cmd_{display,disk,fs,apps,system,man}.c, shell_help.c
+              (fs/ keeps mount/umount/cd/mkdir/mkfs/isols/write/touch; ls/cat/cp/mv/rm/pwd/echo are makbox applets)
   debug/      exception handlers (INT 1/3/8/13/14, serial-first output)
 src/kernel/kernel/kernel.c   kernel_main
 src/kernel/include/kernel/   all public headers
@@ -324,6 +325,7 @@ Tracked here, pulled into branches one at a time so each PR stays focused.
 | 14 | **Per-task FD table** - replace opaque `fd_table` placeholder with a real `fd_table_t` (kernel/fd.h); fds 0/1/2 pre-bound, SYS_READ/WRITE/OPEN/CLOSE/LSEEK route through the calling task's table. Foundation for pipe(2)/dup(2) and fork's fd dup. | ✅ shipped (this PR) |
 | 15 | **VFS `task->cwd` authoritative** - drop the `s_cwd` global in `vfs.c`; resolve relative paths against the calling task's cwd | ✅ shipped (this PR) |
 | 16 | **VGA-fallback per-TTY** - route `tty.c` writes through `vt_buf` so VGA-text mode gets the same per-TTY isolation that VESA already has | ⏭ |
+| 17 | **makbox multicall + `SYS_GETCWD` + exec race fix** - busybox-style consolidation: `ls`/`cat`/`cp`/`mv`/`rm`/`rmdir`/`echo`/`pwd` live as applets inside one `makbox.elf`; shell dispatch falls back to `makbox <name>` after PATH lookup misses. Added `SYS_GETCWD` (215) so userspace `pwd` works without argv injection. Per-task `exec_params` on `task_t` replaces the static argv/path globals in `shell_exec_elf` - closes a cross-TTY race that could land a child task at a garbage EIP (`CS=0x3F8` panic). Kernel `shell_readline` now drains `g_sigint` on Ctrl+C so a buffered SIGINT can't leak into the next exec. `ui-test` rebuilt as a shared-VM runner (`tests/ui_runner.sh` + `tests/ui_test.sh`) - 10× faster than per-scenario boots, 7/7 in ~33 s headless. | ✅ shipped (this PR) |
 
 ### Userspace / libc porting
 
@@ -368,7 +370,7 @@ See `SURVEY.md` for complete inventory of shell commands, userspace apps, VFS/FA
 
 ### Kernel prerequisites (must land first)
 1. **`SYS_WRITE(fd, buf, len)`** - fix EAX=4 to standard Linux i386 convention (fd + buffer + length). Unblocks all libc stdio.
-2. **`SYS_GETCWD` + `SYS_READDIR`** - needed for shell tab completion and `ls` from userspace.
+2. **`SYS_GETCWD`** - ✅ shipped (215). `SYS_READDIR` still needed for streaming `ls` (the current `SYS_LS_DIR` returns a pre-rendered text blob).
 
 ### Libc / toolchain
 3. **musl static link** - once the fd table and `SYS_BRK` exist, a musl static binary compiles with the existing i686-elf cross-compiler. See `docs/userland-libc.md` for the step-by-step.

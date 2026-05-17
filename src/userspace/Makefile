@@ -14,15 +14,12 @@ LDFLAGS=-T link.ld -nostdlib
 DESTDIR?=
 ISODIR?=$(CURDIR)/../../isodir
 
-PROGS=hello.elf echo.elf help.elf calc.elf vix.elf ls.elf diskinfo.elf rm.elf mv.elf cp.elf kbtester.elf
+PROGS=hello.elf help.elf calc.elf vix.elf diskinfo.elf kbtester.elf makbox.elf
 
 
 all: $(PROGS)
 
 hello.elf: crt0.o hello.o
-	$(LD) $(LDFLAGS) -o $@ $^
-
-echo.elf: crt0.o echo.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
 help.elf: crt0.o help.o
@@ -40,13 +37,7 @@ ls.elf: crt0.o ls.o
 diskinfo.elf: crt0.o diskinfo.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
-rm.elf: crt0.o rm.o
-	$(LD) $(LDFLAGS) -o $@ $^
-
-mv.elf: crt0.o mv.o
-	$(LD) $(LDFLAGS) -o $@ $^
-
-cp.elf: crt0.o cp.o
+makbox.elf: crt0.o makbox.o
 	$(LD) $(LDFLAGS) -o $@ $^
 
 kbtester.elf: crt0.o kbtester.o
@@ -61,6 +52,8 @@ kbtester.elf: crt0.o kbtester.o
 
 install: all
 	mkdir -p $(ISODIR)/apps
+	rm -f $(ISODIR)/apps/ls.elf $(ISODIR)/apps/cp.elf $(ISODIR)/apps/mv.elf \
+	      $(ISODIR)/apps/rm.elf $(ISODIR)/apps/echo.elf $(ISODIR)/apps/fsutil.elf
 	cp $(PROGS) $(ISODIR)/apps/
 
 install-headers:

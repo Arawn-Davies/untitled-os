@@ -65,6 +65,12 @@ static const char *const s_app_path[] = {
     NULL,
 };
 
+/* makbox applets - tab completion advertises these as first-token
+ * candidates even though no standalone <name>.elf exists on PATH. */
+static const char *const s_makbox_applets[] = {
+    "ls", "cat", "cp", "mv", "rm", "rmdir", "echo", "pwd", NULL,
+};
+
 /* ---------------------------------------------------------------------------
  * readline_redraw – repaint the input line in-place and position cursors.
  *
@@ -287,8 +293,12 @@ void shell_readline(char *buf, size_t max)
             continue;
         }
 
-        /* Ctrl+C: abort current line. */
+        /* Ctrl+C: abort current line.  Also drain g_sigint so the flag
+         * can't leak into the next shell_exec_elf and kill the child
+         * task before it even runs - exactly the bug that made
+         * reset_shell + makbox tests fail in shared-VM ui_test runs. */
         if (c == KEY_CTRL_C) {
+            keyboard_sigint_consume();
             t_writestring("^C\n");
             buf[0] = '\0';
             return;
@@ -351,6 +361,11 @@ void shell_readline(char *buf, size_t max)
                         tab_complete_cb(e->name, 0, &vctx);
                     }
                 }
+                /* makbox applets - dispatched at exec time via the
+                 * fallback, but expose them to TAB so the UX matches
+                 * what users expect of `ls`/`cat`/etc. */
+                for (int ai = 0; s_makbox_applets[ai] && vctx.n < 32; ai++)
+                    tab_complete_cb(s_makbox_applets[ai], 0, &vctx);
                 /* PATH dirs.  s_app_path entries always end in '/'; trim it
                  * before passing to vfs_complete for consistent normalisation. */
                 for (int p = 0; s_app_path[p] && vctx.n < 32; p++) {
@@ -536,7 +551,6 @@ static const shell_cmd_entry_t * const cmd_modules[] = {
     disk_cmds,
     fs_cmds,
     apps_cmds,
-    fileops_cmds,
     NULL,
 };
 
@@ -613,6 +627,32 @@ static int shell_dispatch(int argc, char **argv)
         strncpy(path_buf + dlen, argv[0], VFS_PATH_MAX - 1 - dlen);
         path_buf[dlen + nlen] = '\0';
         if (try_exec_path(path_buf, argc, argv)) {
+            shell_restore_screen();
+            return 1;
+        }
+    }
+
+    /* makbox multicall fallback: PATH didn't have argv[0] as its own ELF,
+     * so try `makbox.elf <argv[0]> <rest...>`.  This is the busybox dispatch
+     * trick adapted for a FAT32 world without symlinks: ls/cat/cp/mv/rm/echo
+     * etc. all live as applets inside the single makbox binary. */
+    static char makbox_argv0[] = "makbox";
+    for (int p = 0; s_app_path[p]; p++) {
+        size_t dlen = strlen(s_app_path[p]);
+        if (dlen + sizeof(makbox_argv0) >= VFS_PATH_MAX)
+            continue;
+        strncpy(path_buf, s_app_path[p], VFS_PATH_MAX - 1);
+        strncpy(path_buf + dlen, makbox_argv0, VFS_PATH_MAX - 1 - dlen);
+        path_buf[dlen + sizeof(makbox_argv0) - 1] = '\0';
+
+        /* Build new argv: [makbox, <original argv[0]>, <original args...>]. */
+        char *new_argv[SHELL_MAX_ARGS + 1];
+        int new_argc = 0;
+        new_argv[new_argc++] = makbox_argv0;
+        for (int i = 0; i < argc && new_argc < SHELL_MAX_ARGS + 1; i++)
+            new_argv[new_argc++] = argv[i];
+
+        if (try_exec_path(path_buf, new_argc, new_argv)) {
             shell_restore_screen();
             return 1;
         }
