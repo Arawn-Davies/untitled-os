@@ -20,4 +20,3 @@ tests/groups/__pycache__/
 
 # Compiled binary artifacts (no extension) that appear in arch dirs
 src/kernel/arch/*/dt_asm
-vendor/limine/
