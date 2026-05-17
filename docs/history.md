@@ -9,8 +9,8 @@ Reverse-chronological log of shipped work.  Dates are merge/commit
 dates; PR numbers link to the merge that shipped each milestone.
 Sections under each release: **Added / Changed / Fixed / Removed**.
 
-The "current state" is always [CLAUDE.md](https://github.com/Arawn-Davies/Makar/blob/main/CLAUDE.md);
-this file is the trail of how it got there.
+For what's queued up next, see the [roadmap](roadmap.md);
+this file is the trail of how the current state got there.
 
 ## Unreleased
 
@@ -304,8 +304,8 @@ shell script.  Repo went quiet after about a week.
 
 ## Roadmap
 
-What's tracked but not shipped — see CLAUDE.md "Slice queue" on the
-live repo for canonical status.
+What's tracked but not shipped — see [roadmap](roadmap.md) for
+canonical status and the issue tracker for everything else.
 
 - **Slice 8** — Linux-style signal subsystem (sigaction, `kill()`).
 - **Slice 9** — Preemption hardening (interrupt-safe `schedule()`).

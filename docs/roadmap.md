@@ -5,18 +5,18 @@ nav_order: 8
 
 # Roadmap
 
-Where work stands today (May 2026) and what's queued up next.  The two
-sources of truth are CLAUDE.md's "Slice queue" (kernel work units) and
-the GitHub issue tracker (everything else).  This page is the map
-between them.
+Where work stands today (May 2026) and what's queued up next.  Work
+is tracked as two parallel streams: the **slice queue** below
+(kernel/userspace work units, each one PR) and the GitHub issue
+tracker (everything else).  This page is the map between them.
 
 For the chronological log of what's *already shipped*, see
 [history](history.md).
 
 ## Slice queue
 
-Kernel/userspace work tracked as numbered slices in CLAUDE.md.  Each
-slice is a focused, mergeable unit — usually one PR.
+Kernel and userspace work, numbered as focused mergeable units —
+usually one PR per slice.
 
 | Slice | Title                                                  | Status                      | Issue                                                                              |
 |------:|--------------------------------------------------------|-----------------------------|------------------------------------------------------------------------------------|
@@ -153,8 +153,8 @@ See [history](history.md) for the changelog.  Highlights:
 
 ## Tracking conventions
 
-- **Slices** are kernel/userspace work units numbered in CLAUDE.md.
-  Each slice should land as one focused PR.
+- **Slices** are kernel/userspace work units numbered in the table
+  above.  Each slice should land as one focused PR.
 - **Issues** use `feat(<scope>): <topic>` titles for consistency with
   commit messages.  Scopes seen so far: `kernel`, `shell`, `display`,
   `networking`, `makbox`.
