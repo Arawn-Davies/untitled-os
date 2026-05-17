@@ -21,6 +21,7 @@
 #include <kernel/vfs.h>
 #include <kernel/timer.h>
 #include <kernel/task.h>
+#include <kernel/signal.h>
 #include <kernel/ktest.h>
 
 #include <string.h>
@@ -185,6 +186,21 @@ void shell_readline(char *buf, size_t max)
     buf[0]  = '\0';
     work[0] = '\0';
 
+    /* Sync sentinel for ui_runner.sh's `wait_for_serial`: emit a
+     * structured marker the moment the shell is ready to accept the
+     * next line of input.  Lets tests replace fixed `sleep N` with
+     * "wait until you see [shell:ready vt=X]", eliminating the
+     * timing-race flakes that plagued the typo-doesnt-clear scenario
+     * under TCG.  Cheap: one line per prompt; gated by g_serial_verbose
+     * so production boots without `verbose on` don't pay for it. */
+    if (g_serial_verbose) {
+        task_t *t = task_current();
+        int vt = t ? t->tty : -1;
+        Serial_WriteString("[shell:ready vt=");
+        Serial_WriteDec((uint32_t)(vt < 0 ? 0u : (uint32_t)vt));
+        Serial_WriteString("]\n");
+    }
+
     /* Capture where the prompt ended.  VGA uses t_column/t_row (wraps at
      * VGA_WIDTH and resets t_row=0 when VESA is active).  VESA tracks its
      * own cursor which must be read separately to avoid the t_row=0 desync. */
@@ -293,12 +309,13 @@ void shell_readline(char *buf, size_t max)
             continue;
         }
 
-        /* Ctrl+C: abort current line.  Also drain g_sigint so the flag
-         * can't leak into the next shell_exec_elf and kill the child
-         * task before it even runs - exactly the bug that made
-         * reset_shell + makbox tests fail in shared-VM ui_test runs. */
+        /* Ctrl+C: abort current line.  The kernel keyboard ISR already
+         * delivers SIGINT to the focused task (us) -- the shell task
+         * installed SIG_IGN for SIGINT at startup so sig_deliver just
+         * clears the bit instead of terminating us.  The 0x03 byte
+         * routed via kb_route is what we read here; this branch is the
+         * shell's cooperative response (echo "^C" and drop the line). */
         if (c == KEY_CTRL_C) {
-            keyboard_sigint_consume();
             t_writestring("^C\n");
             buf[0] = '\0';
             return;
@@ -681,10 +698,35 @@ void shell_run(void)
     char  buf[SHELL_MAX_INPUT];   /* stack-allocated: each task gets its own */
     char *argv[SHELL_MAX_ARGS];
 
+    /* Shell tasks ignore SIGINT.  Ctrl+C at the prompt is meant to abort
+     * the current input line, not terminate the shell -- the kernel
+     * delivers SIGINT to the focused task on every Ctrl+C and the
+     * default action is terminate, so without this the shell would die
+     * the moment the user pressed Ctrl+C.  The 0x03 byte arrives via
+     * the keyboard ring and shell_readline handles it cooperatively. */
+    sig_set_handler(task_current(), SIGINT, SIG_IGN);
+
+    /* Mark unkillable so maktop / `kill` / SIGKILL from any other
+     * source can't terminate a shell: the shell pool is created once
+     * at boot and a dead shell leaves its VT permanently unusable.
+     * User handlers (sys_signal) still run; only the kernel-driven
+     * default-terminate / SIGKILL path is gated. */
+    task_current()->unkillable = 1;
+
     int slot = vtty_register();
 
     if (slot == 0) {
+        /* Boot scheme during the loading screen: keep the classic
+         * white-on-blue Medli look (it's what the splash + logo are
+         * tuned for).  The per-VT scheme is applied later, just before
+         * the REPL takes over. */
         terminal_set_colorscheme(SHELL_COLOR_VGA);
+
+        /* Hide the tmux-style VT status bar for the duration of the
+         * loading screen: nothing's registered yet on most slots, and
+         * the half-populated bar looks broken next to the logo + bar
+         * progress.  Restored just before the REPL takes over. */
+        vesa_tty_set_status_visible(0);
 
         /* Loading screen: render a progress bar that fills as bg ktest
          * completes each suite.  The wait is OUTSIDE the VESA conditional so
@@ -744,6 +786,19 @@ void shell_run(void)
             task_yield();
         while (keyboard_poll()) {}
 
+        /* Loading is over -- bring the VT status bar back and repaint
+         * it with the live slot count.  vtty_register() has already
+         * incremented the count for shell0..shell3 by this point, so
+         * the bar lights up with all four indicators on the first
+         * draw. */
+        vesa_tty_set_status_visible(1);
+        vesa_tty_paint_status(vtty_active(), vtty_count());
+
+        /* Switch into this VT's per-VT palette and clear so the
+         * banner prints in the new colours.  shell_clear_screen reads
+         * the calling task's tty and applies the right scheme. */
+        shell_clear_screen();
+
         t_writestring("Makar -- version " SHELL_VERSION
                       ", build: " BUILD_DATE " " BUILD_TIME "\n");
         t_writestring("The GCC/C++ sibling of Medli\n");
@@ -760,11 +815,8 @@ void shell_run(void)
             task_yield();
         while (!vtty_is_focused())
             task_yield();
-        terminal_set_colorscheme(SHELL_COLOR_VGA);
-        if (vesa_tty_is_ready()) {
-            vesa_tty_setcolor(SHELL_FG_RGB, SHELL_BG_RGB);
-            vesa_tty_clear();
-        }
+        /* Apply this VT's per-VT colour scheme on first focus. */
+        shell_clear_screen();
         /* Do NOT drain the input ring here.  The user may have typed a key
          * the same instant they hit Alt+Fn (single QEMU sendkey burst or a
          * fast typist on real hardware) - draining would swallow that first

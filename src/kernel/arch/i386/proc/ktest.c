@@ -15,6 +15,7 @@
 #include <kernel/descr_tbl.h>
 #include <kernel/task.h>
 #include <kernel/fd.h>
+#include <kernel/signal.h>
 #include <kernel/syscall.h>
 #include <kernel/serial.h>
 #include <kernel/tty.h>
@@ -40,7 +41,7 @@ volatile int ktest_bg_done = 0;
  * inside the RUN macro in ktest_bg_task; total is fixed at compile time so
  * the bar length is known the moment shell_run starts. */
 volatile int ktest_bg_completed = 0;
-const    int ktest_bg_total     = 11;   /* keep in sync with RUN() calls below */
+const    int ktest_bg_total     = 15;   /* keep in sync with RUN() calls below */
 
 /* When set, suppress VGA output for pass lines and suite headers. */
 int ktest_muted = 0;
@@ -618,6 +619,198 @@ static void test_cwd(void)
     /* Restore caller's cwd via vfs_cd to exercise the full path. */
     KTEST_ASSERT(vfs_cd(saved) == 0);
     KTEST_ASSERT(strcmp(cur->cwd, saved) == 0);
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: signal
+ *
+ * Exercises the per-task signal subsystem: default-action classification,
+ * sig_send pending-bit semantics, SIGKILL override of mask/handler, and
+ * default-terminate delivery from the scheduler.  Victim tasks loop on
+ * task_yield as a safety net; they should never run their body because
+ * sig_deliver runs on the incoming task in schedule() and transitions it
+ * to TASK_DEAD before the context switch.
+ * --------------------------------------------------------------------------- */
+
+static void test_signal_victim_loop(void)
+{
+    /* Loop on task_yield so the only path to TASK_DEAD is via signal
+     * delivery from schedule().  Calling task_exit here instead would
+     * race the SIGTERM send: preemption could give the victim a slice
+     * between task_create returning and the test's sig_send call,
+     * marking it DEAD before any signal is posted. */
+    for (;;)
+        task_yield();
+}
+
+static void test_signal(void)
+{
+    ktest_begin("signal",
+                "per-task signal subsystem: default classification, "
+                "sig_send + sig_deliver, SIGKILL override, scheduler delivery");
+
+    /* Default-action classification. */
+    KTEST_ASSERT(sig_default_terminates(SIGINT)  == 1);
+    KTEST_ASSERT(sig_default_terminates(SIGTERM) == 1);
+    KTEST_ASSERT(sig_default_terminates(SIGKILL) == 1);
+    KTEST_ASSERT(sig_default_terminates(SIGCHLD) == 0);
+    KTEST_ASSERT(sig_default_terminates(SIGCONT) == 0);
+
+    task_t *cur = task_current();
+    KTEST_ASSERT(cur != NULL);
+
+    /* sig_set_handler rejects SIGKILL / SIGSTOP, accepts others. */
+    KTEST_ASSERT(sig_set_handler(cur, SIGKILL, SIG_IGN) == -1);
+    KTEST_ASSERT(sig_set_handler(cur, SIGSTOP, SIG_IGN) == -1);
+    KTEST_ASSERT(sig_set_handler(cur, SIGINT,  SIG_IGN) == 0);
+
+    /* SIG_IGN: sig_deliver clears the pending bit without touching state. */
+    sig_send(cur, SIGINT);
+    KTEST_ASSERT((cur->sig_pending & SIG_BIT(SIGINT)) != 0);
+    sig_deliver(cur);
+    KTEST_ASSERT((cur->sig_pending & SIG_BIT(SIGINT)) == 0);
+    KTEST_ASSERT(cur->state != TASK_DEAD);
+    sig_set_handler(cur, SIGINT, SIG_DFL);
+
+    /* sig_send input validation: NULL task / bogus signo are no-ops. */
+    sig_send(NULL, SIGTERM);
+    sig_send(cur,  0);
+    sig_send(cur,  SIG_MAX + 1);
+    KTEST_ASSERT((cur->sig_pending & ~cur->sig_mask) == 0);
+
+    /* sig_get_handler / sig_set_handler round-trip and previous-value
+     * semantics that SYS_SIGNAL relies on. */
+    KTEST_ASSERT(sig_get_handler(cur, SIGUSR1) == SIG_DFL);
+    KTEST_ASSERT(sig_set_handler(cur, SIGUSR1, SIG_IGN) == 0);
+    KTEST_ASSERT(sig_get_handler(cur, SIGUSR1) == SIG_IGN);
+    KTEST_ASSERT(sig_set_handler(cur, SIGUSR1, SIG_DFL) == 0);
+    KTEST_ASSERT(sig_get_handler(cur, SIGUSR1) == SIG_DFL);
+    /* Out-of-range signo: getter returns SIG_DFL, setter rejects. */
+    KTEST_ASSERT(sig_get_handler(cur, 0) == SIG_DFL);
+    KTEST_ASSERT(sig_get_handler(cur, SIG_MAX + 1) == SIG_DFL);
+
+    /* sig_send_pid: unknown pid returns -1. */
+    KTEST_ASSERT(sig_send_pid(99999, SIGTERM) == -1);
+
+    /* sig_send_pid: valid pid posts the pending bit.  Use a fresh
+     * victim (not the running task) so a preempting timer IRQ between
+     * the post and the observe can't pick the signal up via sig_deliver
+     * and clear it.  Even so, wrap post + observe in disable_interrupts
+     * to remove the window entirely: terminating the test runner via
+     * its own signal would kill idle under the test_mode boot path and
+     * deadlock the kernel. */
+    task_t *vp = task_create("sigtest_pid", test_signal_victim_loop);
+    KTEST_ASSERT(vp != NULL);
+    if (vp) {
+        disable_interrupts();
+        int posted = sig_send_pid(vp->pid, SIGCHLD);
+        uint32_t pending = vp->sig_pending;
+        /* Clear so a later sig_deliver pass treats it as no-op (SIGCHLD
+         * default action is ignore, so leaving it pending would also
+         * be safe -- but explicit cleanup keeps the assertion focused). */
+        vp->sig_pending &= ~SIG_BIT(SIGCHLD);
+        enable_interrupts();
+        KTEST_ASSERT(posted == 0);
+        KTEST_ASSERT((pending & SIG_BIT(SIGCHLD)) != 0);
+        /* Reap the victim. */
+        sig_send(vp, SIGTERM);
+        for (int i = 0; i < 16 && vp->state != TASK_DEAD; i++)
+            task_yield();
+        KTEST_ASSERT(vp->state == TASK_DEAD);
+    }
+
+    /* Default-terminate via scheduler: spawn victim, send SIGTERM, yield
+     * until schedule() picks it and sig_deliver flips state to DEAD. */
+    task_t *victim = task_create("sigtest_term", test_signal_victim_loop);
+    KTEST_ASSERT(victim != NULL);
+    if (victim) {
+        KTEST_ASSERT(victim->state == TASK_READY);
+        sig_send(victim, SIGTERM);
+        for (int i = 0; i < 16 && victim->state != TASK_DEAD; i++)
+            task_yield();
+        KTEST_ASSERT(victim->state == TASK_DEAD);
+        KTEST_ASSERT((victim->sig_pending & SIG_BIT(SIGTERM)) == 0);
+    }
+
+    /* SIGKILL overrides SIG_IGN on every other signal and terminates. */
+    task_t *vk = task_create("sigtest_kill", test_signal_victim_loop);
+    KTEST_ASSERT(vk != NULL);
+    if (vk) {
+        sig_set_handler(vk, SIGINT,  SIG_IGN);
+        sig_set_handler(vk, SIGTERM, SIG_IGN);
+        sig_send(vk, SIGKILL);
+        for (int i = 0; i < 16 && vk->state != TASK_DEAD; i++)
+            task_yield();
+        KTEST_ASSERT(vk->state == TASK_DEAD);
+    }
+
+    ktest_summary();
+}
+
+/* ---------------------------------------------------------------------------
+ * Suite: preempt
+ *
+ * Proves the timer-driven preemptive scheduler is doing its job: a victim
+ * task busy-loops with no task_yield, the test task yields normally, and
+ * we verify both tasks' per-task tick counters advance over ~30 ticks of
+ * wallclock.  If the scheduler is broken (re-entrancy lockup, missing
+ * preemption, in_schedule flag stuck) one of those counters stays flat
+ * and the assertion fires.  Pairs with the slice 9 phase 1 re-entrancy
+ * guard and the phase 2 kticks counter.
+ * --------------------------------------------------------------------------- */
+
+static volatile int preempt_run = 0;
+
+static void test_preempt_busy_loop(void)
+{
+    /* No task_yield: only the PIT IRQ can preempt us.  Cleared from
+     * the parent so we exit cleanly even if the SIGKILL teardown
+     * below somehow doesn't fire. */
+    while (preempt_run)
+        ;
+    task_exit();
+}
+
+static void test_preempt(void)
+{
+    ktest_begin("preempt",
+                "timer-driven preemption: a busy-loop task does not "
+                "starve the rest of the system, kticks counter advances");
+
+    task_t *cur = task_current();
+    KTEST_ASSERT(cur != NULL);
+
+    preempt_run = 1;
+    task_t *v = task_create("preempt_victim", test_preempt_busy_loop);
+    KTEST_ASSERT(v != NULL);
+    if (!v) { preempt_run = 0; ktest_summary(); return; }
+
+    uint32_t v_before = v->kticks;
+    uint32_t t0       = timer_get_ticks();
+
+    /* Wait ~30 PIT ticks of wallclock (300 ms at 100 Hz).  The caller
+     * yields each iteration so we don't accumulate kticks of our own
+     * here (a tick only charges the task that's current at IRQ-0
+     * time, and yields make our resident window vanishingly small).
+     * The fact that we exit this loop at all is the implicit "we
+     * weren't starved" check; if preemption were broken and the
+     * busy-looping victim hogged forever, this loop would hang and
+     * the iso-test outer timeout would kill the run. */
+    while (timer_get_ticks() - t0 < 30)
+        task_yield();
+
+    KTEST_ASSERT(v->kticks > v_before);   /* victim got CPU via preemption */
+
+    /* Teardown.  Clear the loop flag first (lets the victim exit
+     * cleanly on its next scheduled slice), then SIGKILL as a
+     * belt-and-braces in case it somehow doesn't see the write. */
+    preempt_run = 0;
+    sig_send(v, SIGKILL);
+    for (int i = 0; i < 64 && v->state != TASK_DEAD; i++)
+        task_yield();
+    KTEST_ASSERT(v->state == TASK_DEAD);
 
     ktest_summary();
 }
@@ -1515,6 +1708,14 @@ int ktest_run_all(void)
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
 
+    test_signal();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
+    test_preempt();
+    total_pass += ktest_pass_count;
+    total_fail += ktest_fail_count;
+
     test_gdt();
     total_pass += ktest_pass_count;
     total_fail += ktest_fail_count;
@@ -1597,6 +1798,8 @@ void ktest_bg_task(void)
     RUN(test_syscall);
     RUN(test_fd_table);
     RUN(test_cwd);
+    RUN(test_signal);
+    RUN(test_preempt);
     RUN(test_gdt);
     RUN(test_ring3_prereqs);
     RUN(test_idt);

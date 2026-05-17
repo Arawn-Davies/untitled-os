@@ -6,6 +6,8 @@
 
 #include "shell_priv.h"
 
+#include <kernel/shell.h>
+#include <kernel/vtty.h>
 #include <kernel/tty.h>
 #include <kernel/vfs.h>
 #include <kernel/vix.h>
@@ -144,19 +146,48 @@ void shell_exec_elf(const char *path, int argc, char **argv)
     }
     t->exec_params = p;
 
-    task_t *self = task_current();
-    keyboard_set_focus(t);
-
-    while (t->state != TASK_DEAD) {
-        if (keyboard_sigint_consume()) {
-            t->state = TASK_DEAD;
-            t_writestring("\n^C\n");
-            break;
+    /* Replace the placeholder "exec" task name with the basename of
+     * the program (minus a trailing ".elf") so /proc/tasks + maktop
+     * + `cat /proc/tasks` show the real running binary.  Stored in
+     * task_t.name_buf so the pointer outlives the path argument. */
+    {
+        const char *base = path;
+        for (const char *q = path; *q; q++) {
+            if (*q == '/') base = q + 1;
         }
-        task_yield();
+        size_t n = 0;
+        while (base[n] && n < sizeof(t->name_buf) - 1) {
+            t->name_buf[n] = base[n];
+            n++;
+        }
+        /* Strip a trailing ".elf" if present. */
+        if (n >= 4 && t->name_buf[n-4] == '.' && t->name_buf[n-3] == 'e' &&
+                       t->name_buf[n-2] == 'l' && t->name_buf[n-1] == 'f') {
+            n -= 4;
+        }
+        t->name_buf[n] = '\0';
+        t->name = t->name_buf;
     }
 
+    task_t *self = task_current();
+    keyboard_set_focus(t);
+    /* Register t as VT-foreground so a user Alt+Fn excursion + return
+     * routes focus + KEY_FOCUS_GAIN back to the child, not the shell. */
+    if (self) vtty_set_foreground(self->tty, t);
+
+    /* Wait for the child to finish.  Ctrl+C is now delivered as SIGINT
+     * straight to the focused task (the child); the kernel's default-
+     * terminate action in sig_deliver kills it on the next schedule
+     * pass, so the shell just yields until t->state flips to DEAD.
+     * No more explicit force-kill from this side -- the previous
+     * keyboard_sigint_consume polling could also race the kernel
+     * (consume the flag here, child runs one more time, then dies
+     * for unrelated reasons and we lose the cause attribution). */
+    while (t->state != TASK_DEAD)
+        task_yield();
+
     keyboard_release_task(t);
+    if (self) vtty_set_foreground(self->tty, NULL);
     keyboard_set_focus(self);
     /* Defensive: a ring-3 app that enabled raw mode (kbtester etc.) is
      * expected to disable it on the way out, but if it crashed or was
@@ -164,6 +195,16 @@ void shell_exec_elf(const char *path, int argc, char **argv)
      * means a dead app can never lock the user out of Alt+Fn TTY switching
      * or the Ctrl+A pane prefix. */
     keyboard_set_raw(0);
+
+    /* Only clean up after FULLSCREEN apps (those that touched the
+     * framebuffer via SYS_PUTCH_AT / SYS_TTY_CLEAR).  Line-mode
+     * children like cat / hello / makbox-fallback-on-typo write only
+     * via SYS_WRITE which scrolls normally; clearing after them would
+     * wipe their output.  Fullscreen apps that exited cleanly already
+     * called sys_shell_clear themselves -- doing it again is a no-op
+     * cost but rescues SIGKILL'd ones that never got the chance. */
+    if (t->fb_touched)
+        shell_clear_screen();
 }
 
 static void cmd_exec(int argc, char **argv)

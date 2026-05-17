@@ -12,24 +12,24 @@ All build, test, and boot operations go through a single entrypoint:
 
 ```sh
 # Day-to-day (build + run in one shot)
-./run.sh iso-boot       # clean → debug ISO → interactive QEMU
-./run.sh iso-test       # full CI suite: ktest + GDB boot-checkpoint tests
-./run.sh iso-ktest-gui  # test ISO → ktest with display window (needs host QEMU)
-./run.sh iso-release    # optimised release ISO
+./run.sh iso boot       # clean → debug ISO → interactive QEMU
+./run.sh iso test       # full CI suite: ktest + GDB boot-checkpoint tests
+./run.sh ktest graphical  # test ISO → ktest with display window (needs host QEMU)
+./run.sh iso release    # optimised release ISO
 
-./run.sh hdd-boot       # clean → build kernel → HDD image → interactive QEMU
-./run.sh hdd-test       # clean → build kernel → HDD image → GDB boot test
-./run.sh hdd-release    # HDD image only
+./run.sh hdd boot       # clean → build kernel → HDD image → interactive QEMU
+./run.sh hdd test       # clean → build kernel → HDD image → GDB boot test
+./run.sh hdd release    # HDD image only
 
-./run.sh ui-test        # black-box UI tests (headless QEMU, sendkey + serial grep)
-./run.sh ui-test-gui    # same but with visible QEMU window + paced typing
+./run.sh ui        # black-box UI tests (headless QEMU, sendkey + serial grep)
+./run.sh ui graphical    # same but with visible QEMU window + paced typing
 
 # CI-style split modes (build once, run many — used by .github/workflows/build-test.yml)
-./run.sh iso-build      # kernel + makar.iso + makar-test.iso, no run
-./run.sh hdd-build      # kernel + makar-hdd-test.img, no run
-./run.sh ktest-run      # ktest against existing makar-test.iso
-./run.sh gdb-iso-run    # GDB ISO boot test against existing makar.iso
-./run.sh gdb-hdd-run    # GDB HDD boot test against existing makar-hdd-test.img
+./run.sh iso build      # kernel + makar.iso + makar-test.iso, no run
+./run.sh hdd build      # kernel + makar-hdd-test.img, no run
+./run.sh ktest      # ktest against existing makar-test.iso
+./run.sh gdb iso    # GDB ISO boot test against existing makar.iso
+./run.sh gdb hdd    # GDB HDD boot test against existing makar-hdd-test.img
 
 ./run.sh clean          # remove all build artefacts
 
@@ -65,7 +65,7 @@ QEMU steps prefer host `qemu-system-i386` when Docker is the build context; fall
 
 **Full CI suite** (`iso-test`: ktest + GDB boot checkpoints):
 ```sh
-./run.sh iso-test
+./run.sh iso test
 # Phase 1: test_mode ISO → ktest_run_all() → QEMU exits.  Output: ktest.log
 # Phase 2: debug ISO + FAT32 test disk → full GDB test suite.  Output: gdb-test.log
 # exits 0 on pass, 1 on any failure
@@ -73,7 +73,7 @@ QEMU steps prefer host `qemu-system-i386` when Docker is the build context; fall
 
 **HDD boot test:**
 ```sh
-./run.sh hdd-test
+./run.sh hdd test
 # Builds kernel → generates makar-hdd-test.img → GDB boot test (no CD-ROM)
 # outputs: hdd-test-gdb.log, hdd-test-serial.log
 ```
@@ -101,15 +101,15 @@ docker run --rm -it -v "$PWD:/work" -w /work arawn780/gcc-cross-i686-elf:fast \
 **In-kernel test suite (interactive)**: shell command `ktest` runs all suites from the kernel shell.
 At boot (when `test_mode` is *not* in the cmdline), `ktest_bg_task` runs all suites silently in the background - only prints to VGA on failure; always writes `KTEST_BG: PASS/FAIL` to serial.
 
-**Black-box UI tests** (`tests/ui_test.sh`, fronted by `./run.sh ui-test` / `ui-test-gui`): boots `makar.iso`, drives keyboard input through QEMU's **HMP** (Human Monitor Protocol — the text-based control channel exposed by `-monitor unix:...`) via the `sendkey` command, and asserts on substrings in the serial mirror. Covers user-visible flows that `iso-test` doesn't: ELF exec → syscalls → output, shell tab completion, glob expansion, `cd`/`pwd`. **Not wired into CI** (the per-merge job was dropped in `a9b7474` — the framework's reliance on HMP timing made it flaky under the **TCG** (Tiny Code Generator — QEMU's interpreted/JIT CPU emulator, used because KVM is off by default per the note above) emulation that runs in the CI containers). Run locally before opening any PR that touches syscalls, shell, ELF exec, VFS, keyboard, or display:
+**Black-box UI tests** (`tests/ui_test.sh`, fronted by `./run.sh ui` / `ui-test-gui`): boots `makar.iso`, drives keyboard input through QEMU's **HMP** (Human Monitor Protocol — the text-based control channel exposed by `-monitor unix:...`) via the `sendkey` command, and asserts on substrings in the serial mirror. Covers user-visible flows that `iso-test` doesn't: ELF exec → syscalls → output, shell tab completion, glob expansion, `cd`/`pwd`. **Not wired into CI** (the per-merge job was dropped in `a9b7474` — the framework's reliance on HMP timing made it flaky under the **TCG** (Tiny Code Generator — QEMU's interpreted/JIT CPU emulator, used because KVM is off by default per the note above) emulation that runs in the CI containers). Run locally before opening any PR that touches syscalls, shell, ELF exec, VFS, keyboard, or display:
 ```sh
-./run.sh ui-test                                # headless: all scenarios
-./run.sh ui-test exec-hello                     # headless: one scenario
-./run.sh ui-test-gui                            # visible window + paced typing (watch it run)
-./run.sh ui-test-gui exec-hello                 # one scenario, visible
-QEMU_DISPLAY=cocoa ./run.sh ui-test-gui         # override QEMU display backend (cocoa|gtk|sdl)
-KEY_DELAY=0.3      ./run.sh ui-test-gui         # slower typing (default 0.15 s/key)
-UI_TEST_LOGDIR=/tmp/uilogs ./run.sh ui-test     # keep logs (serial + PPM screen dump)
+./run.sh ui                                # headless: all scenarios
+./run.sh ui exec-hello                     # headless: one scenario
+./run.sh ui graphical                            # visible window + paced typing (watch it run)
+./run.sh ui graphical exec-hello                 # one scenario, visible
+QEMU_DISPLAY=cocoa ./run.sh ui graphical         # override QEMU display backend (cocoa|gtk|sdl)
+KEY_DELAY=0.3      ./run.sh ui graphical         # slower typing (default 0.15 s/key)
+UI_TEST_LOGDIR=/tmp/uilogs ./run.sh ui     # keep logs (serial + PPM screen dump)
 ```
 The `ui-test-gui` target keeps a paced-typing visible-window mode for debugging; headless `ui-test` is the canonical "did the change regress anything" path and is what runs noise-free. **Shutdown path differs by mode**: headless sends HMP `quit` (instant), while GUI mode types `shutdown<Enter>` into the focused shell so the kernel runs its real ACPI S5 power-off (port `0x604 / 0x2000` — see `acpi_shutdown()`), then QEMU exits naturally; this exercises the shutdown code path on every GUI run *and* gives the watcher a visible "Shutting down..." final frame instead of the window blinking out the instant assertions complete. Both modes fall back to SIGKILL after a bounded wait if the guest is wedged. **PPM** = Portable Pixmap, the screen-snapshot format HMP's `screendump` emits — useful for triaging visual-only regressions (cursor position, gutter rendering) that the serial mirror can't capture. Scenarios live as `scenario_<name>` shell functions in `tests/ui_test.sh`; add a new one alongside any PR that changes a user-facing path.
 
@@ -165,8 +165,11 @@ Authoritative table in `src/kernel/include/kernel/syscall.h`. Selected entries:
 | 5   | SYS_OPEN         | EBX = path, ECX = flags (returns fd) |
 | 6   | SYS_CLOSE        | EBX = fd |
 | 19  | SYS_LSEEK        | EBX = fd, ECX = offset, EDX = whence |
+| 37  | SYS_KILL         | EBX = pid, ECX = signo.  Returns 0 / -1. |
 | 45  | SYS_BRK          | EBX = new break (returns current/new break) |
+| 48  | SYS_SIGNAL       | EBX = signo, ECX = handler (SIG_DFL=0, SIG_IGN=1, or user fn).  Returns previous handler. |
 | 100 | SYS_DEBUG        | EBX = uint32 checkpoint (prints to VGA + serial) |
+| 119 | SYS_SIGRETURN    | invoked by the sigframe trampoline; not for direct userspace use |
 | 158 | SYS_YIELD        | - |
 | 200 | SYS_GETKEY       | raw single-char keyboard read |
 | 201–204 | SYS_PUTCH_AT / SET_CURSOR / TTY_CLEAR / TERM_SIZE | direct TTY ops for full-screen apps (vix) |
@@ -187,7 +190,7 @@ Stack: PS/2 IRQ → scancode (set-1 + 0xE0 prefix) → keycode (HID-style abstra
 - **IRQ-driven SPSC ring per task** (up to `KB_TASK_SLOTS=4`); `keyboard_getchar()` registers the caller and blocks-yields on its slot; `keyboard_poll()` is non-blocking.
 - **Make/break separation** is strict; modifier state is held at the decoder layer, not by consumers. Caps Lock toggle currently lacks a typematic-repeat filter (slice 5b).
 - **Ctrl+A** arms the pane-switch dispatcher (Ctrl-A,U / Ctrl-A,J).
-- **Ctrl+C** sets `g_sigint=1` AND routes `\x03` to the focused task's ring. `keyboard_sigint_consume()` atomically reads and clears `g_sigint`.
+- **Ctrl+C** delivers `SIGINT` to the focused task via `sig_send(kb_focused, SIGINT)` AND routes `\x03` to its ring (so raw-mode apps can still handle ^C cooperatively).  The legacy `kb_sigint` global + `keyboard_sigint_consume()` shim are gone — see `kernel/signal.h`.
 - **LED sync** is unimplemented — kernel never writes `0xED <bitmap>` to the PS/2 controller and does not read physical LED state at boot (slice 5b).
 - `kbtester.elf` is the live diagnostic — dumps every scancode/keycode/sentinel and the modifier state vector to serial.
 
@@ -218,6 +221,7 @@ Freestanding ELF binaries built with the cross-compiler. Link against `crt0.S` +
 | `diskinfo.elf` | partition table + FAT32 BPB dump via `SYS_DISK_INFO` |
 | `vix.elf` | pane-aware vi-style text editor; uses `SYS_PUTCH_AT` / `SYS_SET_CURSOR` / `SYS_TERM_SIZE` |
 | `kbtester.elf` | keyboard diagnostic — logs every event (scancode/keycode/sentinel/modifier) to serial via `SYS_WRITE_SERIAL` |
+| `sigtest.elf` | ring-3 signal verifier — installs a SIGUSR1 handler, self-sends, asserts the handler ran.  Pairs with the `user-sigusr1-handler` ui-test scenario. |
 | `help.elf` | replaced by `lsman` / `man <cmd>` shell builtins; kept for compatibility |
 
 ### ktest harness
@@ -282,9 +286,10 @@ subsystems:
 - **Multi-TTY**: 4 shell tasks (`shell0`–`shell3`). `vtty.c` routes keyboard input via `task_t.tty` (authoritative) and tracks the focused slot. `vtty_switch()` defers the framebuffer repaint out of IRQ context to `vtty_drain_pending()`, which runs from the destination shell's `keyboard_getchar` poll loop. A tmux-style status bar lives in the reserved bottom row showing `Makar  VT0  VT1  VT2  VT3  ...  Alt+F1-F4` with the active slot highlighted.
 - **VIX**: Pane-aware text editor. Derives column/row counts from the active `vesa_pane_t` at runtime - works correctly at any VESA resolution. Modelled on ELKS/FUZIX vi: lightweight, stable, no heap after startup.
 - **Storage**: FAT32 (HDD/USB) + ISO 9660 (CD-ROM) via IDE PIO. VFS layer with CWD, auto-mount. Full read/write/delete/rename support on FAT32. Synthetic `/proc` mount exposes `cpuinfo`, `meminfo`, `tasks`, `uname` as read-only files generated on demand.
-- **Tasking**: Round-robin scheduler with timer-driven preemption (PIT 100 Hz, `SCHED_QUANTUM = 4` ticks → 40 ms slice). Per-task `pid`, `cwd`, `tty`, signal bitmasks, and real per-task fd table (`fd_table_t` in `kernel/fd.h`, 16 slots, fds 0/1/2 pre-bound to stdin/stdout/stderr). User PD reaped on task exit, fd table reaped on slot reuse. Background ktest harness runs before the shell prompt appears.
-- **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`) with argc/argv. Syscalls: `SYS_EXIT`, `SYS_READ`, `SYS_WRITE` (fd 1 = VGA, fd 2 = VGA + COM1 serial), `SYS_OPEN`, `SYS_CLOSE`, `SYS_LSEEK`, `SYS_BRK`, `SYS_DEBUG`, `SYS_YIELD`, plus Makar extensions (200–214 - terminal/file ops + `SYS_WRITE_SERIAL`). Apps: `calc.elf`, `hello.elf`, `ls.elf`, `echo.elf`, `vix.elf`, `diskinfo.elf`, `rm.elf`, `mv.elf`, `cp.elf`, `kbtester.elf`.
-- **Shell**: Inline editing, history, tab completion, Ctrl+C sigint. `lsman` / `man <cmd>` replace `help`. Built-in file ops: `rm`, `rmdir`, `mv`. `uptime` shows humanised h/m/s. `cat /proc/<entry>` for system introspection.
+- **Tasking**: Round-robin scheduler with timer-driven preemption (PIT 100 Hz, `g_sched_quantum` default 4 ticks → 40 ms slice; runtime-tunable via `sched_quantum` shell builtin, 1..100 ticks).  `schedule()` is re-entrancy-guarded (`in_schedule` flag cleared before `task_switch` so fresh tasks don't trip it) and wraps its critical section in `irq_save_disable`/`irq_restore` so caller IF is preserved.  Per-task `pid`, `cwd`, `tty`, signal state (pending/mask + handler table), `kticks` (PIT-ticks-as-current, in `/proc/tasks`), real per-task fd table (`fd_table_t` in `kernel/fd.h`, 16 slots, fds 0/1/2 pre-bound to stdin/stdout/stderr). User PD reaped on task exit, fd table reaped on slot reuse. Background ktest harness runs before the shell prompt appears.
+- **Signals**: Linux i386 signal subsystem. Per-task handler table; default-terminate via `sig_deliver` in `schedule()`; ring-3 trampoline + `SYS_SIGRETURN` so user-installed handlers actually run.  Syscalls: `SYS_KILL(37)`, `SYS_SIGNAL(48)`, `SYS_SIGRETURN(119)`.  Ctrl+C routes through `sig_send(focused, SIGINT)` (no more `g_sigint`); shell tasks install `SIG_IGN` so they survive their own prompts.  SIGKILL bypasses mask and handler.  See `kernel/signal.h`.
+- **Userspace**: Ring-3 protected mode via `iret`. ELF loader (`elf_exec`) with argc/argv. Syscalls: `SYS_EXIT`, `SYS_READ`, `SYS_WRITE` (fd 1 = VGA, fd 2 = VGA + COM1 serial), `SYS_OPEN`, `SYS_CLOSE`, `SYS_LSEEK`, `SYS_BRK`, `SYS_DEBUG`, `SYS_YIELD`, `SYS_KILL`, `SYS_SIGNAL`, `SYS_SIGRETURN`, plus Makar extensions (200–215 - terminal/file ops + `SYS_WRITE_SERIAL` + `SYS_GETCWD`). Apps: `calc.elf`, `hello.elf`, `vix.elf`, `diskinfo.elf`, `kbtester.elf`, `makbox.elf` (multicall busybox: `ls`/`cat`/`cp`/`mv`/`rm`/`rmdir`/`echo`/`pwd`), `sigtest.elf` (ring-3 signal verifier).
+- **Shell**: Inline editing, history, tab completion, Ctrl+C → SIGINT delivery to focused task. `lsman` / `man <cmd>` replace `help`. Built-in file ops: `rm`, `rmdir`, `mv`. `uptime` shows humanised h/m/s. `sched_quantum [n]` to read/set the preemption quantum. `cat /proc/<entry>` for system introspection.
 - **GRUB**: Two-entry menu (Makar OS + Next available device), 5-second timeout.
 
 ## Recently merged
@@ -316,8 +321,8 @@ Tracked here, pulled into branches one at a time so each PR stays focused.
 | 5b | **Keyboard hardening** - `unsigned char` audit, typematic-repeat filter for modifiers, PS/2 LED sync, boot-time LED state read | ✅ shipped (#127) |
 | 6 | **Test-infra cleanup** - ccache, single-kernel/two-ISO, build-once fan-out CI, KVM gate | ✅ shipped (#125) |
 | 7 | **Per-task consumer migration** - vtty `task->tty` authoritative (drop `vtty_tasks[]` parallel array). FD table done (slice 14), cwd done (slice 15). | ✅ complete |
-| 8 | **Linux-style signal subsystem** - full sigaction table, `kill()` syscall, htop-style picker | ⏭ |
-| 9 | **Preemption hardening** - interrupt-safe `schedule()`, per-task tick accounting, runtime-tunable quantum, busy-loop ktest | ⏭ |
+| 8 | **Linux-style signal subsystem** - full sigaction table, `kill()` syscall, htop-style picker | ✅ shipped (PR #154): per-task handler table + scheduler-driven default-terminate delivery (`signal.{h,c}`); `SYS_KILL(37)` + `SYS_SIGNAL(48)` + userspace stubs; Ctrl+C → SIGINT migration, `g_sigint` / `keyboard_sigint_consume` removed, shell tasks install `SIG_IGN`; ring-3 trampoline + `SYS_SIGRETURN(119)` so `signal(SIGUSR1, h)` actually invokes `h` in ring 3 (sigframe on user stack + magic-guarded sigreturn).  `sigtest.elf` ring-3 verifier + `user-sigusr1-handler` ui-test scenario.  Remaining polish: htop-style interactive signal picker. |
+| 9 | **Preemption hardening** - interrupt-safe `schedule()`, per-task tick accounting, runtime-tunable quantum, busy-loop ktest | ✅ shipped (PR #154): `in_schedule` re-entrancy guard + `irq_save_disable`/`irq_restore` around `schedule()` (`c4f9299`); per-task `kticks` accounting in `timer_callback`, rendered in `/proc/tasks`, plus `test_preempt` ktest (`d1af5bb`); runtime-tunable `g_sched_quantum` (1..100 PIT ticks) via `sched_quantum` shell builtin.  Concurrent-yield stress implicitly covered by the existing 4-shell + bg-ktest concurrent execution. |
 | 10 | **Per-TTY screen buffers** - `vt_buf_t` backing grid per TTY, write-through to FB only when focused, repaint on Alt+Fn (deferred out of IRQ). tmux-style status bar at bottom row. `/proc` synthetic FS with `cpuinfo/meminfo/tasks/uname`. VGA-text fallback path stays on shared buffer (deferred). | ✅ shipped (this PR) |
 | 11 | **`ps`-style task listing** with privilege/state/CWD/TTY columns | ⏭ (covered by `cat /proc/tasks` for now) |
 | 12 | **fork() readiness** - PD clone (CoW), fd dup, PID alloc, return-value split | ⏭ |

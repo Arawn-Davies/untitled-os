@@ -9,6 +9,7 @@
 #include <kernel/task.h>
 #include <kernel/timer.h>
 #include <kernel/version.h>
+#include <kernel/asm.h>     /* outb / inb for CMOS RTC in render_rtc */
 #include <string.h>
 #include <stdio.h>
 
@@ -26,6 +27,7 @@ typedef enum {
     PROC_MEMINFO,
     PROC_TASKS,
     PROC_UNAME,
+    PROC_RTC,
 } procfs_id_t;
 
 typedef struct {
@@ -38,6 +40,7 @@ static const procfs_entry_t s_entries[] = {
     { "meminfo", PROC_MEMINFO },
     { "tasks",   PROC_TASKS   },
     { "uname",   PROC_UNAME   },
+    { "rtc",     PROC_RTC     },
     { NULL,      PROC_NONE    },
 };
 
@@ -155,20 +158,114 @@ static void render_cpuinfo(pf_writer_t *w)
  * meminfo
  * ---------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------------
+ * /proc/rtc -- CMOS real-time clock readout.
+ *
+ * Standard PC RTC at I/O ports 0x70 (index) + 0x71 (data).  Registers:
+ *   0x00 seconds   0x02 minutes  0x04 hours
+ *   0x07 day       0x08 month    0x09 year   (year is last two digits)
+ *   0x0A status A  0x0B status B
+ *
+ * Status A bit 7 = update-in-progress; status B bit 2 = 0 means BCD
+ * encoding (the common BIOS default; QEMU's emulated RTC sets it this
+ * way unless told otherwise).  We retry until UIP clears, read the
+ * fields, decode BCD if needed, and format Linux-style:
+ *   YYYY-MM-DD HH:MM:SS
+ * --------------------------------------------------------------------------- */
+
+static inline uint8_t cmos_read(uint8_t reg)
+{
+    outb(0x70, reg);
+    return inb(0x71);
+}
+
+static inline uint8_t bcd_to_bin(uint8_t v)
+{
+    return (uint8_t)(((v & 0xF0u) >> 4) * 10u + (v & 0x0Fu));
+}
+
+static void render_rtc(pf_writer_t *w)
+{
+    /* Drain any in-progress update so we don't read mid-tick.  Bounded
+     * loop so a broken RTC can't hang procfs forever. */
+    for (int spin = 0; spin < 1000000; spin++) {
+        if (!(cmos_read(0x0A) & 0x80u)) break;
+    }
+
+    uint8_t sec  = cmos_read(0x00);
+    uint8_t min  = cmos_read(0x02);
+    uint8_t hour = cmos_read(0x04);
+    uint8_t day  = cmos_read(0x07);
+    uint8_t mon  = cmos_read(0x08);
+    uint8_t year = cmos_read(0x09);
+    uint8_t statB = cmos_read(0x0B);
+
+    if (!(statB & 0x04u)) {
+        sec  = bcd_to_bin(sec);
+        min  = bcd_to_bin(min);
+        /* Hour high bit is 12/24 indicator in BCD mode; mask before
+         * decoding so we don't decode the indicator as a digit. */
+        hour = bcd_to_bin((uint8_t)(hour & 0x7Fu));
+        day  = bcd_to_bin(day);
+        mon  = bcd_to_bin(mon);
+        year = bcd_to_bin(year);
+    }
+
+    /* CMOS year is two digits; assume the 21st century.  When the
+     * Makar wall clock matters more than this, plumb the century byte
+     * from FADT or take it from build epoch. */
+    uint32_t full_year = 2000u + (uint32_t)year;
+
+    /* Helper: pad-2 decimal. */
+    #define WPAD2(v) do { \
+        unsigned _v = (unsigned)(v); \
+        pf_putc(w, (char)('0' + (_v / 10u) % 10u)); \
+        pf_putc(w, (char)('0' + (_v % 10u))); \
+    } while (0)
+
+    pf_putu(w, full_year);
+    pf_putc(w, '-'); WPAD2(mon);
+    pf_putc(w, '-'); WPAD2(day);
+    pf_putc(w, ' '); WPAD2(hour);
+    pf_putc(w, ':'); WPAD2(min);
+    pf_putc(w, ':'); WPAD2(sec);
+    pf_putc(w, '\n');
+
+    #undef WPAD2
+}
+
+/* /proc/meminfo - Linux-style key/value format ("Label:<spaces>N kB").
+ * Field order and naming match Linux for the headline numbers so
+ * tools like maktop don't need Makar-specific parsing.  Fields after
+ * MemAvailable are Makar-specific kernel-heap diagnostics. */
 static void render_meminfo(pf_writer_t *w)
 {
-    uint32_t free_frames = pmm_free_count();
-    uint32_t free_kb     = free_frames * 4u;       /* 4 KiB per frame */
-    size_t   heap_total  = (size_t)(0x1800000u - 0x800000u); /* HEAP_MAX-HEAP_START */
-    size_t   heap_u      = heap_used();
-    size_t   heap_f      = heap_free();
+    uint32_t total_frames = pmm_managed_count();
+    uint32_t free_frames  = pmm_free_count();
+    uint32_t used_frames  = (total_frames > free_frames)
+                             ? (total_frames - free_frames) : 0u;
+    uint32_t total_kb = total_frames * 4u;
+    uint32_t free_kb  = free_frames  * 4u;
+    uint32_t used_kb  = used_frames  * 4u;
 
-    pf_puts(w, "MemFree     : "); pf_putu(w, free_kb);            pf_puts(w, " kB\n");
-    pf_puts(w, "PageSize    : 4 kB\n");
-    pf_puts(w, "FreeFrames  : "); pf_putu(w, free_frames);        pf_putc(w, '\n');
-    pf_puts(w, "HeapTotal   : "); pf_putu(w, (uint32_t)(heap_total / 1024u)); pf_puts(w, " kB\n");
-    pf_puts(w, "HeapUsed    : "); pf_putu(w, (uint32_t)(heap_u / 1024u));     pf_puts(w, " kB\n");
-    pf_puts(w, "HeapFree    : "); pf_putu(w, (uint32_t)(heap_f / 1024u));     pf_puts(w, " kB\n");
+    size_t heap_total = (size_t)(0x1800000u - 0x800000u); /* HEAP_MAX-HEAP_START */
+    size_t heap_u     = heap_used();
+    size_t heap_f     = heap_free();
+
+    pf_puts(w, "MemTotal:        "); pf_putu(w, total_kb); pf_puts(w, " kB\n");
+    pf_puts(w, "MemFree:         "); pf_putu(w, free_kb);  pf_puts(w, " kB\n");
+    /* MemAvailable -- Linux's "memory likely usable for new allocations".
+     * We don't have page cache to reclaim, so it's the same as MemFree. */
+    pf_puts(w, "MemAvailable:    "); pf_putu(w, free_kb);  pf_puts(w, " kB\n");
+    pf_puts(w, "MemUsed:         "); pf_putu(w, used_kb);  pf_puts(w, " kB\n");
+    pf_puts(w, "Buffers:                0 kB\n");
+    pf_puts(w, "Cached:                 0 kB\n");
+    pf_puts(w, "HeapTotal:       "); pf_putu(w, (uint32_t)(heap_total / 1024u)); pf_puts(w, " kB\n");
+    pf_puts(w, "HeapUsed:        "); pf_putu(w, (uint32_t)(heap_u     / 1024u)); pf_puts(w, " kB\n");
+    pf_puts(w, "HeapFree:        "); pf_putu(w, (uint32_t)(heap_f     / 1024u)); pf_puts(w, " kB\n");
+    pf_puts(w, "PageSize:               4 kB\n");
+    pf_puts(w, "FreeFrames:      "); pf_putu(w, free_frames);  pf_putc(w, '\n');
+    pf_puts(w, "TotalFrames:     "); pf_putu(w, total_frames); pf_putc(w, '\n');
 }
 
 /* -------------------------------------------------------------------------
@@ -187,11 +284,16 @@ static const char *state_name(int s)
 
 static void render_tasks(pf_writer_t *w)
 {
-    pf_puts(w, "PID NAME            STATE TTY CWD\n");
+    pf_puts(w, "PID NAME            STATE TTY    TICKS CWD\n");
     int n = task_count();
     for (int i = 0; i < n; i++) {
         task_t *t = task_get(i);
         if (!t) continue;
+        /* DEAD slots linger until task_create reclaims them.  Hide them
+         * so /proc/tasks shows only live work -- otherwise maktop and
+         * `cat /proc/tasks` keep listing finished one-shots like
+         * ktest_bg or exec'd userspace binaries indefinitely. */
+        if (t->state == TASK_DEAD) continue;
         pf_putu(w, (uint32_t)t->pid);
         pf_putc(w, ' ');
         const char *name = t->name ? t->name : "(noname)";
@@ -202,6 +304,8 @@ static void render_tasks(pf_writer_t *w)
         pf_putc(w, ' ');
         if (t->tty < 0) pf_putc(w, '-');
         else            pf_putu(w, (uint32_t)t->tty);
+        pf_putc(w, ' ');
+        pf_putu(w, t->kticks);
         pf_putc(w, ' ');
         pf_puts(w, t->cwd[0] ? t->cwd : "-");
         pf_putc(w, '\n');
@@ -244,6 +348,7 @@ int procfs_read_file(const char *path, void *buf, uint32_t bufsz,
     case PROC_MEMINFO: render_meminfo(&w); break;
     case PROC_TASKS:   render_tasks(&w);   break;
     case PROC_UNAME:   render_uname(&w);   break;
+    case PROC_RTC:     render_rtc(&w);     break;
     default: break;
     }
 

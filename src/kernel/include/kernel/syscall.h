@@ -18,7 +18,10 @@
 #define SYS_OPEN       5    /* int open(const char *path, int flags)            */
 #define SYS_CLOSE      6    /* int close(int fd)                                */
 #define SYS_LSEEK      19   /* off_t lseek(int fd, off_t offset, int whence)   */
+#define SYS_KILL       37   /* int kill(int pid, int signo)                     */
 #define SYS_BRK        45   /* void *brk(void *addr)                            */
+#define SYS_SIGNAL     48   /* sig_handler_t signal(int signo, sig_handler_t)   */
+#define SYS_SIGRETURN  119  /* void sigreturn(void) -- not for direct use      */
 #define SYS_DEBUG      100  /* void debug(uint32_t cp)      [Makar ext]         */
 #define SYS_YIELD      158  /* void sched_yield(void)                           */
 /* Makar display/input extensions (200+) */
@@ -38,6 +41,13 @@
 #define SYS_SHELL_CLEAR  213  /* void shell_clear(void)     - same as `clear`     */
 #define SYS_UPTIME       214  /* uint32_t uptime_ticks(void) - 100 Hz timer ticks */
 #define SYS_GETCWD       215  /* int getcwd(char *buf, size_t size) - copy task cwd */
+
+/* Back to Linux i386 ABI numbers for the next set. */
+#define SYS_FCNTL      55   /* int fcntl(int fd, int cmd, int arg) - F_GETFL/F_SETFL */
+
+/* fcntl cmd values (Linux i386 ABI subset). */
+#define F_GETFL         3
+#define F_SETFL         4
 
 /*
  * tty_cell_t - one screen cell passed to SYS_PUTCH_AT.
