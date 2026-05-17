@@ -204,6 +204,15 @@ run_scenario() {
 
     # Reset to a stable baseline (focused VT0, cwd=/cdrom/apps) so each
     # scenario remains independent while reusing the same VM session.
+
+# sendkey slash
+# sendkey c
+# sendkey d
+# sendkey r
+# sendkey o
+# sendkey m
+
+
     local reset_script='sendkey alt-f1
 sendkey c
 sendkey d
@@ -318,11 +327,6 @@ sendkey x
 sendkey e
 sendkey c
 sendkey spc
-sendkey a
-sendkey p
-sendkey p
-sendkey s
-sendkey slash
 sendkey h
 sendkey e
 sendkey l
@@ -416,6 +420,18 @@ sendkey x
 sendkey e
 sendkey c
 sendkey spc
+sendkey slash
+sendkey c
+sendkey d
+sendkey r
+sendkey o
+sendkey m
+sendkey slash
+sendkey a
+sendkey p
+sendkey p
+sendkey s
+sendkey slash
 sendkey c
 sendkey a
 sendkey l
