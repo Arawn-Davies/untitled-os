@@ -2,10 +2,12 @@
  * fsutil.c -- multicall filesystem utility (busybox-style dispatcher).
  *
  * Usage:
- *   fsutil <ls|cat|cp|mv|rm> [args...]
+ *   fsutil <ls|cat|pwd|cp|mv|rm> [args...]
  *
- * The kernel shell forwards commands like `ls`, `cp`, `mv`, `rm`, `cat`
- * to this single binary by passing the original command as argv[1].
+ * The kernel shell forwards commands like `ls`, `cat`, `pwd`, `cp`, `mv`,
+ * `rm` to this single binary by passing the original command as argv[1].
+ * For `pwd` the shell also injects the current working directory as argv[2]
+ * since ring-3 code cannot call vfs_getcwd() directly.
  */
 
 #include "syscall.h"
@@ -97,6 +99,19 @@ static int cmd_cat(int argc, char **argv)
         sys_close(fd);
     }
 
+    return 0;
+}
+
+static int cmd_pwd(int argc, char **argv)
+{
+    /* argv[1] is the cwd string injected by the kernel shell dispatcher,
+     * since ring-3 code has no direct access to vfs_getcwd(). */
+    if (argc >= 2 && argv[1] && argv[1][0]) {
+        write_fd(1, argv[1]);
+        write_fd(1, "\n");
+        return 0;
+    }
+    write_fd(1, "/\n");
     return 0;
 }
 
@@ -208,7 +223,7 @@ static int cmd_rm(int argc, char **argv)
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        write_fd(1, "Usage: fsutil <ls|cat|cp|mv|rm> [args...]\n");
+        write_fd(1, "Usage: fsutil <ls|cat|pwd|cp|mv|rm> [args...]\n");
         sys_exit(1);
     }
 
@@ -217,8 +232,9 @@ int main(int argc, char **argv)
     char **sub_argv = argv + 1;
 
     int rc = 1;
-    if (streq(cmd, "ls"))      rc = cmd_ls(sub_argc, sub_argv);
+    if (streq(cmd, "ls"))       rc = cmd_ls(sub_argc, sub_argv);
     else if (streq(cmd, "cat")) rc = cmd_cat(sub_argc, sub_argv);
+    else if (streq(cmd, "pwd")) rc = cmd_pwd(sub_argc, sub_argv);
     else if (streq(cmd, "cp"))  rc = cmd_cp(sub_argc, sub_argv);
     else if (streq(cmd, "mv"))  rc = cmd_mv(sub_argc, sub_argv);
     else if (streq(cmd, "rm"))  rc = cmd_rm(sub_argc, sub_argv);
@@ -226,7 +242,7 @@ int main(int argc, char **argv)
         write_fd(1, "fsutil: unknown command '");
         write_fd(1, cmd);
         write_fd(1, "'\n");
-        write_fd(1, "Usage: fsutil <ls|cat|cp|mv|rm> [args...]\n");
+        write_fd(1, "Usage: fsutil <ls|cat|pwd|cp|mv|rm> [args...]\n");
     }
 
     sys_exit(rc);
