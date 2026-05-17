@@ -85,7 +85,6 @@ Open:
   (slice 8)
 - [#145 — Preemption hardening](https://github.com/Arawn-Davies/Makar/issues/145)
   (slice 9)
-- [#109 — Daemons & user accounts](https://github.com/Arawn-Davies/Makar/issues/109)
 
 ### Display + terminal
 
@@ -98,10 +97,10 @@ Open:
 ### Shell
 
 Open:
-- [#107 — Serial shell & VICS port](https://github.com/Arawn-Davies/Makar/issues/107)
-  (umbrella; serial shell tracked specifically in [#139](https://github.com/Arawn-Davies/Makar/issues/139))
 - [#147 — `ps`-style task listing](https://github.com/Arawn-Davies/Makar/issues/147)
   (slice 11)
+
+(`serial shell over COM1` lives under the Makar×Medli theme as [#139](https://github.com/Arawn-Davies/Makar/issues/139).)
 
 ## What's already shipped
 
