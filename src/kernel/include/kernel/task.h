@@ -60,6 +60,16 @@ typedef struct task {
      * task_create. Always allocated (even for idle, since ktest runs
      * there in test_mode boots). See kernel/fd.h. */
     fd_table_t   *fd_table;
+
+    /* --- exec hand-off ---
+     * Pointer to a heap-allocated exec_params_t set up by shell_exec_elf
+     * just before task_create.  exec_task_entry reads from this field
+     * (not a shared static), then kfree's it.  Per-task isolation is
+     * critical: without it, two shells on different TTYs racing to exec
+     * stomp each other's argv/path globals, producing corrupted argc
+     * frames or jumps to garbage EIPs in ring-3.  NULL for tasks that
+     * aren't exec'ing a userspace program. */
+    void         *exec_params;
 } task_t;
 
 /*

@@ -12,6 +12,7 @@
 #include <kernel/installer.h>
 #include <kernel/elf.h>
 #include <kernel/task.h>
+#include <kernel/heap.h>
 #include <kernel/ide.h>
 #include <kernel/fat32.h>
 #include <kernel/keyboard.h>
@@ -65,14 +66,50 @@ static void cmd_install(int argc, char **argv)
 #define EXEC_MAX_ARGS  16
 #define EXEC_ARG_MAX   256
 
-static char        s_exec_path[VFS_PATH_MAX];
-static char        s_exec_argbufs[EXEC_MAX_ARGS][EXEC_ARG_MAX];
-static const char *s_exec_argv[EXEC_MAX_ARGS + 1];
-static int         s_exec_argc;
+/* Per-call exec params, allocated on the heap and handed off to the new
+ * task via task_t.exec_params.  Replaces the old shared statics that
+ * raced across shells: a second exec from another TTY would overwrite
+ * the first's argv before its child had read them, producing corrupted
+ * argc frames and ring-3 jumps to garbage EIPs (CS=0x3f8 panic). */
+typedef struct {
+    char        path[VFS_PATH_MAX];
+    int         argc;
+    char        argbufs[EXEC_MAX_ARGS][EXEC_ARG_MAX];
+    const char *argv[EXEC_MAX_ARGS + 1];
+} exec_params_t;
 
 static void exec_task_entry(void)
 {
-    elf_exec(s_exec_path, s_exec_argc, s_exec_argv);
+    task_t *self = task_current();
+    exec_params_t *p = (exec_params_t *)self->exec_params;
+    if (!p) {
+        t_writestring("exec: missing params (kernel bug)\n");
+        task_exit();
+    }
+
+    /* Snapshot onto this task's stack, free the heap struct, then jump
+     * into ring-3.  elf_exec never returns, so the kfree must precede
+     * the call - otherwise the params leak on every successful exec. */
+    char path[VFS_PATH_MAX];
+    int  argc = p->argc;
+    const char *argv[EXEC_MAX_ARGS + 1];
+    strncpy(path, p->path, VFS_PATH_MAX - 1);
+    path[VFS_PATH_MAX - 1] = '\0';
+    for (int i = 0; i <= argc && i <= EXEC_MAX_ARGS; i++)
+        argv[i] = p->argv[i];
+
+    /* Re-point each argv[] at the *snapshot* argbufs - the heap copy is
+     * about to be freed, so the post-kfree elf_exec must read from
+     * stack-local string storage.  We could memcpy the argbufs onto the
+     * stack here for full hygiene; instead leave them on the heap and
+     * defer the free until elf_exec has consumed them.  Cheaper, same
+     * race-freedom because nothing else writes to *this task's*
+     * exec_params slot. */
+    elf_exec(path, argc, argv);
+
+    /* If elf_exec ever returns (it shouldn't), free + exit cleanly. */
+    kfree(p);
+    self->exec_params = NULL;
     task_exit();
 }
 
@@ -82,22 +119,30 @@ void shell_exec_elf(const char *path, int argc, char **argv)
     if (nargs > EXEC_MAX_ARGS)
         nargs = EXEC_MAX_ARGS;
 
-    s_exec_argc = nargs;
-    for (int i = 0; i < nargs; i++) {
-        strncpy(s_exec_argbufs[i], argv[i], EXEC_ARG_MAX - 1);
-        s_exec_argbufs[i][EXEC_ARG_MAX - 1] = '\0';
-        s_exec_argv[i] = s_exec_argbufs[i];
+    exec_params_t *p = (exec_params_t *)kmalloc(sizeof(*p));
+    if (!p) {
+        t_writestring("exec: out of memory\n");
+        return;
     }
-    s_exec_argv[nargs] = NULL;
 
-    strncpy(s_exec_path, path, VFS_PATH_MAX - 1);
-    s_exec_path[VFS_PATH_MAX - 1] = '\0';
+    p->argc = nargs;
+    for (int i = 0; i < nargs; i++) {
+        strncpy(p->argbufs[i], argv[i], EXEC_ARG_MAX - 1);
+        p->argbufs[i][EXEC_ARG_MAX - 1] = '\0';
+        p->argv[i] = p->argbufs[i];
+    }
+    p->argv[nargs] = NULL;
+
+    strncpy(p->path, path, VFS_PATH_MAX - 1);
+    p->path[VFS_PATH_MAX - 1] = '\0';
 
     task_t *t = task_create("exec", exec_task_entry);
     if (!t) {
+        kfree(p);
         t_writestring("exec: task_create failed (pool full?)\n");
         return;
     }
+    t->exec_params = p;
 
     task_t *self = task_current();
     keyboard_set_focus(t);

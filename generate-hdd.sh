@@ -138,7 +138,7 @@ fi
 
 cat > "$MNT/boot/grub/grub.cfg" << GCFG
 set default=0
-set timeout=5
+set timeout=3
 
 menuentry "Makar OS" {
     multiboot2 /boot/makar.kernel${KERNEL_ARGS:+ $KERNEL_ARGS}

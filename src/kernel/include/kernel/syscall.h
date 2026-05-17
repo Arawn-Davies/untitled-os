@@ -37,6 +37,7 @@
 #define SYS_KEYBOARD_RAW 212  /* void keyboard_raw(int on)   - see keyboard.h     */
 #define SYS_SHELL_CLEAR  213  /* void shell_clear(void)     - same as `clear`     */
 #define SYS_UPTIME       214  /* uint32_t uptime_ticks(void) - 100 Hz timer ticks */
+#define SYS_GETCWD       215  /* int getcwd(char *buf, size_t size) - copy task cwd */
 
 /*
  * tty_cell_t - one screen cell passed to SYS_PUTCH_AT.

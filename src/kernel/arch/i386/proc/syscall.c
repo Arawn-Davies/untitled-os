@@ -236,6 +236,24 @@ void syscall_dispatch(registers_t *regs)
         regs->eax = timer_get_ticks();
         break;
 
+    /* ------------------------------------------------------------------
+     * SYS_GETCWD(215): copy the calling task's cwd into a user buffer.
+     * EBX = char *buf, ECX = size_t size.
+     * Returns: strlen(cwd) on success, (uint32_t)-1 on error (NULL buf,
+     * size 0, or buffer too small to hold cwd + NUL).
+     * ------------------------------------------------------------------ */
+    case SYS_GETCWD: {
+        char     *buf  = (char *)(uintptr_t)regs->ebx;
+        uint32_t  size = regs->ecx;
+        if (!buf || size == 0) { regs->eax = (uint32_t)-1; break; }
+        const char *cwd = vfs_getcwd();
+        uint32_t    cl  = (uint32_t)strlen(cwd);
+        if (cl + 1 > size) { regs->eax = (uint32_t)-1; break; }
+        memcpy(buf, cwd, cl + 1);
+        regs->eax = cl;
+        break;
+    }
+
     case SYS_WRITE_SERIAL: {
         const char *buf = (const char *)(uintptr_t)regs->ebx;
         uint32_t    len = regs->ecx;

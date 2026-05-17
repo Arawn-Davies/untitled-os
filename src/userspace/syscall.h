@@ -26,6 +26,7 @@
 #define SYS_KEYBOARD_RAW 212
 #define SYS_SHELL_CLEAR  213
 #define SYS_UPTIME       214
+#define SYS_GETCWD       215
 
 /* open() flags */
 #define O_RDONLY    0
@@ -165,6 +166,13 @@ static inline void sys_shell_clear(void)
 static inline unsigned int sys_uptime(void)
 {
     return (unsigned int)syscall1(SYS_UPTIME, 0);
+}
+
+/* Copy the calling task's cwd into `buf` (NUL-terminated).
+ * Returns strlen on success, -1 on error (buf NULL, size 0, or too small). */
+static inline int sys_getcwd(char *buf, unsigned int size)
+{
+    return (int)syscall2(SYS_GETCWD, (long)buf, (long)size);
 }
 
 static inline int sys_open(const char *path, int flags)

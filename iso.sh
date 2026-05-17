@@ -74,7 +74,7 @@ fi
 # the next bootable device.  KERNEL_ARGS appends to the main entry only.
 cat > isodir/boot/grub/grub.cfg << EOF
 set default=0
-set timeout=5
+set timeout=3
 
 menuentry "Makar OS" {
 	multiboot2 /boot/makar.kernel${KERNEL_ARGS:+ $KERNEL_ARGS}
@@ -104,7 +104,7 @@ EOF
     # inspecting the staging dir doesn't see the test variant.
     cat > isodir/boot/grub/grub.cfg << EOF
 set default=0
-set timeout=5
+set timeout=3
 
 menuentry "Makar OS" {
 	multiboot2 /boot/makar.kernel${KERNEL_ARGS:+ $KERNEL_ARGS}
