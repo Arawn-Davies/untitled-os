@@ -128,8 +128,8 @@ own sandboxing model.
 
 ## Makar kernel milestones
 
-Tracking is in `CLAUDE.md` under "Slice queue". Mapped to Medli
-co-operation:
+Tracking is in the [roadmap](roadmap.md) under "Slice queue".
+Mapped to Medli co-operation:
 
 ### Shipped (relevant to Medli interop)
 
@@ -163,8 +163,8 @@ co-operation:
 ### In flight
 
 - [ ] **Per-task FD table** — replace global keyboard owner +
-      placeholder `fd_table` with a real per-task array (Slice 14;
-      see CLAUDE.md). Prerequisite for pipe(2), dup(2), and any libc port.
+      placeholder `fd_table` with a real per-task array (Slice 14).
+      Prerequisite for pipe(2), dup(2), and any libc port.
 - [ ] **Linux-style signals** — `task->sig_pending` exists; need
       sigaction table, `kill()` syscall, default disposition (Slice 8).
 - [ ] **VFS `task->cwd` authoritative** — drop the global `s_cwd` in

@@ -86,7 +86,7 @@ used directly; otherwise Docker takes over transparently.
 
 ## Roadmap (near-term)
 
-Tracked in [`CLAUDE.md`](CLAUDE.md) under "Slice queue". Next on deck:
+Tracked in the [roadmap](docs/roadmap.md) under "Slice queue". Next on deck:
 
 - **Slice 14 (NEXT)** — Per-task FD table. Replaces the global keyboard
   owner + placeholder `fd_table` with a real per-task array. Pipe(2) /
